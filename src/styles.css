@@ -29,7 +29,7 @@ a{
     width: 100%;
     text-transform: uppercase;
     letter-spacing: 1.5px;
-    background-color: #DDDDDD;
+    background-color: #9da1a4;
     z-index: 1;
     color: rgb(0, 0, 0);
     position: relative;
@@ -37,6 +37,7 @@ a{
     align-items: center !important;
     box-shadow: 0 2px 5px rgb(255, 255, 255);
 }
+
 
 .Search-bar{
     display: flex;
@@ -76,6 +77,14 @@ a{
     justify-content: center;
     gap: 100px;
     text-align: center;
+}
+
+.Filter-AnimeCard{
+   display: flex;
+   align-items: center;
+   justify-content: center;
+   padding: 2rem 5rem;
+
 }
 
 .AnimeCard div{

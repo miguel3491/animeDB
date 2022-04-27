@@ -1,6 +1,6 @@
-import React, {useState} from "react";
+import React from "react";
 
-function Header(props){    
+function Header(){    
 
     return(
         <nav className="nav-wrap">

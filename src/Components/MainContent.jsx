@@ -1,62 +1,61 @@
 import React, {useState, useEffect} from "react";
 import Sidebar from "./Sidebar";
 import AnimeCard from "./AnimeCard";
-import AnimeAll from "./AnimeAll";
 import "../styles.css"
 
 function MainContent(){
-    const [animeList, setanimeList] = useState([])
-    const [topAnime, setTopAnime] = useState([])
+    const [topAnime, setTopAnime] = useState([]);
     
-    const [search, setSearch] = useState("")
-    const [filter, setFilter] = useState([])
+    const [search, setSearch] = useState("");
+    const [filter, setFilter] = useState([]);
 
     const obtainTopAnime = async () => {
         const api = await fetch (`https://api.jikan.moe/v4/top/anime`)
         .then(res => res.json());
 
-        setTopAnime(api.data.slice(0, 10));
+        setTopAnime(api.data);
     }
-
-    const fetchAnime = async () => {
-        const api = await fetch (`https://api.jikan.moe/v4/anime`)
-        .then(res => res.json());
-
-        setanimeList(api.data);
-    }
-
-    const searchitems = (searchValue) => {
-        setSearch(searchValue)
-        const filterAnime = animeList.filter((anime) => {
-            return Object.values(anime).join("").toLowerCase().includes(search.toLowerCase())
-        })
-        setFilter(filterAnime)
-    }
-
+    
+    const searchItems = (searchValue) => {
+    setSearch(searchValue)
+    const filterAnime = topAnime.filter((anime) => {
+        return Object.values(anime).join("").toLowerCase().includes(search.toLowerCase())
+    })
+    setFilter(filterAnime)
+}
+    
     useEffect(() => {
         obtainTopAnime();
-        fetchAnime();
     },[])
 
     return(
-        <div>
+        <div>     
             <div>
-                <input type="search" onChange={(e) => searchitems(e.target.value)} placeholder = "Search for an anime..." />
-            </div>            
+            <input type="search" placeholder="Search for an anime" onChange = {(e) => searchItems(e.target.value)} />
+            </div>      
             <div className="Sidebar">
-                <Sidebar topAnime = {topAnime}></Sidebar>
+                <Sidebar topAnime = {topAnime.slice(0, 10)}></Sidebar>
             </div>
+
             <div>
-                {search.length > 0 ? (
-                  filter.map((item, i) => (
-                      <AnimeAll animeList={animeList} key = {i}></AnimeAll>
-                  ))
+                {search.length > 1 ? (
+                    filter.map(card => (
+                    <div className="AnimeCard Filter-AnimeCard"> 
+                        <a href={card.url}
+                        key = {card.mal_id}
+                        target = "_blank"
+                        rel= "noopener"><img className="Image-card" src = {card.images.jpg.image_url} alt = "Image"></img></a>
+                        <span>{card.type}</span><h3>{card.title}</h3>
+                    </div>
+                    ))
                 ):
-                <AnimeCard topAnime = {topAnime}></AnimeCard>
-                  }
+                    <AnimeCard topAnime = {topAnime}></AnimeCard>
+                }
             </div>
         </div>
     )
 }
 
 export default MainContent; 
+
+
