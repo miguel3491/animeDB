@@ -1,0 +1,89 @@
+html, body, div{
+    margin: 0;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    vertical-align: baseline; /* property sets vertical alignment of an inline, inline-block or table-cell box. */
+    background: transparent;
+    scroll-behavior: smooth;
+    background-color: #222831;
+    
+}
+
+h1, h2, h3, h4, p{
+    color: #fff;
+}
+
+p{
+    font-size: 20px;
+}
+
+a{
+    text-decoration: none;
+    color: #fff
+}
+/* Header */
+.nav-wrap{
+    display: flex;
+    text-align: center;
+    width: 100%;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    background-color: #DDDDDD;
+    z-index: 1;
+    color: rgb(0, 0, 0);
+    position: relative;
+    padding: 1px 0px 15px;
+    align-items: center !important;
+    box-shadow: 0 2px 5px rgb(255, 255, 255);
+}
+
+.Search-bar{
+    display: flex;
+    justify-content: flex-end;
+}
+
+#Title{
+    position: relative;
+    left: 10vh;
+}
+
+/* Sidebar */
+.Sidebar{
+    position: absolute;
+    padding: 1.5% 1%;
+    width: 300px;
+}
+
+.anime-title{
+    position: relative;
+    float: right;
+    text-align: left;
+    width: 85%;
+    top: 20px;
+}
+
+.side-image{
+    height: 50px;
+    width: auto;
+}
+/* Anime Card */
+.AnimeCard{
+    display: flex;
+    flex-wrap: wrap;
+    padding-top: 50px;
+    margin-left: 300px;
+    justify-content: center;
+    gap: 100px;
+    text-align: center;
+}
+
+.AnimeCard div{
+    max-width: 250px;
+}
+
+.AnimeCard img{
+    border: 3px solid rgb(0, 0, 0);
+    height: 40vh;
+    width: 100%;
+}
