@@ -6,11 +6,11 @@ html, body, div{
     vertical-align: baseline; /* property sets vertical alignment of an inline, inline-block or table-cell box. */
     background: transparent;
     scroll-behavior: smooth;
-    background-color: #222831;
+    background: #0a1625;
     
 }
 
-h1, h2, h3, h4, p{
+h1, h2, h3, h4, p, span{
     color: #fff;
 }
 
@@ -29,7 +29,7 @@ a{
     width: 100%;
     text-transform: uppercase;
     letter-spacing: 1.5px;
-    background-color: #9da1a4;
+    background: #2b2d42;
     z-index: 1;
     color: rgb(0, 0, 0);
     position: relative;
@@ -38,10 +38,14 @@ a{
     box-shadow: 0 2px 5px rgb(255, 255, 255);
 }
 
+.filters{
+    display: grid;
+    grid-template-columns: auto 100%;
+    align-items: center;
+}
 
 .Search-bar{
-    display: flex;
-    justify-content: flex-end;
+
 }
 
 #Title{
@@ -53,7 +57,7 @@ a{
 .Sidebar{
     position: absolute;
     padding: 1.5% 1%;
-    width: 300px;
+    width: 20%;
 }
 
 .anime-title{
@@ -63,29 +67,60 @@ a{
     width: 85%;
     top: 20px;
 }
-
+#side-rank{
+    display: inline-block;
+    text-align: center;
+    
+    width: 20px;
+}
 .side-image{
     height: 50px;
     width: auto;
 }
+
 /* Anime Card */
 .AnimeCard{
+    /* -webkit-box-direction: normal; */
+    /* -webkit-box-orient: horizontal; */
+    /* -webkit-box-pack: justify; */
+    display: -webkit-box;
     display: flex;
+    display: -ms-flexbox;
+    flex-direction: row;
+    -ms-flex-direction: row;
+    -ms-flex-pack: justify;
+    -ms-flex-wrap: wrap;
     flex-wrap: wrap;
-    padding-top: 50px;
-    margin-left: 300px;
-    justify-content: center;
-    gap: 100px;
-    text-align: center;
+    justify-content: space-between;
+    margin: 0;
+    padding: 70px;
+    margin-left: 350px;
 }
 
 .Filter-AnimeCard{
-   display: flex;
+    border: #f0f0f0 1px solid;
+    display: inline-block;
+    height: 100%;
+    margin: 0 0 20px;
+    overflow: hidden;
+    position: relative;
+    width: 20%;
+    max-width: 500px;
+    padding: 70px;
+    margin-left: 350px;
+    z-index: 100;
+    /* display: flex;
    align-items: center;
    justify-content: center;
-   padding: 2rem 5rem;
-
+   padding: 2rem 5rem; */
 }
+
+/* .filter-animecard{
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: space-between;
+} */
 
 .AnimeCard div{
     max-width: 250px;
@@ -93,6 +128,28 @@ a{
 
 .AnimeCard img{
     border: 3px solid rgb(0, 0, 0);
-    height: 40vh;
+    height: 21rem;
     width: 100%;
+}
+
+/* Filter card */
+.Image-card{
+    display: flex;
+    justify-content: center;
+    width: 167px;
+}
+
+#card-title{
+    display: absolute;
+    /* height: auto;
+    margin: 0;
+    overflow: hidden; */
+    text-align: center;
+    height: 50px;
+    width: 100%;
+}
+
+#synopsis{
+    max-height: 180px;
+    overflow: hidden;
 }

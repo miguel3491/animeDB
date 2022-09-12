@@ -9,7 +9,8 @@ function AnimeCard(props){
                     <a href={card.url}
                     key = {card.mal_id}
                     target = "_blank"
-                    rel= "noopener"><img className="Image-card" src = {card.images.jpg.image_url} alt = "Image"></img></a>
+                    rel= "noopener">
+                    <img src = {card.images.jpg.image_url} alt = "Image"></img></a>
                     <span>{card.type}</span><h3>{card.title}</h3>
                 </div>
             ))}
