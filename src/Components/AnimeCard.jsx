@@ -1,17 +1,20 @@
-import React from "react";
+import React, {useState} from "react";
+import ReactPlayer from 'react-player'
 
-function AnimeCard(props){
+function AnimeCard({seasonAnime}){
+
+    // const [pageSize, setPageSize] = useState(5);
 
     return(
         <div className="AnimeCard">
-            {props.topAnime.map((card, i) => (
-                <div> 
-                    <a href={card.url}
+            {seasonAnime.map((card, i) => (
+                <div>
+                    <a href={card.trailer.url}
                     key = {card.mal_id}
                     target = "_blank"
                     rel= "noopener">
                     <img src = {card.images.jpg.image_url} alt = "Image"></img></a>
-                    <span>{card.type}</span><h3>{card.title}</h3>
+                    <span>{card.type}</span><h3>{card.title}</h3>              
                 </div>
             ))}
         </div>

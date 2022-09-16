@@ -56,8 +56,8 @@ a{
 /* Sidebar */
 .Sidebar{
     position: absolute;
-    padding: 1.5% 1%;
-    width: 20%;
+    padding: 1.5% 0.5%;
+    width: 270px;
 }
 
 .anime-title{
@@ -67,12 +67,9 @@ a{
     width: 85%;
     top: 20px;
 }
-#side-rank{
-    display: inline-block;
-    text-align: center;
-    
-    width: 20px;
-}
+/* #side-rank{
+
+} */
 .side-image{
     height: 50px;
     width: auto;
@@ -91,24 +88,18 @@ a{
     -ms-flex-pack: justify;
     -ms-flex-wrap: wrap;
     flex-wrap: wrap;
-    justify-content: space-between;
-    margin: 0;
+    justify-content: space-evenly;
     padding: 70px;
-    margin-left: 350px;
+    margin-left: 400px;
 }
 
 .Filter-AnimeCard{
-    border: #f0f0f0 1px solid;
-    display: inline-block;
-    height: 100%;
-    margin: 0 0 20px;
-    overflow: hidden;
-    position: relative;
-    width: 20%;
-    max-width: 500px;
-    padding: 70px;
+    display: grid;
+    grid-gap: 30px 28px;
+    grid-template-columns: repeat(auto-fill,185px);
+    border: 2px solid rgb(0, 0, 0);
     margin-left: 350px;
-    z-index: 100;
+    padding-top: 15px;
     /* display: flex;
    align-items: center;
    justify-content: center;
@@ -129,14 +120,13 @@ a{
 .AnimeCard img{
     border: 3px solid rgb(0, 0, 0);
     height: 21rem;
-    width: 100%;
 }
 
 /* Filter card */
 .Image-card{
     display: flex;
-    justify-content: center;
-    width: 167px;
+    align-content: center;
+    width: 120px;
 }
 
 #card-title{
@@ -152,4 +142,8 @@ a{
 #synopsis{
     max-height: 180px;
     overflow: hidden;
+}
+
+#synopsis:hover{
+    overflow: auto;
 }
