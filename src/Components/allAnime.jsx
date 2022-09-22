@@ -1,19 +1,20 @@
 import React from "react";
-import { DataGrid } from '@mui/x-data-grid';
+import ReactPaginate from "react-paginate";
 
 function allAnime({anime}){
+    
     return(
         <div>
             {anime.map((info) =>(
                 <div>
-                   {/* <a href={info.url}
-                //     key = {info.mal_id}
-                //     target = "_blank"
-                //     rel= "noopener">
-                //     <img src = {info.images.jpg.image_url} alt = "Image"></img></a>
-                //     <span>{info.type}</span><h3>{info.title}</h3> */}
-                </div>
-            ))}
+                   <a href={info.url}
+                    key = {info.mal_id}
+                    target = "_blank"
+                    rel= "noopener">
+                    <img src = {info.images.jpg.image_url} alt = "Image"></img></a>
+                    <span>{info.type}</span><h3>{info.title}</h3>
+                </div>                
+                ))}
         </div>
     )
 }

@@ -19,26 +19,28 @@ function MainContent(){
         const api = await fetch (`https://api.jikan.moe/v4/top/anime`)
         .then(res => res.json())   
         setTopAnime(api.data);
-    }
+    };
     
     const obtainSeasonalAnime = async () => {
         const apiData = await fetch (`https://api.jikan.moe/v4/seasons/2022/fall`)
         .then(res => res.json())
         setseasonAnime(apiData.data)
-    }
+    };
 
-    // const searchAnime = async () => {
-    //     const apiAll = await fetch (`https://api.jikan.moe/v4/anime?page=1&order_by=title&sort=asc&limit=${limit}`)
-    //     .then(res => res.json())
-    //     setAnime(apiAll.data)
-    // }
+    const searchAnime = async () =>{
+        const apiAll = await fetch(`https://api.jikan.moe/v4/anime`)
+        .then((res) => res.json())
 
-    const searchAnime = async () => {
-        const apiAll = await fetch (`https://api.jikan.moe/v4/anime`)
-        .then(res => res.json())
-        const total = apiAll.headers.get("total")
-        setPageSize(Math.cell(total / limit))
         setAnime(apiAll.data)
+    };
+
+    const handlePageClick = async (event) => {
+        await fetch (`https://api.jikan.moe/v4/anime?page=${event.selected + 1}`)
+        .then((res) => res.json())
+        .then((res) => {
+            setAnime(res)    
+        })
+        .catch((error) => console.error(error))
     };
 
     const searchItems = (searchValue) => {
@@ -48,28 +50,39 @@ function MainContent(){
     })
     setFilter(filterAnime)
 }
+// const searchAnime = async () => {
+//     const apiAll = await fetch (`https://api.jikan.moe/v4/anime?page=1&limit=${limit}`)
+//     const data = await apiAll.json()
+//     const total = apiAll.headers.get("x-total-count");
+//     setPageSize(Math.ceil(total / limit))
+//     setAnime(data.data)
+
+// };
+
+// const fetchPage = async (currentPage) =>{
+//     const apiAll = await fetch (`https://api.jikan.moe/v4/anime?_page=${currentPage}&limit=${limit}`)
+//     .then(res => res.json())
+    
+//     const data = await apiAll.json();
+//     return data.data;
+// }
+
+// const handlePageClick = async (data) =>{
+            
+//     console.log(data.selected)
+    
+//     let currentPage = data.selected + 1
+    
+//     const Formclick = await fetchPage(currentPage);
+    
+//     setAnime(Formclick)
+// }
+
     useEffect(() => {       
         searchAnime();
+        handlePageClick();
     }, [])
-
-    const fetchPage = async (currentPage) =>{
-        const apiAll = await fetch (`https://api.jikan.moe/v4/anime?page=${currentPage}&limit=${limit}`)
-        .then(res => res.json())
-
-        return apiAll.data;
-    }
-
-    const handlePageClick = async (apiAll) =>{
-        
-        console.log(apiAll.selected)
-
-        let currentPage = apiAll.selected + 1
-
-        const Formclick = await fetchPage(currentPage);
-
-        setAnime(Formclick)
-    }
-
+    
     useEffect(() => {
         obtainTopAnime();
     },[])
@@ -81,7 +94,12 @@ function MainContent(){
     return(
         <div>     
             <div className="filters">
-            <input type="search" placeholder="Search for an anime" onChange = {(e) => searchItems(e.target.value)}/>
+                <div className="Subname">
+            <p>Search</p>
+            <input type="search" placeholder="" onChange = {(e) => searchItems(e.target.value)}/>
+            <p>Season</p>
+            <input type="search" placeholder="Any"></input>
+                </div>
             </div>
 
             <div className="Sidebar">
@@ -91,7 +109,7 @@ function MainContent(){
             <div>
                 {search.length >= 1 ? (
                     filterAnime.map((card, i) => (
-                    <div className="Filter-AnimeCard"> 
+                        <div className="Filter-AnimeCard"> 
                         <h3 id="card-title">{card.title}</h3>
                         <a href={card.url}
                         key = {card.mal_id}
@@ -104,32 +122,33 @@ function MainContent(){
                     <p id="synopsis">{card.synopsis}</p> 
                     </div>
                     ))
-                ):
-                
-                <div>
-                    <AnimeCard seasonAnime = {seasonAnime}></AnimeCard>
+                    ):
+                    
+                    <div>
+                    <AnimeCard seasonAnime = {seasonAnime.slice(0,20)}></AnimeCard>
                 </div>
                 }
-                <ReactPaginate
-        previousLabel={"previous"}
-        nextLabel={"next"}
-        breakLabel={"..."}
-        pageSize={pageSize}
-        marginPagesDisplayed={2}
-        pageRangeDisplayed={3}
-        onPageChange={handlePageClick}
-        containerClassName={"pagination justify-content-center"}
-        pageClassName={"page-item"}
-        pageLinkClassName={"page-link"}
-        previousClassName={"page-item"}
-        previousLinkClassName={"page-link"}
-        nextClassName={"page-item"}
-        nextLinkClassName={"page-link"}
-        breakClassName={"page-item"}
-        breakLinkClassName={"page-link"}
-        activeClassName={"active"}        
-                />
             </div>
+            <button onClick={handlePageClick}></button>
+            <ReactPaginate
+            previousLabel={"previous"}
+            nextLabel={"next"}
+            breakLabel={"..."}
+            // pageCount={}
+            onPageChange={handlePageClick}
+            marginPagesDisplayed={2}
+            pageRangeDisplayed={3}
+            pageClassName={"page-item"}
+            pageLinkClassName={"page-link"}
+            previousClassName={"page-item"}
+            previousLinkClassName={"page-link"}
+            nextClassName={"page-item"}
+            nextLinkClassName={"page-link"}
+            breakClassName={"page-item"}
+            breakLinkClassName={"page-link"}
+            activeClassName={"active"}
+             />
+            
         </div>
     )
 }

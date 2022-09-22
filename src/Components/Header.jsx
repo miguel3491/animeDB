@@ -4,7 +4,7 @@ function Header(){
 
     return(
         <nav className="nav-wrap">
-            <h1 id = "Title">Anime Info</h1>
+            <h1 id = "Title">Anime<span>情報</span></h1>
         </nav>
     )
 }
