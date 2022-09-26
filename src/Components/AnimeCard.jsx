@@ -14,7 +14,7 @@ function AnimeCard({seasonAnime}){
                     target = "_blank"
                     rel= "noopener">
                     <img src = {card.images.jpg.image_url} alt = "Image"></img></a>
-                    <span>{card.type}</span><h3>{card.title}</h3>              
+                    <h3>{card.title}</h3>              
                 </div>
             ))}
         </div>

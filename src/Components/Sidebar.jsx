@@ -3,11 +3,11 @@ import React from "react";
 function Sidebar({topAnime}){
     return(
         <aside>
-            <nav>
-                <h4>All-time Popular</h4>
+            <nav className="aside-bar">
+                <h4 id="h4-side">Top Anime Series</h4>
                 {topAnime.map(anime => (
-                    <div>
-                    {/* <span id="side-rank">{anime.rank}</span> */}
+                    <div className="aside-bar">
+                    <span id="side-rank">{anime.rank}</span>
                     <img className="side-image" src = {anime.images.jpg.image_url} alt = "Image"></img>
                     <a className="anime-title"
                     key = {anime.mal_id}

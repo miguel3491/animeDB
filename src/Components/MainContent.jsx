@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import Sidebar from "./SideBar";
+import Sidebar from "./Sidebar";
 import AnimeCard from "./AnimeCard";
+import {BrowserRouter as Router, Routes, Route, Link} from "react-router-dom";
 import ReactPaginate from "react-paginate";
 import "../styles.css"
 
@@ -9,8 +10,8 @@ function MainContent() {
   const [topAnime, setTopAnime] = useState([]);
   const [seasonAnime, setseasonAnime] = useState([]);
   const [search, setSearch] = useState("");
-  const [filterAnime, setFilter] = useState([]);
   const [pageSize, setPageSize] = useState();
+  // const [filterAnime, setFilter] = useState([]);
 
   let limit = 10;
 
@@ -42,32 +43,43 @@ function MainContent() {
   };
 
   // You don't need this
-  /* const searchItems = (searchValue) => {
-    setSearch(searchValue)
-    const filterAnime = anime.filter((anime) => {
-      return Object.values(anime).join("").toLowerCase().includes(search.toLowerCase())
-    })
-    setFilter(filterAnime)
-  }
- */
+  //  const searchItems = (searchValue) => {
+  //   setSearch(searchValue)
+  //   const filterAnime = anime.filter((anime) => {
+  //     return Object.values(anime).join("").toLowerCase().includes(search.toLowerCase())
+  //   })
+  //   setFilter(filterAnime)
+  // }
+ 
+
+  useEffect(() => {
+    searchAnime();
+  }, []);
+
   useEffect(() => {
     obtainTopAnime();
   }, []);
 
-  useEffect(() => {
-    obtainSeasonalAnime();
-  }, []);
+  // useEffect(() => {
+  //   obtainSeasonalAnime();
+  // }, []);
 
   return (
     <div>
-      <div className="filters">
-        <div className="Subname">
+    <div className="menu">
+      <div className="left-filters">
+          <ul id="nav-filter">
+            <a>
+            <li className="Small">Anime</li></a>
+            <a>
+            <li className="Small">Manga</li></a>
+          </ul>
+        </div>
+      <div className="right-filters">
           {/* Just to know page changing works */}
-          {pageSize && <div style={{color: "white"}}>Current page: {pageSize?.current_page}</div>}
-          <p>Search</p>
           <input
             type="search"
-            placeholder=""
+            placeholder="Search"
             onChange={(e) => {
               setSearch(e.target.value);
             }}
@@ -77,18 +89,15 @@ function MainContent() {
               }
             }}
           />
-          <p>Season</p>
-          <input type="search" placeholder="Any"></input>
-        </div>
       </div>
-
+    </div>
       <div className="Sidebar">
         <Sidebar topAnime={topAnime.slice(0, 10)}></Sidebar>
       </div>
 
       {/* Your code */}
-      {/*
-      <div>
+      
+      {/* <div>
         {search.length >= 1 ? (
           filterAnime.map((card, i) => (
             <div className="Filter-AnimeCard">
@@ -110,9 +119,8 @@ function MainContent() {
 <AnimeCard seasonAnime={seasonAnime.slice(0, 20)}></AnimeCard>
           </div>
         }
-      </div>
-      */}
-      {anime &&
+      </div> */}
+      {
         anime.map(
           ({
             url,
@@ -145,35 +153,29 @@ function MainContent() {
               <p id="synopsis">{synopsis}</p>
             </div>
           )
-        )}
-      {!anime.length ?
-        <AnimeCard seasonAnime={seasonAnime.slice(0, 20)}></AnimeCard> : null}
-      {pageSize && (
-        <ReactPaginate
-          previousLabel={"previous"}
-          nextLabel={"next"}
-          breakLabel={"..."}
-          pageCount={pageSize?.last_visible_page}
-          onPageChange={handlePageClick}
-          marginPagesDisplayed={2}
-          pageRangeDisplayed={3}
-          pageClassName={"page-item"}
-          pageLinkClassName={"page-link"}
-          previousClassName={"page-item"}
-          previousLinkClassName={"page-link"}
-          nextClassName={"page-item"}
-          nextLinkClassName={"page-link"}
-          breakClassName={"page-item"}
-          breakLinkClassName={"page-link"}
-          activeClassName={"active"}
-        />
-      )}
+          )} 
+
+<div className="pagination">
+  {pageSize && (
+  <ReactPaginate
+  nextLabel="&rarr;"
+  previousLabel="&larr;"
+    breakLabel={"..."}
+    pageCount={pageSize?.last_visible_page}
+    onPageChange={handlePageClick}
+    marginPagesDisplayed={2}
+    pageRangeDisplayed={5}
+   />
+  )}
+  {pageSize && <div style={{color: "white"}}>Current page: {pageSize?.current_page}</div>}
+</div>
+
+    {/* {!anime.lenght ?
+      <AnimeCard seasonAnime={seasonAnime.slice(0, 5)}></AnimeCard> : null } */}
     </div>
   );
 }
 
 export default MainContent;
-
-// Remainder add a button function to display more info on the synopsis
 
 // source to make multiple fetch https://medium.com/@jdhawks/make-fetch-s-happen-5022fcc2ddae
