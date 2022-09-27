@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from "react";
 import Sidebar from "./Sidebar";
 import AnimeCard from "./AnimeCard";
+import { ReactSearchAutocomplete } from 'react-search-autocomplete'
+import Autocomplete from '@mui/material/Autocomplete';
+import TextField from '@mui/material/TextField';
+import Box from '@mui/material/Box';
+import Stack from '@mui/material/Stack';
 import {BrowserRouter as Router, Routes, Route, Link} from "react-router-dom";
 import ReactPaginate from "react-paginate";
 import "../styles.css"
@@ -8,9 +13,9 @@ import "../styles.css"
 function MainContent() {
   const [anime, setAnime] = useState([]);
   const [topAnime, setTopAnime] = useState([]);
-  const [seasonAnime, setseasonAnime] = useState([]);
   const [search, setSearch] = useState("");
   const [pageSize, setPageSize] = useState();
+  // const [seasonAnime, setseasonAnime] = useState([]);
   // const [filterAnime, setFilter] = useState([]);
 
   let limit = 10;
@@ -22,12 +27,12 @@ function MainContent() {
     setTopAnime(api.data);
   };
 
-  const obtainSeasonalAnime = async () => {
-    const apiData = await fetch(
-      `https://api.jikan.moe/v4/seasons/2022/fall`
-    ).then((res) => res.json());
-    setseasonAnime(apiData.data);
-  };
+  // const obtainSeasonalAnime = async () => {
+  //   const apiData = await fetch(
+  //     `https://api.jikan.moe/v4/seasons/2022/fall`
+  //   ).then((res) => res.json());
+  //   setseasonAnime(apiData.data);
+  // };
 
   const searchAnime = async (page) => {
     const currentPage = page ?? 1; // default page is 1
@@ -42,7 +47,6 @@ function MainContent() {
     searchAnime(event.selected + 1); // change page
   };
 
-  // You don't need this
   //  const searchItems = (searchValue) => {
   //   setSearch(searchValue)
   //   const filterAnime = anime.filter((anime) => {
@@ -50,7 +54,6 @@ function MainContent() {
   //   })
   //   setFilter(filterAnime)
   // }
- 
 
   useEffect(() => {
     searchAnime();
@@ -76,7 +79,6 @@ function MainContent() {
           </ul>
         </div>
       <div className="right-filters">
-          {/* Just to know page changing works */}
           <input
             type="search"
             placeholder="Search"
@@ -90,7 +92,56 @@ function MainContent() {
             }}
           />
       </div>
+
+      <div className="right-filters">
+        <Stack sx={{ width: 300, margin:"auto", backgroundColor: 'primary.dark' }}>
+      <Autocomplete
+          selectOnFocus
+          onChange={(e) => {
+            setSearch(e.target.value);
+          }}
+          onClick={(e) => {
+            if (e.key === "Enter") {
+              searchAnime();
+            }
+          }}
+          id="Anime"
+          getOptionLabel={(anime) => `${anime.title}`}
+          options={anime}
+          isOptionEqualToValue={(option, value) => 
+            option.title === value.title}
+          renderOption = {(props, anime) => (
+            <Box component = "li" {...props} key = {anime.mal_id}>
+                {anime.title}
+            </Box>
+          )}
+          renderInput = {(params) => <TextField {...params} label = "Search"></TextField>}>
+      </Autocomplete>
+        </Stack>
+        </div>
+        {/* <div className="dropdown">
+            {anime
+            .filter((item) => {
+              const searchTerm = search.toLowerCase();
+              const name = item.title.toLowerCase();
+              return(
+                searchTerm &&
+                name.startsWith(searchTerm) &&
+                name !== searchTerm
+              );
+            })
+            .slice(0, 5)
+            .map((item) => {
+              <div
+              className="dropdown-row"
+              onClick={() => setSearch(item.title)}
+              key={item.title}>
+                <p>{item.title}</p>
+              </div>
+            })}
+        </div> */}
     </div>
+
       <div className="Sidebar">
         <Sidebar topAnime={topAnime.slice(0, 10)}></Sidebar>
       </div>
