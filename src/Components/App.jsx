@@ -4,13 +4,13 @@ import MainContent from "./MainContent";
 
 function App(){
     return(
-        <div>
+        <div className="app">
             <header>
             <Header></Header>
             </header>
-            <body>
+            <main>
             <MainContent></MainContent>
-            </body>
+            </main>
             <footer>
                 
             </footer>

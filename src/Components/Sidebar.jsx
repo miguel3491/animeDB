@@ -3,21 +3,22 @@ import React from "react";
 function Sidebar({topAnime}){
     return(
         <aside>
-            <nav className="aside-bar">
-                <h4 id="h4-side">Top Anime Series</h4>
+            <div className="sidebar-card">
+                <h4>Top Anime Series</h4>
                 {topAnime.map(anime => (
-                    <div className="aside-bar">
-                    <span id="side-rank">{anime.rank}</span>
-                    <img className="side-image" src = {anime.images.jpg.image_url} alt = "Image"></img>
+                    <div className="sidebar-item" key={anime.mal_id}>
+                    <span className="side-rank">#{anime.rank}</span>
+                    <img className="side-image" src = {anime.images.jpg.image_url} alt = {anime.title}></img>
                     <a className="anime-title"
                     key = {anime.mal_id}
                     href = {anime.url}
-                    target = "_blank">
+                    target = "_blank"
+                    rel="noreferrer">
                     {anime.title}
                     </a>
                     </div>
                 ))}      
-            </nav>
+            </div>
         </aside>
     )
 }

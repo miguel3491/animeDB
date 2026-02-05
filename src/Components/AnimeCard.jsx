@@ -1,5 +1,4 @@
-import React, {useState} from "react";
-import ReactPlayer from 'react-player'
+import React from "react";
 
 function AnimeCard({seasonAnime}){
 
@@ -12,8 +11,8 @@ function AnimeCard({seasonAnime}){
                     <a href={card.trailer.url}
                     key = {card.mal_id}
                     target = "_blank"
-                    rel= "noopener">
-                    <img src = {card.images.jpg.image_url} alt = "Image"></img></a>
+                    rel= "noreferrer">
+                    <img src = {card.images.jpg.image_url} alt = {card.title}></img></a>
                     <h3>{card.title}</h3>              
                 </div>
             ))}

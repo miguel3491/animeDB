@@ -1,12 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Sidebar from "./Sidebar";
-import AnimeCard from "./AnimeCard";
-import { ReactSearchAutocomplete } from 'react-search-autocomplete'
-import Autocomplete from '@mui/material/Autocomplete';
-import TextField from '@mui/material/TextField';
-import Box from '@mui/material/Box';
-import Stack from '@mui/material/Stack';
-import {BrowserRouter as Router, Routes, Route, Link} from "react-router-dom";
 import ReactPaginate from "react-paginate";
 import "../styles.css"
 
@@ -17,8 +10,6 @@ function MainContent() {
   const [pageSize, setPageSize] = useState();
   // const [seasonAnime, setseasonAnime] = useState([]);
   // const [filterAnime, setFilter] = useState([]);
-
-  let limit = 10;
 
   const obtainTopAnime = async () => {
     const api = await fetch(`https://api.jikan.moe/v4/top/anime`).then((res) =>
@@ -34,14 +25,14 @@ function MainContent() {
   //   setseasonAnime(apiData.data);
   // };
 
-  const searchAnime = async (page) => {
+  const searchAnime = useCallback(async (page) => {
     const currentPage = page ?? 1; // default page is 1
     const apiAll = await fetch(
       `https://api.jikan.moe/v4/anime?q=${search}&page=${currentPage}`
     ).then((res) => res.json());
     setAnime(apiAll.data); // set anime data
     setPageSize(apiAll.pagination); // set page informations
-  };
+  }, [search]);
 
   const handlePageClick = async (event) => {
     searchAnime(event.selected + 1); // change page
@@ -57,7 +48,7 @@ function MainContent() {
 
   useEffect(() => {
     searchAnime();
-  }, []);
+  }, [searchAnime]);
 
   useEffect(() => {
     obtainTopAnime();
@@ -69,160 +60,129 @@ function MainContent() {
 
   return (
     <div>
-    <div className="menu">
-      <div className="left-filters">
+      <div className="menu">
+        <div className="left-filters">
           <ul id="nav-filter">
-            <a>
-            <li className="Small">Anime</li></a>
-            <a>
-            <li className="Small">Manga</li></a>
+            <li>
+              <button className="Small filter-button active" type="button">Anime</button>
+            </li>
+            <li>
+              <button className="Small filter-button" type="button">Manga</button>
+            </li>
           </ul>
         </div>
-      <div className="right-filters">
-          <input
-            type="search"
-            placeholder="Search"
-            onChange={(e) => {
-              setSearch(e.target.value);
-            }}
-            onKeyPress={(e) => {
-              if (e.key === "Enter") {
-                searchAnime();
-              }
-            }}
-          />
-      </div>
-
-      <div className="right-filters">
-        <Stack sx={{ width: 300, margin:"auto", backgroundColor: 'primary.dark' }}>
-      <Autocomplete
-          selectOnFocus
-          onChange={(e) => {
-            setSearch(e.target.value);
-          }}
-          onClick={(e) => {
-            if (e.key === "Enter") {
-              searchAnime();
-            }
-          }}
-          id="Anime"
-          getOptionLabel={(anime) => `${anime.title}`}
-          options={anime}
-          isOptionEqualToValue={(option, value) => 
-            option.title === value.title}
-          renderOption = {(props, anime) => (
-            <Box component = "li" {...props} key = {anime.mal_id}>
-                {anime.title}
-            </Box>
-          )}
-          renderInput = {(params) => <TextField {...params} label = "Search"></TextField>}>
-      </Autocomplete>
-        </Stack>
-        </div>
-        {/* <div className="dropdown">
-            {anime
-            .filter((item) => {
-              const searchTerm = search.toLowerCase();
-              const name = item.title.toLowerCase();
-              return(
-                searchTerm &&
-                name.startsWith(searchTerm) &&
-                name !== searchTerm
-              );
-            })
-            .slice(0, 5)
-            .map((item) => {
-              <div
-              className="dropdown-row"
-              onClick={() => setSearch(item.title)}
-              key={item.title}>
-                <p>{item.title}</p>
-              </div>
-            })}
-        </div> */}
-    </div>
-
-      <div className="Sidebar">
-        <Sidebar topAnime={topAnime.slice(0, 10)}></Sidebar>
-      </div>
-
-      {/* Your code */}
-      
-      {/* <div>
-        {search.length >= 1 ? (
-          filterAnime.map((card, i) => (
-            <div className="Filter-AnimeCard">
-              <h3 id="card-title">{card.title}</h3>
-              <a href={card.url}
-                key={card.mal_id}
-                target="_blank"
-                rel="noopener"><img className="Image-card" src={card.images.jpg.image_url} alt="Image"></img></a>
-              <p>Source: {card.source}</p>
-              <p>{card.episodes} Episodes, <span>{card.duration.replace("ep", "episodes")}</span></p>
-              <p>Score: {card.score}</p>
-              <p id="card-genre">Type: {card.type}</p>
-              <p id="synopsis">{card.synopsis}</p>
-            </div>
-          ))
-        ) :
-
-          <div>
-<AnimeCard seasonAnime={seasonAnime.slice(0, 20)}></AnimeCard>
+        <div className="right-filters">
+          <div className="search-wrap">
+            <input
+              type="search"
+              placeholder="Search for your next favorite..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  searchAnime();
+                }
+              }}
+            />
+            <button type="button" onClick={() => searchAnime()}>
+              Search
+            </button>
           </div>
-        }
-      </div> */}
-      {
-        anime.map(
-          ({
-            url,
-            mal_id,
-            title,
-            images,
-            type,
-            synopsis,
-            episodes,
-            source,
-            score,
-            duration
-          }) => (
-            <div className="Filter-AnimeCard">
-              <h3 id="card-title">{title}</h3>
-              <a href={url} key={mal_id} target="_blank" rel="noreferrer">
-                <img
-                  className="Image-card"
-                  src={images.jpg.image_url}
-                  alt={title}
-                ></img>
-              </a>
-              <p>Source: {source}</p>
-              <p>
-                {episodes} Episodes,{" "}
-                <span>{duration.replace("ep", "episodes")}</span>
-              </p>
-              <p>Score: {score}</p>
-              <p id="card-genre">Type: {type}</p>
-              <p id="synopsis">{synopsis}</p>
-            </div>
-          )
-          )} 
+        </div>
+      </div>
 
-<div className="pagination">
-  {pageSize && (
-  <ReactPaginate
-  nextLabel="&rarr;"
-  previousLabel="&larr;"
-    breakLabel={"..."}
-    pageCount={pageSize?.last_visible_page}
-    onPageChange={handlePageClick}
-    marginPagesDisplayed={2}
-    pageRangeDisplayed={5}
-   />
-  )}
-  {pageSize && <div style={{color: "white"}}>Current page: {pageSize?.current_page}</div>}
-</div>
+      <div className="layout">
+        <section>
+          <div className="hero">
+            <h2>Discover anime that matches your mood</h2>
+            <p>
+              Explore stories, studios, and scores with a layout inspired by neon
+              arcades and midnight cityscapes.
+            </p>
+          </div>
 
-    {/* {!anime.lenght ?
-      <AnimeCard seasonAnime={seasonAnime.slice(0, 5)}></AnimeCard> : null } */}
+          <div className="results-bar">
+            <h3>
+              {search ? `Results for “${search}”` : "Trending & top matches"}
+            </h3>
+            <span className="pill">{anime.length} titles</span>
+          </div>
+
+          <div className="anime-grid">
+            {anime.map(
+              ({
+                url,
+                mal_id,
+                title,
+                images,
+                trailer,
+                type,
+                synopsis,
+                episodes,
+                source,
+                score,
+                duration
+              }) => (
+                <article className="anime-card" key={mal_id}>
+                  <a href={url} target="_blank" rel="noreferrer">
+                    <div className="media-wrap">
+                      <img src={images.jpg.image_url} alt={title} />
+                      {trailer?.embed_url && (
+                        <iframe
+                          className="trailer-frame"
+                          src={trailer.embed_url}
+                          title={`${title} trailer`}
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                          loading="lazy"
+                        ></iframe>
+                      )}
+                    </div>
+                  </a>
+                  <div className="card-body">
+                    <div className="tag-row">
+                      {type && <span className="tag">{type}</span>}
+                      {source && <span className="tag">{source}</span>}
+                    </div>
+                    <h4 className="card-title">{title}</h4>
+                    <div className="card-meta">
+                      <span>Episodes: {episodes ?? "?"}</span>
+                      <span>Duration: {duration ? duration.replace("ep", "episodes") : "?"}</span>
+                    </div>
+                    <span className="score-badge">Score {score ?? "N/A"}</span>
+                    <p className="synopsis">{synopsis || "No synopsis available yet."}</p>
+                  </div>
+                </article>
+              )
+            )}
+          </div>
+
+          <div className="pagination">
+            {pageSize && (
+              <ReactPaginate
+                nextLabel="&rarr;"
+                previousLabel="&larr;"
+                breakLabel={"..."}
+                pageCount={pageSize?.last_visible_page}
+                onPageChange={handlePageClick}
+                marginPagesDisplayed={2}
+                pageRangeDisplayed={5}
+              />
+            )}
+            {pageSize && (
+              <div style={{ color: "white" }}>
+                Current page: {pageSize?.current_page}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <div className="Sidebar">
+          <Sidebar topAnime={topAnime.slice(0, 10)}></Sidebar>
+        </div>
+      </div>
     </div>
   );
 }
