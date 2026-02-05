@@ -1,70 +1,38 @@
-# Getting Started with Create React App
+# animeDB
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A React-based anime discovery app that uses the [Jikan API](https://docs.api.jikan.moe/) to list top anime and search by title.
 
-## Available Scripts
+## Current project status
 
-In the project directory, you can run:
+This repository is an older Create React App project and needs modernization work before production use.
 
-### `npm start`
+### What is currently working
+- Core React UI renders and production build succeeds.
+- Search/top anime views are wired to Jikan endpoints.
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+### What is currently risky/outdated
+- API calls are made directly from the browser without retries, graceful error states, or a configurable API base URL.
+- Tooling is based on Create React App with aging dependencies and warning-heavy lint output.
+- There is no project-specific test suite to validate core behavior.
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+See [`docs/REVIVAL_PLAN.md`](docs/REVIVAL_PLAN.md) for a practical step-by-step recovery plan.
 
-### `npm test`
+## Local development
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+```bash
+npm install
+npm start
+```
 
-### `npm run build`
+## Validation commands
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+```bash
+npm run build
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## Suggested near-term priorities
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
-
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+1. Add a resilient API client layer with loading/error states and environment-based configuration.
+2. Clean up lint warnings and improve accessibility/security attributes.
+3. Add smoke tests for rendering + API fallback behavior.
+4. Migrate from CRA to a modern build tool (Vite or Next.js) once behavior is stabilized.
