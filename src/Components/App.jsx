@@ -1,20 +1,27 @@
 import React from "react";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Header from "./Header";
 import MainContent from "./MainContent";
+import AnimeDetail from "./AnimeDetail";
 
 function App(){
     return(
-        <div className="app">
-            <header>
-            <Header></Header>
-            </header>
-            <main>
-            <MainContent></MainContent>
-            </main>
-            <footer>
-                
-            </footer>
-        </div>
+        <BrowserRouter>
+            <div className="app">
+                <header>
+                <Header></Header>
+                </header>
+                <main>
+                    <Routes>
+                        <Route path="/" element={<MainContent></MainContent>} />
+                        <Route path="/anime/:id" element={<AnimeDetail></AnimeDetail>} />
+                    </Routes>
+                </main>
+                <footer>
+                    
+                </footer>
+            </div>
+        </BrowserRouter>
     )
 }
 
