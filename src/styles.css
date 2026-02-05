@@ -1,0 +1,255 @@
+html, body, div{
+    margin: 0;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    vertical-align: baseline; /* property sets vertical alignment of an inline, inline-block or table-cell box. */
+    background: transparent;
+    scroll-behavior: smooth;
+    background: #0a1625;
+    
+}
+
+* {
+    box-sizing: border-box;
+}
+
+h1, h2, h3, h4, p, span{
+    color: #fff;   
+}
+
+p{
+    font-size: 20px;
+}
+
+a{
+    text-decoration: none;
+    color: #fff
+}
+/* Header */
+.nav-wrap{
+    display: flex;
+    text-align: center;
+    width: 100%;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    background: #152232;
+    color: #a0b1c5;
+    position: relative;
+    padding: 1px 0px 15px;
+    align-items: center !important;
+}
+
+#Title{
+    position: relative;
+    left: 10vh;
+}
+
+/* Nav Filters */
+
+.menu{
+    display: inline-block;
+    width: 100%;
+    padding: 10px 45px;
+    background-color: #2e51a2;
+}
+
+#nav-filter{
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.Small{
+    display: block;
+    float: left;
+    position: relative;
+    text-indent: 10px;
+    width: 100px;
+    font-family: Overpass,-apple-system,BlinkMacSystemFont,Segoe UI,Oxygen,Ubuntu,Cantarell,Fira Sans,Droid Sans,Helvetica Neue,sans-serif;
+    text-transform: capitalize;
+    z-index: 90;
+}
+
+.left-filters{
+    display: block;
+    font-size: 17px;
+    font-weight: 700;
+    text-align: left;
+    text-decoration: none;
+}
+
+.right-filters{
+    float: right;
+}
+
+/* Sidebar */
+
+.aside-bar{
+    background-color: #0a1625;
+    box-sizing: content-box;
+    margin-top: 15px;
+    padding-top: 8px;
+    box-shadow: 1px 0px 0px 2px #2e51a2;
+}
+
+#h4-side{
+    padding: 85px;
+    border-style: none;
+    text-align: center;
+    display: inline;
+    font-size: 14px;
+}
+
+.Sidebar{
+    position: absolute;
+    padding: 0% 0.1%;
+    width: 280px;
+}
+
+.anime-title{
+    position: relative;
+    float: right;
+    text-align: left;
+    font-family: Avenir,lucida grande,tahoma,verdana,arial,sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 14px;
+    width: 210px;
+}
+
+#side-rank{
+    color: gray;
+    display: block;
+    position: relative;
+    top: 16px;
+    left: 5px;
+    font-size: 1.1rem;
+    font-weight: 100;
+}
+.side-image{
+    margin-left: 20px;
+    height: 50px;
+    width: auto;
+}
+
+/* Anime Card */
+.AnimeCard{
+    /* -webkit-box-direction: normal; */
+    /* -webkit-box-orient: horizontal; */
+    /* -webkit-box-pack: justify; */
+    display: -webkit-box;
+    display: flex;
+    display: -ms-flexbox;
+    flex-direction: row;
+    -ms-flex-direction: row;
+    -ms-flex-pack: justify;
+    -ms-flex-wrap: wrap;
+    flex-wrap: wrap;
+    justify-content: space-evenly;
+    padding: 60px;
+    margin-left: 0px;
+}
+
+.Filter-AnimeCard{
+    display: grid;
+    grid-gap: 0px 28px;
+    grid-template-columns: repeat(auto-fill,175px);
+    border: 2px solid rgb(0, 0, 0);
+    margin-left: 350px;
+    margin-top: 12px;
+    padding-top: 15px;
+    /* display: flex;
+   align-items: center;
+   justify-content: center;
+   padding: 2rem 5rem; */
+}
+
+/* .filter-animecard{
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: space-between;
+} */
+
+.AnimeCard div{
+    max-width: 248px;
+}
+
+.AnimeCard img{
+    border: 3px solid rgb(0, 0, 0);
+    height: 21rem;
+}
+
+/* Filter card */
+.Image-card{
+    display: flex;
+    align-content: center;
+    width: 120px;
+}
+
+#card-title{
+    display: absolute;
+    /* height: auto;
+    margin: 0;
+    overflow: hidden; */
+    text-align: center;
+    height: 50px;
+    width: 100%;
+}
+
+#synopsis{
+    max-height: 180px;
+    overflow: hidden;
+}
+
+#synopsis:hover{
+    overflow: auto;
+}
+
+/* Pagination */
+.pagination {
+    padding-top: 1rem;
+    text-align: center;
+}
+
+.pagination > ul {
+    padding: 0;
+    margin: 0;
+}
+
+.pagination li {
+    display: inline-block;
+}
+
+.pagination li > a {
+    padding: 0.5rem;
+    margin: 1px;
+    display: inline-block;
+    cursor: pointer;
+    border: 1px solid #d8eef5;
+    border-radius: 2px;
+    min-width: 1rem;
+}
+
+.pagination li > a:focus {
+    outline: none;
+}
+
+
+.dropdown {
+    background-color: white;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid gray;
+  }
+  
+  .dropdown:empty {
+    border: none;
+  }
+  
+  .dropdown-row {
+    cursor: pointer;
+    text-align: start;
+    margin: 2px 0;
+  }
