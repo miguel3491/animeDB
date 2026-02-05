@@ -1,232 +1,164 @@
-import React, { useState, useEffect } from "react";
-import Sidebar from "./Sidebar";
-import AnimeCard from "./AnimeCard";
-import { ReactSearchAutocomplete } from 'react-search-autocomplete'
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Autocomplete from '@mui/material/Autocomplete';
 import TextField from '@mui/material/TextField';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
-import {BrowserRouter as Router, Routes, Route, Link} from "react-router-dom";
-import ReactPaginate from "react-paginate";
-import "../styles.css"
+import ReactPaginate from 'react-paginate';
+import Sidebar from './Sidebar';
+import { getTopAnime, searchAnime as searchAnimeApi } from '../api/jikan';
+import '../styles.css';
 
 function MainContent() {
   const [anime, setAnime] = useState([]);
   const [topAnime, setTopAnime] = useState([]);
-  const [search, setSearch] = useState("");
-  const [pageSize, setPageSize] = useState();
-  // const [seasonAnime, setseasonAnime] = useState([]);
-  // const [filterAnime, setFilter] = useState([]);
+  const [search, setSearch] = useState('');
+  const [pagination, setPagination] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  let limit = 10;
+  const runSearch = useCallback(async (page = 1) => {
+    setIsLoading(true);
+    setError('');
 
-  const obtainTopAnime = async () => {
-    const api = await fetch(`https://api.jikan.moe/v4/top/anime`).then((res) =>
-      res.json()
-    );
-    setTopAnime(api.data);
-  };
+    try {
+      const result = await searchAnimeApi({ query: search, page });
+      setAnime(result.data);
+      setPagination(result.pagination);
+    } catch (err) {
+      setAnime([]);
+      setPagination(null);
+      setError(err?.message || 'Unable to load anime right now.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [search]);
 
-  // const obtainSeasonalAnime = async () => {
-  //   const apiData = await fetch(
-  //     `https://api.jikan.moe/v4/seasons/2022/fall`
-  //   ).then((res) => res.json());
-  //   setseasonAnime(apiData.data);
-  // };
+  const loadTopAnime = useCallback(async () => {
+    try {
+      const result = await getTopAnime();
+      setTopAnime(result);
+    } catch {
+      setTopAnime([]);
+    }
+  }, []);
 
-  const searchAnime = async (page) => {
-    const currentPage = page ?? 1; // default page is 1
-    const apiAll = await fetch(
-      `https://api.jikan.moe/v4/anime?q=${search}&page=${currentPage}`
-    ).then((res) => res.json());
-    setAnime(apiAll.data); // set anime data
-    setPageSize(apiAll.pagination); // set page informations
-  };
+  useEffect(() => {
+    runSearch(1);
+  }, [runSearch]);
+
+  useEffect(() => {
+    loadTopAnime();
+  }, [loadTopAnime]);
 
   const handlePageClick = async (event) => {
-    searchAnime(event.selected + 1); // change page
+    runSearch(event.selected + 1);
   };
 
-  //  const searchItems = (searchValue) => {
-  //   setSearch(searchValue)
-  //   const filterAnime = anime.filter((anime) => {
-  //     return Object.values(anime).join("").toLowerCase().includes(search.toLowerCase())
-  //   })
-  //   setFilter(filterAnime)
-  // }
-
-  useEffect(() => {
-    searchAnime();
-  }, []);
-
-  useEffect(() => {
-    obtainTopAnime();
-  }, []);
-
-  // useEffect(() => {
-  //   obtainSeasonalAnime();
-  // }, []);
+  const showEmpty = useMemo(() => !isLoading && !error && anime.length === 0, [isLoading, error, anime.length]);
 
   return (
     <div>
-    <div className="menu">
-      <div className="left-filters">
+      <div className="menu">
+        <div className="left-filters">
           <ul id="nav-filter">
-            <a>
-            <li className="Small">Anime</li></a>
-            <a>
-            <li className="Small">Manga</li></a>
+            <li className="Small">Anime</li>
+            <li className="Small">Manga</li>
           </ul>
         </div>
-      <div className="right-filters">
+
+        <div className="right-filters">
           <input
             type="search"
             placeholder="Search"
-            onChange={(e) => {
-              setSearch(e.target.value);
-            }}
-            onKeyPress={(e) => {
-              if (e.key === "Enter") {
-                searchAnime();
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                runSearch(1);
               }
             }}
           />
-      </div>
-
-      <div className="right-filters">
-        <Stack sx={{ width: 300, margin:"auto", backgroundColor: 'primary.dark' }}>
-      <Autocomplete
-          selectOnFocus
-          onChange={(e) => {
-            setSearch(e.target.value);
-          }}
-          onClick={(e) => {
-            if (e.key === "Enter") {
-              searchAnime();
-            }
-          }}
-          id="Anime"
-          getOptionLabel={(anime) => `${anime.title}`}
-          options={anime}
-          isOptionEqualToValue={(option, value) => 
-            option.title === value.title}
-          renderOption = {(props, anime) => (
-            <Box component = "li" {...props} key = {anime.mal_id}>
-                {anime.title}
-            </Box>
-          )}
-          renderInput = {(params) => <TextField {...params} label = "Search"></TextField>}>
-      </Autocomplete>
-        </Stack>
+          <button type="button" onClick={() => runSearch(1)}>
+            Search
+          </button>
         </div>
-        {/* <div className="dropdown">
-            {anime
-            .filter((item) => {
-              const searchTerm = search.toLowerCase();
-              const name = item.title.toLowerCase();
-              return(
-                searchTerm &&
-                name.startsWith(searchTerm) &&
-                name !== searchTerm
-              );
-            })
-            .slice(0, 5)
-            .map((item) => {
-              <div
-              className="dropdown-row"
-              onClick={() => setSearch(item.title)}
-              key={item.title}>
-                <p>{item.title}</p>
-              </div>
-            })}
-        </div> */}
-    </div>
+
+        <div className="right-filters">
+          <Stack sx={{ width: 300, margin: 'auto', backgroundColor: 'primary.dark' }}>
+            <Autocomplete
+              selectOnFocus
+              id="Anime"
+              getOptionLabel={(item) => `${item.title}`}
+              options={anime}
+              isOptionEqualToValue={(option, value) => option.title === value.title}
+              onChange={(_, selectedAnime) => {
+                if (selectedAnime?.title) {
+                  setSearch(selectedAnime.title);
+                }
+              }}
+              renderOption={(props, item) => (
+                <Box component="li" {...props} key={item.mal_id}>
+                  {item.title}
+                </Box>
+              )}
+              renderInput={(params) => <TextField {...params} label="Quick pick" />}
+            />
+          </Stack>
+        </div>
+      </div>
 
       <div className="Sidebar">
-        <Sidebar topAnime={topAnime.slice(0, 10)}></Sidebar>
+        <Sidebar topAnime={topAnime.slice(0, 10)} />
       </div>
 
-      {/* Your code */}
-      
-      {/* <div>
-        {search.length >= 1 ? (
-          filterAnime.map((card, i) => (
-            <div className="Filter-AnimeCard">
-              <h3 id="card-title">{card.title}</h3>
-              <a href={card.url}
-                key={card.mal_id}
-                target="_blank"
-                rel="noopener"><img className="Image-card" src={card.images.jpg.image_url} alt="Image"></img></a>
-              <p>Source: {card.source}</p>
-              <p>{card.episodes} Episodes, <span>{card.duration.replace("ep", "episodes")}</span></p>
-              <p>Score: {card.score}</p>
-              <p id="card-genre">Type: {card.type}</p>
-              <p id="synopsis">{card.synopsis}</p>
-            </div>
-          ))
-        ) :
+      {isLoading && <p style={{ color: 'white' }}>Loading anime...</p>}
 
-          <div>
-<AnimeCard seasonAnime={seasonAnime.slice(0, 20)}></AnimeCard>
+      {error && (
+        <div style={{ color: 'white' }}>
+          <p>Failed to load anime data: {error}</p>
+          <button type="button" onClick={() => runSearch(pagination?.current_page || 1)}>
+            Retry
+          </button>
+        </div>
+      )}
+
+      {showEmpty && <p style={{ color: 'white' }}>No results found for your search.</p>}
+
+      {!isLoading &&
+        !error &&
+        anime.map(({ url, mal_id, title, images, type, synopsis, episodes, source, score, duration }) => (
+          <div className="Filter-AnimeCard" key={mal_id}>
+            <h3 id="card-title">{title}</h3>
+            <a href={url} target="_blank" rel="noreferrer noopener">
+              <img className="Image-card" src={images.jpg.image_url} alt={title} />
+            </a>
+            <p>Source: {source}</p>
+            <p>
+              {episodes} Episodes, <span>{duration?.replace('ep', 'episodes')}</span>
+            </p>
+            <p>Score: {score}</p>
+            <p id="card-genre">Type: {type}</p>
+            <p id="synopsis">{synopsis}</p>
           </div>
-        }
-      </div> */}
-      {
-        anime.map(
-          ({
-            url,
-            mal_id,
-            title,
-            images,
-            type,
-            synopsis,
-            episodes,
-            source,
-            score,
-            duration
-          }) => (
-            <div className="Filter-AnimeCard">
-              <h3 id="card-title">{title}</h3>
-              <a href={url} key={mal_id} target="_blank" rel="noreferrer">
-                <img
-                  className="Image-card"
-                  src={images.jpg.image_url}
-                  alt={title}
-                ></img>
-              </a>
-              <p>Source: {source}</p>
-              <p>
-                {episodes} Episodes,{" "}
-                <span>{duration.replace("ep", "episodes")}</span>
-              </p>
-              <p>Score: {score}</p>
-              <p id="card-genre">Type: {type}</p>
-              <p id="synopsis">{synopsis}</p>
-            </div>
-          )
-          )} 
+        ))}
 
-<div className="pagination">
-  {pageSize && (
-  <ReactPaginate
-  nextLabel="&rarr;"
-  previousLabel="&larr;"
-    breakLabel={"..."}
-    pageCount={pageSize?.last_visible_page}
-    onPageChange={handlePageClick}
-    marginPagesDisplayed={2}
-    pageRangeDisplayed={5}
-   />
-  )}
-  {pageSize && <div style={{color: "white"}}>Current page: {pageSize?.current_page}</div>}
-</div>
-
-    {/* {!anime.lenght ?
-      <AnimeCard seasonAnime={seasonAnime.slice(0, 5)}></AnimeCard> : null } */}
+      <div className="pagination">
+        {pagination && (
+          <ReactPaginate
+            nextLabel="&rarr;"
+            previousLabel="&larr;"
+            breakLabel="..."
+            pageCount={pagination.last_visible_page}
+            forcePage={(pagination.current_page || 1) - 1}
+            onPageChange={handlePageClick}
+            marginPagesDisplayed={2}
+            pageRangeDisplayed={5}
+          />
+        )}
+        {pagination && <div style={{ color: 'white' }}>Current page: {pagination.current_page}</div>}
+      </div>
     </div>
   );
 }
 
 export default MainContent;
-
-// source to make multiple fetch https://medium.com/@jdhawks/make-fetch-s-happen-5022fcc2ddae
