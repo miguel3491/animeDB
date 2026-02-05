@@ -4,6 +4,7 @@ import TextField from '@mui/material/TextField';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import ReactPaginate from 'react-paginate';
+import ReactPlayer from 'react-player/lazy';
 import Sidebar from './Sidebar';
 import { getTopAnime, searchAnime as searchAnimeApi } from '../api/jikan';
 import '../styles.css';
@@ -15,6 +16,7 @@ function MainContent() {
   const [pagination, setPagination] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [hoveredAnimeId, setHoveredAnimeId] = useState(null);
 
   const runSearch = useCallback(async (page = 1) => {
     setIsLoading(true);
@@ -129,12 +131,38 @@ function MainContent() {
 
           {!isLoading && !error && (
             <div className="anime-grid">
-              {anime.map(({ url, mal_id, title, images, type, synopsis, episodes, source, score, duration }) => (
-                <article className="anime-card" key={mal_id}>
-                  <a href={url} target="_blank" rel="noreferrer noopener" className="poster-link">
-                    <img className="Image-card" src={images.jpg.image_url} alt={title} />
-                  </a>
-                  <div className="anime-content">
+              {anime.map(({ url, mal_id, title, images, type, synopsis, episodes, source, score, duration, trailer }) => {
+                const trailerUrl = trailer?.embed_url || trailer?.url;
+                const isHovered = hoveredAnimeId === mal_id;
+
+                return (
+                  <article className="anime-card" key={mal_id}>
+                    <div
+                      className="media-area"
+                      onMouseEnter={() => setHoveredAnimeId(mal_id)}
+                      onMouseLeave={() => setHoveredAnimeId(null)}
+                    >
+                      {isHovered && trailerUrl ? (
+                        <div className="trailer-player">
+                          <ReactPlayer
+                            url={`${trailerUrl}${trailerUrl.includes('?') ? '&' : '?'}autoplay=1&mute=1&controls=0&modestbranding=1`}
+                            width="100%"
+                            height="100%"
+                            playing
+                            muted
+                            controls={false}
+                            playsinline
+                          />
+                        </div>
+                      ) : (
+                        <a href={url} target="_blank" rel="noreferrer noopener" className="poster-link">
+                          <img className="Image-card" src={images.jpg.image_url} alt={title} />
+                        </a>
+                      )}
+
+                      {trailerUrl && <span className="hover-hint">Hover to preview trailer ▶</span>}
+                    </div>
+                    <div className="anime-content">
                     <h3 className="card-title">{title}</h3>
                     <div className="meta-row">
                       <span className="badge">{type || 'Unknown'}</span>
@@ -147,7 +175,8 @@ function MainContent() {
                     <p className="synopsis">{synopsis || 'No synopsis available.'}</p>
                   </div>
                 </article>
-              ))}
+                );
+              })}
             </div>
           )}
 

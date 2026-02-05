@@ -183,6 +183,36 @@ a {
   display: block;
 }
 
+.media-area {
+  position: relative;
+}
+
+.trailer-player {
+  width: 100%;
+  height: 300px;
+  background: #050812;
+}
+
+.trailer-player > div,
+.trailer-player iframe,
+.trailer-player video {
+  border: 0;
+}
+
+.hover-hint {
+  position: absolute;
+  left: 0.55rem;
+  bottom: 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #fff6c9;
+  background: rgba(6, 12, 25, 0.72);
+  border: 1px solid rgba(255, 243, 176, 0.45);
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
 .Image-card {
   width: 100%;
   height: 300px;
