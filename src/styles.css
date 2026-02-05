@@ -87,6 +87,33 @@ a{
     letter-spacing: 1.5px;
     text-transform: uppercase;
 }
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+.nav-link {
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text);
+}
+.auth-button {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: transform 0.2s ease, background 0.2s ease;
+}
+.auth-button:hover {
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.16);
+}
 
 /* Nav Filters */
 
@@ -449,6 +476,32 @@ a{
     text-transform: uppercase;
     color: var(--accent-3);
 }
+.card-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.favorite-button {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text);
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+.favorite-button.active {
+    background: rgba(255, 107, 156, 0.8);
+    color: #0c1324;
+    border-color: transparent;
+}
+.favorite-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
 .score-badge {
     background: rgba(249, 230, 110, 0.18);
     color: var(--accent-3);
@@ -615,6 +668,11 @@ a{
     justify-content: space-between;
     align-items: center;
     margin-bottom: 18px;
+}
+.detail-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
 }
 .detail-hero {
     display: grid;

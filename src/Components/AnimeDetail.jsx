@@ -1,11 +1,16 @@
 import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { deleteDoc, doc, getDoc, setDoc } from "firebase/firestore";
+import { db } from "../firebase";
+import { useAuth } from "../AuthContext";
 import "../styles.css";
 
 function AnimeDetail() {
   const { id } = useParams();
   const [anime, setAnime] = useState(null);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const [isFavorite, setIsFavorite] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -33,6 +38,25 @@ function AnimeDetail() {
     };
   }, [id]);
 
+  useEffect(() => {
+    if (!user) {
+      setIsFavorite(false);
+      return;
+    }
+    let isMounted = true;
+    const checkFavorite = async () => {
+      const favoriteRef = doc(db, "users", user.uid, "favorites", String(id));
+      const snapshot = await getDoc(favoriteRef);
+      if (isMounted) {
+        setIsFavorite(snapshot.exists());
+      }
+    };
+    checkFavorite();
+    return () => {
+      isMounted = false;
+    };
+  }, [id, user]);
+
   if (loading) {
     return (
       <div className="layout">
@@ -55,13 +79,43 @@ function AnimeDetail() {
   }
 
   const hasTrailer = Boolean(anime.trailer?.embed_url);
+  const toggleFavorite = async () => {
+    if (!user) {
+      return;
+    }
+    const favoriteRef = doc(db, "users", user.uid, "favorites", String(anime.mal_id));
+    if (isFavorite) {
+      await deleteDoc(favoriteRef);
+      setIsFavorite(false);
+      return;
+    }
+    await setDoc(favoriteRef, {
+      mal_id: anime.mal_id,
+      title: anime.title,
+      image: anime.images?.jpg?.image_url || "",
+      hasTrailer,
+      updatedAt: new Date().toISOString()
+    });
+    setIsFavorite(true);
+  };
 
   return (
     <div className="layout detail-layout">
       <section className="detail-panel">
         <div className="detail-header">
           <Link className="detail-link" to="/">&#8592; Back to results</Link>
-          {hasTrailer && <span className="pill">Trailer available</span>}
+          <div className="detail-actions">
+            {hasTrailer && <span className="pill">Trailer available</span>}
+            <button
+              className={`favorite-button ${isFavorite ? "active" : ""}`}
+              type="button"
+              onClick={toggleFavorite}
+              disabled={!user}
+              title={user ? "Save to favorites" : "Sign in to save favorites"}
+            >
+              {isFavorite ? "Favorited" : "Add to favorites"}
+            </button>
+          </div>
         </div>
         <div className="detail-hero">
           <div className="detail-poster">

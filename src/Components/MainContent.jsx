@@ -2,6 +2,9 @@ import React, { useState, useEffect, useCallback } from "react";
 import Sidebar from "./Sidebar";
 import ReactPaginate from "react-paginate";
 import { Link } from "react-router-dom";
+import { collection, deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore";
+import { db } from "../firebase";
+import { useAuth } from "../AuthContext";
 import "../styles.css"
 
 function MainContent() {
@@ -10,6 +13,8 @@ function MainContent() {
   const [search, setSearch] = useState("");
   const [pageSize, setPageSize] = useState();
   const [viewMode, setViewMode] = useState("grid");
+  const { user } = useAuth();
+  const [favorites, setFavorites] = useState(new Set());
   // const [seasonAnime, setseasonAnime] = useState([]);
   // const [filterAnime, setFilter] = useState([]);
 
@@ -56,6 +61,41 @@ function MainContent() {
     obtainTopAnime();
   }, []);
 
+  useEffect(() => {
+    if (!user) {
+      setFavorites(new Set());
+      return;
+    }
+
+    const favoritesRef = collection(db, "users", user.uid, "favorites");
+    const unsubscribe = onSnapshot(favoritesRef, (snapshot) => {
+      const favoriteIds = new Set(snapshot.docs.map((docItem) => docItem.id));
+      setFavorites(favoriteIds);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  const toggleFavorite = async (item) => {
+    if (!user) {
+      return;
+    }
+    const favoriteRef = doc(db, "users", user.uid, "favorites", String(item.mal_id));
+    const hasFavorite = favorites.has(String(item.mal_id));
+    if (hasFavorite) {
+      await deleteDoc(favoriteRef);
+      return;
+    }
+
+    await setDoc(favoriteRef, {
+      mal_id: item.mal_id,
+      title: item.title,
+      image: item.images?.jpg?.image_url || "",
+      hasTrailer: Boolean(item.trailer?.embed_url),
+      updatedAt: new Date().toISOString()
+    });
+  };
+
   const AnimeCardItem = ({ item }) => {
     const [showTrailer, setShowTrailer] = useState(false);
     const {
@@ -71,6 +111,7 @@ function MainContent() {
       duration
     } = item;
     const hasTrailer = Boolean(trailer?.embed_url);
+    const isFavorite = favorites.has(String(mal_id));
 
     return (
       <article className="anime-card" key={mal_id}>
@@ -115,9 +156,20 @@ function MainContent() {
           )}
           <span className="score-badge">Score {score ?? "N/A"}</span>
           <p className="synopsis">{synopsis || "No synopsis available yet."}</p>
-          <Link className="detail-link" to={`/anime/${mal_id}`}>
-            View details
-          </Link>
+          <div className="card-actions">
+            <Link className="detail-link" to={`/anime/${mal_id}`}>
+              View details
+            </Link>
+            <button
+              className={`favorite-button ${isFavorite ? "active" : ""}`}
+              type="button"
+              onClick={() => toggleFavorite(item)}
+              disabled={!user}
+              title={user ? "Save to favorites" : "Sign in to save favorites"}
+            >
+              {isFavorite ? "Favorited" : "Add to favorites"}
+            </button>
+          </div>
         </div>
       </article>
     );

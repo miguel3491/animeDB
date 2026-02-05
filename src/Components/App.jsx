@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Header from "./Header";
 import MainContent from "./MainContent";
 import AnimeDetail from "./AnimeDetail";
+import Favorites from "./Favorites";
 
 function App(){
     return(
@@ -15,6 +16,7 @@ function App(){
                     <Routes>
                         <Route path="/" element={<MainContent></MainContent>} />
                         <Route path="/anime/:id" element={<AnimeDetail></AnimeDetail>} />
+                        <Route path="/favorites" element={<Favorites></Favorites>} />
                     </Routes>
                 </main>
                 <footer>
