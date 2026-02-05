@@ -1,255 +1,305 @@
-html, body, div{
-    margin: 0;
-    padding: 0;
-    border: 0;
-    outline: 0;
-    vertical-align: baseline; /* property sets vertical alignment of an inline, inline-block or table-cell box. */
-    background: transparent;
-    scroll-behavior: smooth;
-    background: #0a1625;
-    
-}
-
 * {
-    box-sizing: border-box;
+  box-sizing: border-box;
 }
 
-h1, h2, h3, h4, p, span{
-    color: #fff;   
+body {
+  margin: 0;
+  font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  color: #ecf0ff;
+  background: radial-gradient(circle at top right, #4a2f88 0%, #1a1238 35%, #090d1f 100%);
+  min-height: 100vh;
 }
 
-p{
-    font-size: 20px;
+a {
+  text-decoration: none;
+  color: #ffffff;
 }
 
-a{
-    text-decoration: none;
-    color: #fff
-}
-/* Header */
-.nav-wrap{
-    display: flex;
-    text-align: center;
-    width: 100%;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    background: #152232;
-    color: #a0b1c5;
-    position: relative;
-    padding: 1px 0px 15px;
-    align-items: center !important;
+.app-shell {
+  min-height: 100vh;
 }
 
-#Title{
-    position: relative;
-    left: 10vh;
+.nav-wrap {
+  padding: 1.4rem 2rem;
+  background: linear-gradient(90deg, rgba(40, 21, 85, 0.95), rgba(15, 108, 153, 0.95));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
 }
 
-/* Nav Filters */
-
-.menu{
-    display: inline-block;
-    width: 100%;
-    padding: 10px 45px;
-    background-color: #2e51a2;
+#Title {
+  margin: 0;
+  font-size: 2rem;
+  letter-spacing: 1px;
 }
 
-#nav-filter{
-    list-style: none;
-    margin: 0;
-    padding: 0;
+#Title span {
+  color: #76e4ff;
 }
 
-.Small{
-    display: block;
-    float: left;
-    position: relative;
-    text-indent: 10px;
-    width: 100px;
-    font-family: Overpass,-apple-system,BlinkMacSystemFont,Segoe UI,Oxygen,Ubuntu,Cantarell,Fira Sans,Droid Sans,Helvetica Neue,sans-serif;
-    text-transform: capitalize;
-    z-index: 90;
+.header-subtitle {
+  margin: 0.35rem 0 0;
+  color: #d8dcff;
+  font-size: 0.95rem;
 }
 
-.left-filters{
-    display: block;
-    font-size: 17px;
-    font-weight: 700;
-    text-align: left;
-    text-decoration: none;
+.layout-shell {
+  padding: 1.2rem 1.5rem 2rem;
 }
 
-.right-filters{
-    float: right;
+.menu {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1rem;
+  border-radius: 14px;
+  background: rgba(13, 22, 48, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* Sidebar */
-
-.aside-bar{
-    background-color: #0a1625;
-    box-sizing: content-box;
-    margin-top: 15px;
-    padding-top: 8px;
-    box-shadow: 1px 0px 0px 2px #2e51a2;
+#nav-filter {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 0.5rem;
 }
 
-#h4-side{
-    padding: 85px;
-    border-style: none;
-    text-align: center;
-    display: inline;
-    font-size: 14px;
+.Small {
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.9rem;
 }
 
-.Sidebar{
-    position: absolute;
-    padding: 0% 0.1%;
-    width: 280px;
+.Small.active {
+  background: linear-gradient(90deg, #ff4f9a, #7d5dff);
 }
 
-.anime-title{
-    position: relative;
-    float: right;
-    text-align: left;
-    font-family: Avenir,lucida grande,tahoma,verdana,arial,sans-serif;
-    font-size: 12px;
-    font-weight: 700;
-    line-height: 14px;
-    width: 210px;
+.search-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-#side-rank{
-    color: gray;
-    display: block;
-    position: relative;
-    top: 16px;
-    left: 5px;
-    font-size: 1.1rem;
-    font-weight: 100;
-}
-.side-image{
-    margin-left: 20px;
-    height: 50px;
-    width: auto;
+.search-input {
+  width: 260px;
+  background: #0f1f43;
+  color: #fff;
+  border: 1px solid #304a82;
+  border-radius: 10px;
+  padding: 0.62rem 0.75rem;
 }
 
-/* Anime Card */
-.AnimeCard{
-    /* -webkit-box-direction: normal; */
-    /* -webkit-box-orient: horizontal; */
-    /* -webkit-box-pack: justify; */
-    display: -webkit-box;
-    display: flex;
-    display: -ms-flexbox;
-    flex-direction: row;
-    -ms-flex-direction: row;
-    -ms-flex-pack: justify;
-    -ms-flex-wrap: wrap;
-    flex-wrap: wrap;
-    justify-content: space-evenly;
-    padding: 60px;
-    margin-left: 0px;
+.search-input::placeholder {
+  color: #a8b4dd;
 }
 
-.Filter-AnimeCard{
-    display: grid;
-    grid-gap: 0px 28px;
-    grid-template-columns: repeat(auto-fill,175px);
-    border: 2px solid rgb(0, 0, 0);
-    margin-left: 350px;
-    margin-top: 12px;
-    padding-top: 15px;
-    /* display: flex;
-   align-items: center;
-   justify-content: center;
-   padding: 2rem 5rem; */
+.btn-primary {
+  border: none;
+  border-radius: 10px;
+  padding: 0.62rem 0.9rem;
+  color: #fff;
+  background: linear-gradient(135deg, #ff5e9d, #6d7bff);
+  cursor: pointer;
+  font-weight: 600;
 }
 
-/* .filter-animecard{
-    display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
-    justify-content: space-between;
-} */
-
-.AnimeCard div{
-    max-width: 248px;
+.content-grid {
+  margin-top: 1.1rem;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 1rem;
 }
 
-.AnimeCard img{
-    border: 3px solid rgb(0, 0, 0);
-    height: 21rem;
+.sidebar-panel {
+  background: rgba(8, 16, 35, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 1rem;
+  position: sticky;
+  top: 0.8rem;
 }
 
-/* Filter card */
-.Image-card{
-    display: flex;
-    align-content: center;
-    width: 120px;
+#h4-side {
+  margin-top: 0;
+  margin-bottom: 0.7rem;
+  color: #9ee8ff;
+  letter-spacing: 0.4px;
 }
 
-#card-title{
-    display: absolute;
-    /* height: auto;
-    margin: 0;
-    overflow: hidden; */
-    text-align: center;
-    height: 50px;
-    width: 100%;
+.sidebar-item {
+  display: grid;
+  grid-template-columns: auto 50px 1fr;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
 
-#synopsis{
-    max-height: 180px;
-    overflow: hidden;
+.sidebar-item:last-child {
+  border-bottom: none;
 }
 
-#synopsis:hover{
-    overflow: auto;
+#side-rank {
+  color: #ffd86b;
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
-/* Pagination */
+.side-image {
+  width: 45px;
+  height: 62px;
+  border-radius: 7px;
+  object-fit: cover;
+}
+
+.anime-title {
+  font-size: 0.83rem;
+  line-height: 1.2;
+  color: #eef1ff;
+}
+
+.anime-results {
+  min-width: 0;
+}
+
+.anime-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+.anime-card {
+  background: linear-gradient(180deg, rgba(16, 28, 58, 0.9), rgba(9, 16, 35, 0.95));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+}
+
+.poster-link {
+  display: block;
+}
+
+.Image-card {
+  width: 100%;
+  height: 300px;
+  object-fit: cover;
+}
+
+.anime-content {
+  padding: 0.85rem;
+}
+
+.card-title {
+  margin: 0 0 0.55rem;
+  font-size: 1rem;
+  min-height: 2.4em;
+}
+
+.meta-row {
+  display: flex;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+
+.badge {
+  background: rgba(126, 153, 255, 0.2);
+  color: #cbdaff;
+  border: 1px solid rgba(126, 153, 255, 0.45);
+  font-size: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+}
+
+.badge.score {
+  color: #ffe4a3;
+  border-color: rgba(255, 224, 138, 0.45);
+  background: rgba(255, 224, 138, 0.14);
+}
+
+.detail-line {
+  margin: 0.2rem 0;
+  font-size: 0.85rem;
+  color: #d6deff;
+}
+
+.synopsis {
+  margin-top: 0.55rem;
+  font-size: 0.85rem;
+  color: #c7d0f7;
+  line-height: 1.35;
+  max-height: 6.8em;
+  overflow-y: auto;
+}
+
+.status-text {
+  color: #eaf0ff;
+}
+
+.status-card {
+  background: rgba(108, 33, 48, 0.5);
+  border: 1px solid rgba(255, 117, 145, 0.6);
+  padding: 0.8rem;
+  border-radius: 12px;
+  margin-bottom: 1rem;
+}
+
 .pagination {
-    padding-top: 1rem;
-    text-align: center;
+  margin-top: 1rem;
+  text-align: center;
 }
 
-.pagination > ul {
-    padding: 0;
-    margin: 0;
+.pagination ul {
+  list-style: none;
+  padding: 0;
 }
 
 .pagination li {
-    display: inline-block;
+  display: inline-block;
+  margin: 0 3px;
 }
 
-.pagination li > a {
-    padding: 0.5rem;
-    margin: 1px;
-    display: inline-block;
-    cursor: pointer;
-    border: 1px solid #d8eef5;
-    border-radius: 2px;
-    min-width: 1rem;
+.pagination li a {
+  display: inline-block;
+  min-width: 1.7rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid rgba(195, 208, 255, 0.35);
+  background: rgba(26, 38, 73, 0.7);
+  cursor: pointer;
 }
 
-.pagination li > a:focus {
-    outline: none;
+.footer-note {
+  text-align: center;
+  color: #98a9e0;
+  font-size: 0.8rem;
+  padding: 1.2rem;
 }
 
+@media (max-width: 1024px) {
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
 
-.dropdown {
-    background-color: white;
-    display: flex;
+  .sidebar-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 720px) {
+  .menu {
     flex-direction: column;
-    border: 1px solid gray;
+    align-items: stretch;
   }
-  
-  .dropdown:empty {
-    border: none;
+
+  .search-controls {
+    width: 100%;
   }
-  
-  .dropdown-row {
-    cursor: pointer;
-    text-align: start;
-    margin: 2px 0;
+
+  .search-input {
+    width: 100%;
   }
+}

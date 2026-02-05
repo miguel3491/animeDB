@@ -4,14 +4,14 @@ import MainContent from './MainContent';
 
 function App() {
   return (
-    <div>
+    <div className="app-shell">
       <header>
         <Header />
       </header>
       <main>
         <MainContent />
       </main>
-      <footer />
+      <footer className="footer-note">Built for anime fans • Powered by Jikan API</footer>
     </div>
   );
 }
