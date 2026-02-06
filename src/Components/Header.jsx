@@ -7,7 +7,9 @@ function Header(){
 
     return(
         <nav className="nav-wrap">
-            <h1 id = "Title">Anime<span>情報</span></h1>
+            <Link className="title-link" to="/">
+                <h1 id = "Title">Anime<span>情報</span></h1>
+            </Link>
             <div className="header-actions">
                 <span className="header-tagline">Curate your next obsession</span>
                 <Link className="nav-link" to="/favorites">Favorites</Link>

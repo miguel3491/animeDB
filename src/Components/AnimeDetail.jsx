@@ -94,6 +94,13 @@ function AnimeDetail() {
       title: anime.title,
       image: anime.images?.jpg?.image_url || "",
       hasTrailer,
+      mediaType: "anime",
+      totalEpisodes: anime.episodes ?? null,
+      status: "Plan to watch",
+      rating: "",
+      note: "",
+      order: Date.now(),
+      currentEpisode: 0,
       updatedAt: new Date().toISOString()
     });
     setIsFavorite(true);

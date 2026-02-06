@@ -1,72 +1,76 @@
-import React, { useMemo, useState, useEffect, useCallback } from "react";
-import Sidebar from "./Sidebar";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import ReactPaginate from "react-paginate";
 import { Link } from "react-router-dom";
+import MangaSidebar from "./MangaSidebar";
 import { collection, deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
-import "../styles.css"
+import "../styles.css";
 
-function MainContent() {
-  const [anime, setAnime] = useState([]);
-  const [topAnime, setTopAnime] = useState([]);
+function MangaContent() {
+  const [manga, setManga] = useState([]);
+  const [topManga, setTopManga] = useState([]);
   const [search, setSearch] = useState("");
   const [pageSize, setPageSize] = useState();
   const [viewMode, setViewMode] = useState("grid");
   const [selectedGenre, setSelectedGenre] = useState("All");
   const { user } = useAuth();
   const [favorites, setFavorites] = useState(new Set());
-  // const [seasonAnime, setseasonAnime] = useState([]);
-  // const [filterAnime, setFilter] = useState([]);
 
-  const obtainTopAnime = async () => {
-    const api = await fetch(`https://api.jikan.moe/v4/top/anime`).then((res) =>
+  const obtainTopManga = async () => {
+    const api = await fetch(`https://api.jikan.moe/v4/top/manga`).then((res) =>
       res.json()
     );
-    setTopAnime(api.data);
+    setTopManga(api.data || []);
   };
 
-  // const obtainSeasonalAnime = async () => {
-  //   const apiData = await fetch(
-  //     `https://api.jikan.moe/v4/seasons/2022/fall`
-  //   ).then((res) => res.json());
-  //   setseasonAnime(apiData.data);
-  // };
-
-  const searchAnime = useCallback(async (page) => {
-    const currentPage = page ?? 1; // default page is 1
+  const searchManga = useCallback(async (page) => {
+    const currentPage = page ?? 1;
     try {
       const response = await fetch(
-        `https://api.jikan.moe/v4/anime?q=${search}&page=${currentPage}`
+        `https://api.jikan.moe/v4/manga?q=${search}&page=${currentPage}`
       );
       const apiAll = await response.json();
-      setAnime(apiAll?.data ?? []);
+      setManga(apiAll?.data ?? []);
       setPageSize(apiAll?.pagination ?? null);
     } catch (error) {
-      setAnime([]);
+      setManga([]);
       setPageSize(null);
     }
   }, [search]);
 
   const handlePageClick = async (event) => {
-    searchAnime(event.selected + 1); // change page
+    searchManga(event.selected + 1);
   };
 
-  //  const searchItems = (searchValue) => {
-  //   setSearch(searchValue)
-  //   const filterAnime = anime.filter((anime) => {
-  //     return Object.values(anime).join("").toLowerCase().includes(search.toLowerCase())
-  //   })
-  //   setFilter(filterAnime)
-  // }
+  useEffect(() => {
+    searchManga();
+  }, [searchManga]);
 
   useEffect(() => {
-    searchAnime();
-  }, [searchAnime]);
-
-  useEffect(() => {
-    obtainTopAnime();
+    obtainTopManga();
   }, []);
+
+  const genreOptions = useMemo(() => {
+    const names = new Set();
+    manga.forEach((item) => {
+      (item.genres || []).forEach((genre) => {
+        if (genre?.name) {
+          names.add(genre.name);
+        }
+      });
+    });
+    return ["All", ...Array.from(names).sort()];
+  }, [manga]);
+
+  const filteredManga = useMemo(() => {
+    if (selectedGenre === "All") {
+      return manga;
+    }
+    return manga.filter((item) =>
+      (item.genres || []).some((genre) => genre.name === selectedGenre)
+    );
+  }, [manga, selectedGenre]);
 
   useEffect(() => {
     if (!user) {
@@ -87,12 +91,11 @@ function MainContent() {
     if (!user) {
       return;
     }
-    const scrollY = window.scrollY;
-    const favoriteRef = doc(db, "users", user.uid, "favorites", String(item.mal_id));
-    const hasFavorite = favorites.has(String(item.mal_id));
+    const docId = `manga_${item.mal_id}`;
+    const favoriteRef = doc(db, "users", user.uid, "favorites", docId);
+    const hasFavorite = favorites.has(docId);
     if (hasFavorite) {
       await deleteDoc(favoriteRef);
-      requestAnimationFrame(() => window.scrollTo(0, scrollY));
       return;
     }
 
@@ -100,122 +103,16 @@ function MainContent() {
       mal_id: item.mal_id,
       title: item.title,
       image: item.images?.jpg?.image_url || "",
-      hasTrailer: Boolean(item.trailer?.embed_url),
-      mediaType: "anime",
-      totalEpisodes: item.episodes ?? null,
+      mediaType: "manga",
+      totalChapters: item.chapters ?? null,
       status: "Plan to watch",
       rating: "",
       note: "",
       order: Date.now(),
-      currentEpisode: 0,
+      currentChapter: 0,
       updatedAt: new Date().toISOString()
     });
-    requestAnimationFrame(() => window.scrollTo(0, scrollY));
   };
-
-  const genreOptions = useMemo(() => {
-    const names = new Set();
-    anime.forEach((item) => {
-      (item.genres || []).forEach((genre) => {
-        if (genre?.name) {
-          names.add(genre.name);
-        }
-      });
-    });
-    return ["All", ...Array.from(names).sort()];
-  }, [anime]);
-
-  const filteredAnime = useMemo(() => {
-    if (selectedGenre === "All") {
-      return anime;
-    }
-    return anime.filter((item) =>
-      (item.genres || []).some((genre) => genre.name === selectedGenre)
-    );
-  }, [anime, selectedGenre]);
-
-  const AnimeCardItem = ({ item }) => {
-    const [showTrailer, setShowTrailer] = useState(false);
-    const {
-      mal_id,
-      title,
-      images,
-      trailer,
-      type,
-      synopsis,
-      episodes,
-      source,
-      score,
-      duration
-    } = item;
-    const hasTrailer = Boolean(trailer?.embed_url);
-    const isFavorite = favorites.has(String(mal_id));
-
-    return (
-      <article className="anime-card" key={mal_id}>
-        <Link to={`/anime/${mal_id}`}>
-          <div
-            className="media-wrap"
-            onMouseEnter={() => setShowTrailer(true)}
-            onMouseLeave={() => setShowTrailer(false)}
-          >
-            <img src={images.jpg.image_url} alt={title} />
-            {hasTrailer && (
-              <span className="trailer-badge">Trailer Available</span>
-            )}
-            {hasTrailer && showTrailer && (
-              <iframe
-                className="trailer-frame"
-                src={trailer.embed_url}
-                title={`${title} trailer`}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                loading="lazy"
-              ></iframe>
-            )}
-          </div>
-        </Link>
-        <div className="card-body">
-          <div className="tag-row">
-            {type && <span className="tag">{type}</span>}
-            {source && <span className="tag">{source}</span>}
-          </div>
-          <Link className="card-title-link" to={`/anime/${mal_id}`}>
-            <h4 className="card-title">{title}</h4>
-          </Link>
-          <div className="card-meta">
-            <span>Episodes: {episodes ?? "?"}</span>
-            <span>Duration: {duration ? duration.replace("ep", "episodes") : "?"}</span>
-          </div>
-          {hasTrailer ? (
-            <span className="card-callout">Hover the image to preview the trailer.</span>
-          ) : (
-            <span className="card-callout muted">Trailer not available yet.</span>
-          )}
-          <span className="score-badge">Score {score ?? "N/A"}</span>
-          <p className="synopsis">{synopsis || "No synopsis available yet."}</p>
-          <div className="card-actions">
-            <Link className="detail-link" to={`/anime/${mal_id}`}>
-              View details
-            </Link>
-            <button
-              className={`favorite-button ${isFavorite ? "active" : ""}`}
-              type="button"
-              onClick={() => toggleFavorite(item)}
-              disabled={!user}
-              title={user ? "Save to favorites" : "Sign in to save favorites"}
-            >
-              {isFavorite ? "Favorited" : "Add to favorites"}
-            </button>
-          </div>
-        </div>
-      </article>
-    );
-  };
-
-  // useEffect(() => {
-  //   obtainSeasonalAnime();
-  // }, []);
 
   return (
     <div>
@@ -223,10 +120,10 @@ function MainContent() {
         <div className="left-filters">
           <ul id="nav-filter">
             <li>
-              <Link className="Small filter-button active" to="/">Anime</Link>
+              <Link className="Small filter-button" to="/">Anime</Link>
             </li>
             <li>
-              <Link className="Small filter-button" to="/manga">Manga</Link>
+              <Link className="Small filter-button active" to="/manga">Manga</Link>
             </li>
           </ul>
         </div>
@@ -234,18 +131,18 @@ function MainContent() {
           <div className="search-wrap">
             <input
               type="search"
-              placeholder="Search for your next favorite..."
+              placeholder="Search manga titles..."
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
-                  searchAnime();
+                  searchManga();
                 }
               }}
             />
-            <button type="button" onClick={() => searchAnime()}>
+            <button type="button" onClick={() => searchManga()}>
               Search
             </button>
           </div>
@@ -255,10 +152,9 @@ function MainContent() {
       <div className="layout">
         <section>
           <div className="hero">
-            <h2>Discover anime that matches your mood</h2>
+            <h2>Discover manga that matches your mood</h2>
             <p>
-              Explore stories, studios, and scores with a layout inspired by neon
-              arcades and midnight cityscapes.
+              Dive into ongoing series, completed classics, and everything in between.
             </p>
           </div>
 
@@ -267,7 +163,7 @@ function MainContent() {
               {search ? `Results for “${search}”` : "Trending & top matches"}
             </h3>
             <div className="results-controls">
-              <span className="pill">{filteredAnime.length} titles</span>
+              <span className="pill">{filteredManga.length} titles</span>
               <label className="genre-filter">
                 <span className="genre-label">Genre</span>
                 <select
@@ -327,9 +223,56 @@ function MainContent() {
           </div>
 
           <div className={`anime-grid ${viewMode}`}>
-            {filteredAnime.map((item) => (
-              <AnimeCardItem item={item} key={item.mal_id} />
-            ))}
+            {filteredManga.map(
+              ({
+                mal_id,
+                title,
+                images,
+                type,
+                synopsis,
+                chapters,
+                volumes,
+                status,
+                score
+              }) => (
+                <article className="anime-card" key={mal_id}>
+                  <Link to={`/manga/${mal_id}`}>
+                    <div className="media-wrap">
+                      <img src={images.jpg.image_url} alt={title} />
+                    </div>
+                  </Link>
+                  <div className="card-body">
+                    <div className="tag-row">
+                      {type && <span className="tag">{type}</span>}
+                      {status && <span className="tag">{status}</span>}
+                    </div>
+                    <Link className="card-title-link" to={`/manga/${mal_id}`}>
+                      <h4 className="card-title">{title}</h4>
+                    </Link>
+                    <div className="card-meta">
+                      <span>Chapters: {chapters ?? "?"}</span>
+                      <span>Volumes: {volumes ?? "?"}</span>
+                    </div>
+                    <span className="score-badge">Score {score ?? "N/A"}</span>
+                    <p className="synopsis">{synopsis || "No synopsis available yet."}</p>
+                    <div className="card-actions">
+                      <Link className="detail-link" to={`/manga/${mal_id}`}>
+                        View details
+                      </Link>
+                      <button
+                        className={`favorite-button ${favorites.has(`manga_${mal_id}`) ? "active" : ""}`}
+                        type="button"
+                        onClick={() => toggleFavorite({ mal_id, title, images })}
+                        disabled={!user}
+                        title={user ? "Save to favorites" : "Sign in to save favorites"}
+                      >
+                        {favorites.has(`manga_${mal_id}`) ? "Favorited" : "Add to favorites"}
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              )
+            )}
           </div>
 
           <div className="pagination">
@@ -353,25 +296,22 @@ function MainContent() {
 
           <div className="catalog-section">
             <div className="results-bar">
-              <h3>Anime catalog (A–Z)</h3>
+              <h3>Manga catalog (A–Z)</h3>
               <span className="pill">Sorted alphabetically</span>
             </div>
             <div className="catalog-grid">
-              {[...filteredAnime]
+              {[...filteredManga]
                 .filter((item) => item?.title)
                 .sort((a, b) => a.title.localeCompare(b.title))
                 .map((item) => (
                   <Link
                     className="catalog-item"
                     key={`catalog-${item.mal_id}`}
-                    to={`/anime/${item.mal_id}`}
+                    to={`/manga/${item.mal_id}`}
                   >
                     <img src={item.images.jpg.image_url} alt={item.title} />
                     <div>
                       <span>{item.title}</span>
-                      {item.trailer?.embed_url && (
-                        <span className="catalog-badge">Trailer</span>
-                      )}
                     </div>
                   </Link>
                 ))}
@@ -380,13 +320,11 @@ function MainContent() {
         </section>
 
         <div className="Sidebar">
-          <Sidebar topAnime={topAnime.slice(0, 10)}></Sidebar>
+          <MangaSidebar topManga={topManga}></MangaSidebar>
         </div>
       </div>
     </div>
   );
 }
 
-export default MainContent;
-
-// source to make multiple fetch https://medium.com/@jdhawks/make-fetch-s-happen-5022fcc2ddae
+export default MangaContent;

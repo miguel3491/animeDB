@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { collection, doc, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
 import { Link } from "react-router-dom";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
@@ -9,6 +9,22 @@ function Favorites() {
   const { user } = useAuth();
   const [favorites, setFavorites] = useState([]);
   const [loading, setLoading] = useState(true);
+  const dragItem = useRef(null);
+  const normalizingRef = useRef(false);
+  const pageSize = 10;
+  const [activePage, setActivePage] = useState(1);
+  const [completedPage, setCompletedPage] = useState(1);
+  const [orderDrafts, setOrderDrafts] = useState({});
+  const [statusDrafts, setStatusDrafts] = useState({});
+  const [activeTab, setActiveTab] = useState("anime");
+
+  const updateFavorite = useCallback(async (docId, updates) => {
+    const favoriteRef = doc(db, "users", user.uid, "favorites", String(docId));
+    await updateDoc(favoriteRef, {
+      ...updates,
+      updatedAt: new Date().toISOString()
+    });
+  }, [user]);
 
   useEffect(() => {
     if (!user) {
@@ -18,15 +34,110 @@ function Favorites() {
     }
 
     const favoritesRef = collection(db, "users", user.uid, "favorites");
-    const favoritesQuery = query(favoritesRef, orderBy("title", "asc"));
+    const favoritesQuery = query(favoritesRef, orderBy("order", "asc"));
     const unsubscribe = onSnapshot(favoritesQuery, (snapshot) => {
-      const data = snapshot.docs.map((doc) => doc.data());
+      const data = snapshot.docs.map((docItem) => {
+        const payload = docItem.data();
+        return {
+          docId: docItem.id,
+          mediaType: payload.mediaType ?? "anime",
+          ...payload
+        };
+      });
       setFavorites(data);
       setLoading(false);
+      const activeItems = data.filter((item) => item.status !== "Completed");
+      const completedItems = data.filter((item) => item.status === "Completed");
+      const needsNormalization = (items) =>
+        items.some((item) => {
+          const orderValue = Number(item.order);
+          return !Number.isInteger(orderValue) || orderValue < 1;
+        });
+
+      const hasDrafts = Object.keys(orderDrafts).length > 0 || Object.keys(statusDrafts).length > 0;
+      if ((needsNormalization(activeItems) || needsNormalization(completedItems)) && !normalizingRef.current && !hasDrafts) {
+        normalizingRef.current = true;
+        const activeSorted = sortActiveFavorites(activeItems);
+        const updates = [
+          ...activeSorted.map((item, index) =>
+            updateFavorite(item.docId, { order: index + 1 })
+          ),
+          ...completedItems.map((item, index) =>
+            updateFavorite(item.docId, { order: index + 1 })
+          )
+        ];
+        Promise.all(updates).finally(() => {
+          normalizingRef.current = false;
+        });
+      }
+
+      setStatusDrafts((prev) => {
+        const next = { ...prev };
+        const serverStatus = new Map(
+          data.map((item) => [String(item.docId), item.status])
+        );
+        Object.keys(next).forEach((key) => {
+          if (serverStatus.get(String(key)) === next[key]) {
+            delete next[key];
+          }
+        });
+        return next;
+      });
     });
 
     return () => unsubscribe();
-  }, [user]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, updateFavorite, orderDrafts, statusDrafts]);
+
+  useEffect(() => {
+    setActivePage(1);
+    setCompletedPage(1);
+  }, [activeTab]);
+
+  const handleDragStart = (index) => {
+    dragItem.current = index;
+  };
+
+  const handleDrop = async (index) => {
+    if (dragItem.current === null || dragItem.current === index) {
+      dragItem.current = null;
+      return;
+    }
+
+    const updated = [...favorites];
+    const [moved] = updated.splice(dragItem.current, 1);
+    updated.splice(index, 0, moved);
+    dragItem.current = null;
+
+    setFavorites(updated);
+
+    const updates = updated.map((item, idx) =>
+      updateFavorite(item.docId, { order: idx + 1 })
+    );
+    await Promise.all(updates);
+  };
+
+  const getSelectStatus = (item) =>
+    statusDrafts[item.docId] ?? item.status ?? "Plan to watch";
+
+  const getListStatus = (item) =>
+    statusDrafts[item.docId] === "Completed"
+      ? item.status ?? "Plan to watch"
+      : statusDrafts[item.docId] ?? item.status ?? "Plan to watch";
+
+  const animeCount = favorites.filter((item) => (item.mediaType ?? "anime") === "anime").length;
+  const mangaCount = favorites.filter((item) => (item.mediaType ?? "anime") === "manga").length;
+  const tabFavorites = favorites.filter(
+    (item) => (item.mediaType ?? "anime") === activeTab
+  );
+
+  useEffect(() => {
+    if (activeTab === "anime" && animeCount === 0 && mangaCount > 0) {
+      setActiveTab("manga");
+    } else if (activeTab === "manga" && mangaCount === 0 && animeCount > 0) {
+      setActiveTab("anime");
+    }
+  }, [activeTab, animeCount, mangaCount]);
 
   if (!user) {
     return (
@@ -39,36 +150,329 @@ function Favorites() {
       </div>
     );
   }
+  const activeFavorites = tabFavorites.filter((item) => getListStatus(item) !== "Completed");
+  const completedFavorites = tabFavorites.filter((item) => getListStatus(item) === "Completed");
+
+  const paginate = (items, page) => {
+    const start = (page - 1) * pageSize;
+    return items.slice(start, start + pageSize);
+  };
+
+  const sortActiveFavorites = (items) =>
+    [...items].sort((a, b) => {
+      const statusA = getListStatus(a) === "Watching" ? 0 : 1;
+      const statusB = getListStatus(b) === "Watching" ? 0 : 1;
+      if (statusA !== statusB) {
+        return statusA - statusB;
+      }
+      return (Number(a.order) || 0) - (Number(b.order) || 0);
+    });
+
+  const totalPages = (items) => Math.max(1, Math.ceil(items.length / pageSize));
+
+  const getNextOrder = (status, mediaType = "anime") => {
+    const pool = favorites.filter((item) => {
+      const type = item.mediaType ?? "anime";
+      if (type !== mediaType) {
+        return false;
+      }
+      return status === "Completed"
+        ? item.status === "Completed"
+        : item.status !== "Completed";
+    });
+    const maxOrder = pool.reduce((max, item) => {
+      const value = Number(item.order) || 0;
+      return Math.max(max, value);
+    }, 0);
+    return maxOrder + 1;
+  };
+
+  const handleStatusChange = async (item, newStatus) => {
+    setStatusDrafts((prev) => ({
+      ...prev,
+      [item.docId]: newStatus
+    }));
+
+    if (newStatus === "Completed") {
+      return;
+    }
+
+    setFavorites((prev) =>
+      prev.map((fav) =>
+        fav.docId === item.docId ? { ...fav, status: newStatus } : fav
+      )
+    );
+    await updateFavorite(item.docId, { status: newStatus });
+  };
+
+  const confirmCompleted = async (item) => {
+    const nextOrder = getNextOrder("Completed", item.mediaType ?? "anime");
+    const maxCount = item.mediaType === "manga" ? item.totalChapters : item.totalEpisodes;
+    const progressField = item.mediaType === "manga" ? "currentChapter" : "currentEpisode";
+    await updateFavorite(item.docId, {
+      status: "Completed",
+      order: nextOrder,
+      ...(maxCount ? { [progressField]: maxCount } : {})
+    });
+  };
+
+  const reorderWithinSection = async (item, nextOrder, statusOverride) => {
+    const targetOrder = Math.max(1, Number(nextOrder) || 1);
+    const effectiveStatus = statusOverride ?? item.status;
+    const isCompleted = effectiveStatus === "Completed";
+    const mediaType = item.mediaType ?? "anime";
+    const sectionItems = favorites
+      .filter((fav) => {
+        const type = fav.mediaType ?? "anime";
+        if (type !== mediaType) {
+          return false;
+        }
+        return isCompleted ? fav.status === "Completed" : fav.status !== "Completed";
+      })
+      .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+
+    const currentIndex = sectionItems.findIndex((fav) => fav.docId === item.docId);
+    if (currentIndex === -1) {
+      sectionItems.push({ ...item, status: effectiveStatus });
+    }
+
+    const clampedOrder = Math.min(targetOrder, sectionItems.length);
+    const [moved] = currentIndex === -1 ? [sectionItems.pop()] : sectionItems.splice(currentIndex, 1);
+    moved.status = effectiveStatus;
+    sectionItems.splice(clampedOrder - 1, 0, moved);
+
+    setFavorites((prev) =>
+      prev.map((fav) => {
+        const updatedIndex = sectionItems.findIndex((s) => s.docId === fav.docId);
+        if (updatedIndex === -1) {
+          return fav;
+        }
+        return { ...fav, order: updatedIndex + 1, status: fav.docId === item.docId ? effectiveStatus : fav.status };
+      })
+    );
+
+    const updates = sectionItems.map((fav, index) =>
+      updateFavorite(fav.docId, { order: index + 1 })
+    );
+    if (statusOverride) {
+      updates.push(updateFavorite(item.docId, { status: effectiveStatus }));
+    }
+    await Promise.all(updates);
+  };
+
+  const applyOrderChange = async (item) => {
+    const draftValue = orderDrafts[item.docId];
+    const nextValue = Math.max(1, Number(draftValue) || 1);
+    setOrderDrafts((prev) => {
+      const copy = { ...prev };
+      delete copy[item.docId];
+      return copy;
+    });
+    await reorderWithinSection(item, nextValue);
+  };
+
+  const renderFavorites = (items, sectionLabel, page, setPage, isActiveSection = false) => (
+    <div className="favorites-section">
+      <div className="results-bar">
+        <h3>{sectionLabel}</h3>
+        <span className="pill">{items.length} saved</span>
+      </div>
+      {items.length === 0 ? (
+        <p>No anime in this section yet.</p>
+      ) : (
+        <div className="favorites-grid">
+          {paginate(isActiveSection ? sortActiveFavorites(items) : items, page).map((item) => (
+            <div
+              className="favorite-card"
+              key={`favorite-${sectionLabel}-${item.docId}`}
+              draggable
+              onDragStart={() =>
+                handleDragStart(favorites.findIndex((fav) => fav.docId === item.docId))
+              }
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={() =>
+                handleDrop(favorites.findIndex((fav) => fav.docId === item.docId))
+              }
+            >
+              <Link
+                className="favorite-cover"
+                to={item.mediaType === "manga" ? `/manga/${item.mal_id}` : `/anime/${item.mal_id}`}
+              >
+                <img src={item.image} alt={item.title} />
+              </Link>
+              <div className="favorite-body">
+                <div className="favorite-title">
+                  <Link to={item.mediaType === "manga" ? `/manga/${item.mal_id}` : `/anime/${item.mal_id}`}>
+                    {item.title}
+                  </Link>
+                  {item.hasTrailer && <span className="catalog-badge">Trailer</span>}
+                </div>
+                <div className="favorite-row">
+                  <label>
+                    Status
+                    <select
+                      value={getSelectStatus(item)}
+                      onChange={(e) => handleStatusChange(item, e.target.value)}
+                    >
+                      <option>Plan to watch</option>
+                      <option>Watching</option>
+                      <option>Completed</option>
+                    </select>
+                  </label>
+                  <label>
+                    Rating
+                    <select
+                      value={item.rating || ""}
+                      onChange={(e) => updateFavorite(item.docId, { rating: e.target.value })}
+                    >
+                      <option value="">Unrated</option>
+                      {[...Array(10)].map((_, i) => (
+                        <option key={`rate-${i + 1}`} value={String(i + 1)}>
+                          {i + 1}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    {item.mediaType === "manga" ? "Chapter" : "Episode"}
+                    <div className="progress-field">
+                      <input
+                        type="number"
+                        min="0"
+                        max={
+                          item.mediaType === "manga"
+                            ? item.totalChapters ?? undefined
+                            : item.totalEpisodes ?? undefined
+                        }
+                        value={
+                          item.mediaType === "manga"
+                            ? item.currentChapter ?? 0
+                            : item.currentEpisode ?? 0
+                        }
+                        onChange={(e) =>
+                          updateFavorite(item.docId, {
+                            [item.mediaType === "manga" ? "currentChapter" : "currentEpisode"]:
+                              Math.max(
+                                0,
+                                Math.min(
+                                  Number(e.target.value) || 0,
+                                  item.mediaType === "manga"
+                                    ? (item.totalChapters ?? (Number(e.target.value) || 0))
+                                    : (item.totalEpisodes ?? (Number(e.target.value) || 0))
+                                )
+                              )
+                          })
+                        }
+                      />
+                      <span className="progress-max">
+                        {item.mediaType === "manga"
+                          ? item.totalChapters ?? "?"
+                          : item.totalEpisodes ?? "?"}
+                      </span>
+                    </div>
+                  </label>
+                    <label>
+                      Order
+                      <div className="order-input">
+                        <input
+                          type="number"
+                          min="1"
+                        value={orderDrafts[item.docId] ?? item.order ?? 1}
+                        onChange={(e) =>
+                          setOrderDrafts((prev) => ({
+                            ...prev,
+                            [item.docId]: e.target.value
+                          }))
+                        }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              applyOrderChange(item);
+                            }
+                          }}
+                        />
+                      </div>
+                    </label>
+                </div>
+                <label className="favorite-note">
+                  Notes
+                  <textarea
+                    rows={3}
+                    value={item.note || ""}
+                    onChange={(e) => updateFavorite(item.docId, { note: e.target.value })}
+                    placeholder="Add a note about this title..."
+                  ></textarea>
+                </label>
+                {statusDrafts[item.docId] === "Completed" && (
+                  <button
+                    className="complete-button"
+                    type="button"
+                    onClick={() => confirmCompleted(item)}
+                  >
+                    Save to Completed
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {items.length > pageSize && (
+        <div className="pagination">
+          <ul>
+            {Array.from({ length: totalPages(items) }, (_, i) => (
+              <li key={`${sectionLabel}-page-${i + 1}`}>
+                <button
+                  type="button"
+                  onClick={() => setPage(i + 1)}
+                  style={{
+                    background: page === i + 1 ? "rgba(255,255,255,0.2)" : "transparent"
+                  }}
+                >
+                  {i + 1}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="layout">
       <section className="detail-panel">
         <div className="results-bar">
-          <h3>Your favorites</h3>
-          <span className="pill">{favorites.length} saved</span>
+          <div className="favorites-header">
+            <h3>Your favorites</h3>
+            <Link className="detail-link" to="/">Back to search</Link>
+          </div>
+          <span className="pill">{tabFavorites.length} total</span>
+        </div>
+        <div className="favorites-tabs">
+          <button
+            type="button"
+            className={activeTab === "anime" ? "active" : ""}
+            onClick={() => setActiveTab("anime")}
+          >
+            Anime ({animeCount})
+          </button>
+          <button
+            type="button"
+            className={activeTab === "manga" ? "active" : ""}
+            onClick={() => setActiveTab("manga")}
+          >
+            Manga ({mangaCount})
+          </button>
         </div>
         {loading ? (
           <p>Loading favorites...</p>
-        ) : favorites.length === 0 ? (
-          <p>No favorites yet. Add some from the catalog.</p>
+        ) : tabFavorites.length === 0 ? (
+          <p>No favorites yet in this tab. Add some from the catalog.</p>
         ) : (
-          <div className="catalog-grid">
-            {favorites.map((item) => (
-              <Link
-                className="catalog-item"
-                key={`favorite-${item.mal_id}`}
-                to={`/anime/${item.mal_id}`}
-              >
-                <img src={item.image} alt={item.title} />
-                <div>
-                  <span>{item.title}</span>
-                  {item.hasTrailer && (
-                    <span className="catalog-badge">Trailer</span>
-                  )}
-                </div>
-              </Link>
-            ))}
-          </div>
+          <>
+            {renderFavorites(activeFavorites, "In progress", activePage, setActivePage, true)}
+            {renderFavorites(completedFavorites, "Completed", completedPage, setCompletedPage)}
+          </>
         )}
       </section>
     </div>

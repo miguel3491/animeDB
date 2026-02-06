@@ -4,6 +4,8 @@ import Header from "./Header";
 import MainContent from "./MainContent";
 import AnimeDetail from "./AnimeDetail";
 import Favorites from "./Favorites";
+import MangaContent from "./MangaContent";
+import MangaDetail from "./MangaDetail";
 
 function App(){
     return(
@@ -16,6 +18,8 @@ function App(){
                     <Routes>
                         <Route path="/" element={<MainContent></MainContent>} />
                         <Route path="/anime/:id" element={<AnimeDetail></AnimeDetail>} />
+                        <Route path="/manga" element={<MangaContent></MangaContent>} />
+                        <Route path="/manga/:id" element={<MangaDetail></MangaDetail>} />
                         <Route path="/favorites" element={<Favorites></Favorites>} />
                     </Routes>
                 </main>

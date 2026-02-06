@@ -66,6 +66,9 @@ a{
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     backdrop-filter: blur(12px);
 }
+.title-link {
+    color: inherit;
+}
 
 #Title{
     font-size: 28px;
@@ -222,6 +225,11 @@ a{
     box-shadow: var(--shadow);
     padding: 18px;
 }
+.sidebar-scroll {
+    max-height: 520px;
+    overflow-y: auto;
+    padding-right: 6px;
+}
 .sidebar-card h4 {
     margin: 0 0 16px;
     font-size: 14px;
@@ -312,6 +320,7 @@ a{
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-wrap: wrap;
 }
 .view-toggle {
     display: inline-flex;
@@ -319,6 +328,29 @@ a{
     background: rgba(255, 255, 255, 0.08);
     padding: 4px;
     border-radius: 999px;
+}
+.genre-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+.genre-label {
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+.genre-filter select {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 10px;
+    font-size: 12px;
 }
 .view-toggle button {
     border: none;
@@ -331,10 +363,20 @@ a{
     border-radius: 999px;
     cursor: pointer;
     transition: color 0.2s ease, background 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 32px;
 }
 .view-toggle button.active {
     background: rgba(255, 255, 255, 0.16);
     color: var(--text);
+}
+.view-toggle svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
 }
 .pill {
     background: rgba(255, 255, 255, 0.1);
@@ -737,6 +779,140 @@ a{
 .detail-links a {
     color: var(--accent-2);
     font-size: 13px;
+}
+
+/* Favorites */
+.favorites-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.favorites-tabs {
+    display: inline-flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+.favorites-tabs button {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text);
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+.favorites-tabs button.active {
+    background: rgba(255, 255, 255, 0.18);
+}
+.favorites-grid {
+    display: grid;
+    gap: 16px;
+}
+.favorites-section {
+    margin-top: 20px;
+}
+.favorite-card {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 16px;
+    padding: 14px;
+    border-radius: 16px;
+    background: rgba(16, 26, 48, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    cursor: grab;
+}
+.favorite-card:active {
+    cursor: grabbing;
+}
+.favorite-cover img {
+    width: 120px;
+    height: 160px;
+    object-fit: cover;
+    border-radius: 12px;
+}
+.favorite-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.favorite-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 16px;
+    font-weight: 700;
+}
+.favorite-title a {
+    color: var(--text);
+}
+.favorite-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+}
+.favorite-row label,
+.favorite-note {
+    display: grid;
+    gap: 6px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+}
+.progress-field {
+    position: relative;
+    display: grid;
+}
+.progress-field input {
+    padding-right: 46px;
+}
+.progress-field .progress-max {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 11px;
+    color: var(--muted);
+}
+.favorite-row select,
+.favorite-row input,
+.favorite-note textarea {
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 13px;
+}
+.order-input {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    align-items: center;
+}
+.favorite-note textarea {
+    resize: vertical;
+    min-height: 72px;
+}
+.complete-button {
+    align-self: flex-start;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(122, 252, 255, 0.18);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: transform 0.2s ease, background 0.2s ease;
+}
+.complete-button:hover {
+    transform: translateY(-1px);
+    background: rgba(122, 252, 255, 0.28);
 }
 
 @media (max-width: 1024px) {
