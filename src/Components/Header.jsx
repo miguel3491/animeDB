@@ -12,6 +12,7 @@ function Header(){
             </Link>
             <div className="header-actions">
                 <span className="header-tagline">Curate your next obsession</span>
+                <Link className="nav-link" to="/news">News</Link>
                 <Link className="nav-link" to="/favorites">Favorites</Link>
                 {!loading && (
                     user ? (

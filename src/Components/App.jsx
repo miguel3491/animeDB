@@ -6,6 +6,7 @@ import AnimeDetail from "./AnimeDetail";
 import Favorites from "./Favorites";
 import MangaContent from "./MangaContent";
 import MangaDetail from "./MangaDetail";
+import News from "./News";
 
 function App(){
     return(
@@ -21,6 +22,7 @@ function App(){
                         <Route path="/manga" element={<MangaContent></MangaContent>} />
                         <Route path="/manga/:id" element={<MangaDetail></MangaDetail>} />
                         <Route path="/favorites" element={<Favorites></Favorites>} />
+                        <Route path="/news" element={<News></News>} />
                     </Routes>
                 </main>
                 <footer>

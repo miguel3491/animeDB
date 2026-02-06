@@ -17,6 +17,8 @@ function Favorites() {
   const [orderDrafts, setOrderDrafts] = useState({});
   const [statusDrafts, setStatusDrafts] = useState({});
   const [activeTab, setActiveTab] = useState("anime");
+  const backfillRunningRef = useRef(false);
+  const backfilledRef = useRef(new Set());
 
   const updateFavorite = useCallback(async (docId, updates) => {
     const favoriteRef = doc(db, "users", user.uid, "favorites", String(docId));
@@ -138,6 +140,55 @@ function Favorites() {
       setActiveTab("anime");
     }
   }, [activeTab, animeCount, mangaCount]);
+
+  useEffect(() => {
+    const runBackfill = async () => {
+      if (!user || loading || backfillRunningRef.current) {
+        return;
+      }
+
+      const missing = favorites.filter((item) => {
+        if (backfilledRef.current.has(item.docId)) {
+          return false;
+        }
+        if (item.mediaType === "manga") {
+          return item.totalChapters === null || item.totalChapters === undefined;
+        }
+        return item.totalEpisodes === null || item.totalEpisodes === undefined;
+      });
+
+      if (missing.length === 0) {
+        return;
+      }
+
+      backfillRunningRef.current = true;
+      for (const item of missing) {
+        try {
+          const endpoint = item.mediaType === "manga" ? "manga" : "anime";
+          const response = await fetch(`https://api.jikan.moe/v4/${endpoint}/${item.mal_id}`);
+          const data = await response.json();
+          if (item.mediaType === "manga") {
+            const totalChapters = data?.data?.chapters ?? null;
+            if (totalChapters !== null) {
+              await updateFavorite(item.docId, { totalChapters });
+            }
+          } else {
+            const totalEpisodes = data?.data?.episodes ?? null;
+            if (totalEpisodes !== null) {
+              await updateFavorite(item.docId, { totalEpisodes });
+            }
+          }
+        } catch (error) {
+          // ignore and continue
+        } finally {
+          backfilledRef.current.add(item.docId);
+        }
+      }
+      backfillRunningRef.current = false;
+    };
+
+    runBackfill();
+  }, [favorites, loading, updateFavorite, user]);
 
   if (!user) {
     return (
@@ -365,7 +416,7 @@ function Favorites() {
                         }
                       />
                       <span className="progress-max">
-                        {item.mediaType === "manga"
+                        / {item.mediaType === "manga"
                           ? item.totalChapters ?? "?"
                           : item.totalEpisodes ?? "?"}
                       </span>

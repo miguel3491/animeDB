@@ -228,6 +228,9 @@ function MainContent() {
             <li>
               <Link className="Small filter-button" to="/manga">Manga</Link>
             </li>
+            <li>
+              <Link className="Small filter-button" to="/news">News</Link>
+            </li>
           </ul>
         </div>
         <div className="right-filters">
