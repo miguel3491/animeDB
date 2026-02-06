@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactPaginate from "react-paginate";
 import { Link } from "react-router-dom";
 import MangaSidebar from "./MangaSidebar";
@@ -16,12 +16,20 @@ function MangaContent() {
   const [selectedGenre, setSelectedGenre] = useState("All");
   const { user } = useAuth();
   const [favorites, setFavorites] = useState(new Set());
+  const [latestManga, setLatestManga] = useState([]);
+  const [latestLoading, setLatestLoading] = useState(true);
+  const [latestError, setLatestError] = useState("");
+  const releasesRef = useRef(null);
 
   const obtainTopManga = async () => {
-    const api = await fetch(`https://api.jikan.moe/v4/top/manga`).then((res) =>
-      res.json()
-    );
-    setTopManga(api.data || []);
+    try {
+      const api = await fetch(`https://api.jikan.moe/v4/top/manga`).then((res) =>
+        res.json()
+      );
+      setTopManga(Array.isArray(api?.data) ? api.data : []);
+    } catch (error) {
+      setTopManga([]);
+    }
   };
 
   const searchManga = useCallback(async (page) => {
@@ -49,6 +57,62 @@ function MangaContent() {
 
   useEffect(() => {
     obtainTopManga();
+  }, []);
+
+  useEffect(() => {
+    const fetchLatestManga = async () => {
+      setLatestLoading(true);
+      setLatestError("");
+      try {
+        const query = `
+          query ($page: Int, $perPage: Int) {
+            Page(page: $page, perPage: $perPage) {
+              media(type: MANGA, sort: UPDATED_AT_DESC, status_in: [RELEASING, HIATUS], isAdult: false) {
+                id
+                title { userPreferred english romaji }
+                siteUrl
+                coverImage { extraLarge large }
+                chapters
+                updatedAt
+              }
+            }
+          }
+        `;
+        const response = await fetch("https://graphql.anilist.co", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json"
+          },
+          body: JSON.stringify({ query, variables: { page: 1, perPage: 20 } })
+        });
+        const json = await response.json();
+        if (json?.errors?.length) {
+          throw new Error(json.errors[0]?.message || "AniList error");
+        }
+        const media = json?.data?.Page?.media || [];
+        const items = media.map((entry) => ({
+          id: entry.id,
+          title:
+            entry?.title?.userPreferred ||
+            entry?.title?.english ||
+            entry?.title?.romaji ||
+            "Unknown title",
+          image: entry?.coverImage?.extraLarge || entry?.coverImage?.large || "",
+          releaseAt: entry?.updatedAt ? entry.updatedAt * 1000 : null,
+          chapterTitle: entry?.chapters ? `Chapter ${entry.chapters}` : "Chapter ?",
+          url: entry?.siteUrl || ""
+        }));
+        setLatestManga(items);
+      } catch (error) {
+        setLatestManga([]);
+        setLatestError("Latest manga releases are unavailable right now.");
+      } finally {
+        setLatestLoading(false);
+      }
+    };
+
+    fetchLatestManga();
   }, []);
 
   const genreOptions = useMemo(() => {
@@ -127,6 +191,9 @@ function MangaContent() {
             </li>
             <li>
               <Link className="Small filter-button" to="/news">News</Link>
+            </li>
+            <li>
+              <Link className="Small filter-button" to="/discussion">Discussion</Link>
             </li>
           </ul>
         </div>
@@ -222,8 +289,63 @@ function MangaContent() {
                   </svg>
                 </button>
               </div>
+              <button
+                type="button"
+                className="scroll-button"
+                onClick={() => releasesRef.current?.scrollIntoView({ behavior: "smooth" })}
+              >
+                Latest releases
+              </button>
             </div>
           </div>
+
+          <div className="mini-strip">
+            <div className="mini-strip-header">
+              <h4>Latest Manga Drops</h4>
+              <button
+                type="button"
+                className="mini-strip-link"
+                onClick={() => releasesRef.current?.scrollIntoView({ behavior: "smooth" })}
+              >
+                View all
+              </button>
+            </div>
+            {latestLoading ? (
+              <p className="muted">Loading latest releases…</p>
+            ) : latestError ? (
+              <p className="muted">{latestError}</p>
+            ) : (
+              <div className="mini-strip-grid">
+                {latestManga.slice(0, 6).map((item) => (
+                  <article className="mini-card" key={`mini-${item.id}`}>
+                    {item.image ? (
+                      <img src={item.image} alt={item.title} />
+                    ) : (
+                      <div className="mini-placeholder"></div>
+                    )}
+                    <div className="mini-card-body">
+                      <span>{item.title}</span>
+                      <span className="muted">{item.chapterTitle}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {pageSize && (
+            <div className="pagination top">
+              <ReactPaginate
+                nextLabel="&rarr;"
+                previousLabel="&larr;"
+                breakLabel={"..."}
+                pageCount={pageSize?.last_visible_page}
+                onPageChange={handlePageClick}
+                marginPagesDisplayed={2}
+                pageRangeDisplayed={5}
+              />
+            </div>
+          )}
 
           <div className={`anime-grid ${viewMode}`}>
             {filteredManga.map(
@@ -297,28 +419,44 @@ function MangaContent() {
             )}
           </div>
 
-          <div className="catalog-section">
+          <div className="episodes-section" ref={releasesRef}>
             <div className="results-bar">
-              <h3>Manga catalog (A–Z)</h3>
-              <span className="pill">Sorted alphabetically</span>
+              <h3>Latest manga releases</h3>
+              <span className="pill">From AniList updates</span>
             </div>
-            <div className="catalog-grid">
-              {[...filteredManga]
-                .filter((item) => item?.title)
-                .sort((a, b) => a.title.localeCompare(b.title))
-                .map((item) => (
-                  <Link
-                    className="catalog-item"
-                    key={`catalog-${item.mal_id}`}
-                    to={`/manga/${item.mal_id}`}
-                  >
-                    <img src={item.images.jpg.image_url} alt={item.title} />
-                    <div>
-                      <span>{item.title}</span>
+            {latestLoading ? (
+              <p>Loading the latest releases…</p>
+            ) : latestError ? (
+              <p>{latestError}</p>
+            ) : (
+              <div className="episodes-grid">
+                {latestManga.map((item) => (
+                  <article className="episode-card" key={item.id}>
+                    {item.image && (
+                      <img className="episode-image" src={item.image} alt={item.title} />
+                    )}
+                    <div className="episode-body">
+                      <h4>{item.title}</h4>
+                      <div className="episode-meta">
+                        <span>
+                          Date: {item.releaseAt ? new Date(item.releaseAt).toLocaleDateString() : "TBA"}
+                        </span>
+                        <span>{item.chapterTitle}</span>
+                      </div>
+                      <div className="episode-actions">
+                        {item.url ? (
+                          <a className="detail-link" href={item.url} target="_blank" rel="noreferrer">
+                            Read on AniList
+                          </a>
+                        ) : (
+                          <span className="muted">No link available</span>
+                        )}
+                      </div>
                     </div>
-                  </Link>
+                  </article>
                 ))}
-            </div>
+              </div>
+            )}
           </div>
         </section>
 

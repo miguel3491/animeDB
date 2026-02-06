@@ -1,10 +1,11 @@
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import Sidebar from "./Sidebar";
 import ReactPaginate from "react-paginate";
 import { Link } from "react-router-dom";
 import { collection, deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
+import { fetchAniListCoversByMalIds, getAniListCoverFromCache } from "../utils/anilist";
 import "../styles.css"
 
 function MainContent() {
@@ -14,16 +15,25 @@ function MainContent() {
   const [pageSize, setPageSize] = useState();
   const [viewMode, setViewMode] = useState("grid");
   const [selectedGenre, setSelectedGenre] = useState("All");
+  const [latestEpisodes, setLatestEpisodes] = useState([]);
+  const [episodesLoading, setEpisodesLoading] = useState(true);
+  const [episodesError, setEpisodesError] = useState("");
+  const [aniCovers, setAniCovers] = useState({});
+  const episodesRef = useRef(null);
   const { user } = useAuth();
   const [favorites, setFavorites] = useState(new Set());
   // const [seasonAnime, setseasonAnime] = useState([]);
   // const [filterAnime, setFilter] = useState([]);
 
   const obtainTopAnime = async () => {
-    const api = await fetch(`https://api.jikan.moe/v4/top/anime`).then((res) =>
-      res.json()
-    );
-    setTopAnime(api.data);
+    try {
+      const api = await fetch(`https://api.jikan.moe/v4/top/anime`).then((res) =>
+        res.json()
+      );
+      setTopAnime(Array.isArray(api?.data) ? api.data : []);
+    } catch (error) {
+      setTopAnime([]);
+    }
   };
 
   // const obtainSeasonalAnime = async () => {
@@ -69,6 +79,106 @@ function MainContent() {
   }, []);
 
   useEffect(() => {
+    const ids = [
+      ...anime.map((item) => item?.mal_id),
+      ...topAnime.map((item) => item?.mal_id)
+    ].filter(Boolean);
+    if (ids.length === 0) return undefined;
+
+    let active = true;
+    fetchAniListCoversByMalIds(ids).then((map) => {
+      if (!active || map.size === 0) return;
+      const next = Object.fromEntries(map);
+      setAniCovers((prev) => ({ ...prev, ...next }));
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [anime, topAnime]);
+
+  useEffect(() => {
+    const fetchLatestEpisodes = async () => {
+      setEpisodesLoading(true);
+      setEpisodesError("");
+      try {
+        const now = Math.floor(Date.now() / 1000);
+        const twoWeeks = 14 * 24 * 60 * 60;
+        const variables = {
+          page: 1,
+          perPage: 20,
+          from: now - twoWeeks,
+          to: now + 24 * 60 * 60
+        };
+        const query = `
+          query ($page: Int, $perPage: Int, $from: Int, $to: Int) {
+            Page(page: $page, perPage: $perPage) {
+              airingSchedules(airingAt_greater: $from, airingAt_lesser: $to, sort: TIME_DESC) {
+                id
+                airingAt
+                episode
+                media {
+                  id
+                  title { userPreferred english romaji }
+                  siteUrl
+                  coverImage { extraLarge large }
+                  streamingEpisodes { title thumbnail url site }
+                }
+              }
+            }
+          }
+        `;
+        const response = await fetch("https://graphql.anilist.co", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json"
+          },
+          body: JSON.stringify({ query, variables })
+        });
+        const json = await response.json();
+        if (json?.errors?.length) {
+          throw new Error(json.errors[0]?.message || "AniList error");
+        }
+        const schedules = json?.data?.Page?.airingSchedules || [];
+        const items = schedules.map((schedule) => {
+          const media = schedule?.media || {};
+          const title =
+            media?.title?.userPreferred ||
+            media?.title?.english ||
+            media?.title?.romaji ||
+            "Unknown title";
+          const streams = Array.isArray(media?.streamingEpisodes)
+            ? media.streamingEpisodes
+            : [];
+          const match = streams.find((ep) =>
+            ep?.title?.toLowerCase().includes(`episode ${schedule?.episode || ""}`.toLowerCase())
+          );
+          const chosen = match || streams[0] || null;
+          return {
+            id: schedule?.id || `${media?.id || "unknown"}-${schedule?.episode || "ep"}`,
+            animeTitle: title,
+            animeUrl: media?.siteUrl || "",
+            image: media?.coverImage?.extraLarge || media?.coverImage?.large || "",
+            episodeTitle: schedule?.episode ? `Episode ${schedule.episode}` : "Episode",
+            releaseAt: schedule?.airingAt ? schedule.airingAt * 1000 : null,
+            watchUrl: chosen?.url || "",
+            watchSite: chosen?.site || ""
+          };
+        });
+        setLatestEpisodes(items);
+      } catch (error) {
+        setLatestEpisodes([]);
+        setEpisodesError("Latest episodes are unavailable right now.");
+      } finally {
+        setEpisodesLoading(false);
+      }
+    };
+
+    fetchLatestEpisodes();
+  }, []);
+
+  useEffect(() => {
     if (!user) {
       setFavorites(new Set());
       return;
@@ -90,6 +200,10 @@ function MainContent() {
     const scrollY = window.scrollY;
     const favoriteRef = doc(db, "users", user.uid, "favorites", String(item.mal_id));
     const hasFavorite = favorites.has(String(item.mal_id));
+    const cover =
+      aniCovers[item.mal_id] ||
+      getAniListCoverFromCache(item.mal_id) ||
+      "";
     if (hasFavorite) {
       await deleteDoc(favoriteRef);
       requestAnimationFrame(() => window.scrollTo(0, scrollY));
@@ -99,7 +213,7 @@ function MainContent() {
     await setDoc(favoriteRef, {
       mal_id: item.mal_id,
       title: item.title,
-      image: item.images?.jpg?.image_url || "",
+      image: cover,
       hasTrailer: Boolean(item.trailer?.embed_url),
       mediaType: "anime",
       totalEpisodes: item.episodes ?? null,
@@ -139,7 +253,6 @@ function MainContent() {
     const {
       mal_id,
       title,
-      images,
       trailer,
       type,
       synopsis,
@@ -150,6 +263,7 @@ function MainContent() {
     } = item;
     const hasTrailer = Boolean(trailer?.embed_url);
     const isFavorite = favorites.has(String(mal_id));
+    const cover = aniCovers[mal_id] || getAniListCoverFromCache(mal_id);
 
     return (
       <article className="anime-card" key={mal_id}>
@@ -159,7 +273,11 @@ function MainContent() {
             onMouseEnter={() => setShowTrailer(true)}
             onMouseLeave={() => setShowTrailer(false)}
           >
-            <img src={images.jpg.image_url} alt={title} />
+            {cover ? (
+              <img src={cover} alt={title} />
+            ) : (
+              <div className="media-placeholder" aria-label={`${title} cover unavailable`}></div>
+            )}
             {hasTrailer && (
               <span className="trailer-badge">Trailer Available</span>
             )}
@@ -230,6 +348,9 @@ function MainContent() {
             </li>
             <li>
               <Link className="Small filter-button" to="/news">News</Link>
+            </li>
+            <li>
+              <Link className="Small filter-button" to="/discussion">Discussion</Link>
             </li>
           </ul>
         </div>
@@ -326,8 +447,71 @@ function MainContent() {
                   </svg>
                 </button>
               </div>
+              <button
+                type="button"
+                className="scroll-button"
+                onClick={() => episodesRef.current?.scrollIntoView({ behavior: "smooth" })}
+              >
+                Latest releases
+              </button>
             </div>
           </div>
+
+          <div className="mini-strip spotlight">
+            <div className="mini-strip-header">
+              <div>
+                <h4>Latest Anime Drops</h4>
+                <p className="muted">Fresh episodes from AniList</p>
+              </div>
+              <button
+                type="button"
+                className="mini-strip-link"
+                onClick={() => episodesRef.current?.scrollIntoView({ behavior: "smooth" })}
+              >
+                View all
+              </button>
+            </div>
+            {episodesLoading ? (
+              <p className="muted">Loading latest releases…</p>
+            ) : episodesError ? (
+              <p className="muted">{episodesError}</p>
+            ) : (
+              <div className="mini-strip-grid">
+                {latestEpisodes.slice(0, 6).map((item) => (
+                  <article className="mini-card featured" key={`anime-mini-${item.id}`}>
+                    <div className="mini-thumb">
+                      {item.image ? (
+                        <img src={item.image} alt={item.animeTitle} />
+                      ) : (
+                        <div className="mini-placeholder"></div>
+                      )}
+                      <span className="mini-chip">{item.episodeTitle}</span>
+                    </div>
+                    <div className="mini-card-body">
+                      <span className="mini-title">{item.animeTitle}</span>
+                      <span className="muted">
+                        {item.releaseAt ? new Date(item.releaseAt).toLocaleDateString() : "TBA"}
+                      </span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {pageSize && (
+            <div className="pagination top">
+              <ReactPaginate
+                nextLabel="&rarr;"
+                previousLabel="&larr;"
+                breakLabel={"..."}
+                pageCount={pageSize?.last_visible_page}
+                onPageChange={handlePageClick}
+                marginPagesDisplayed={2}
+                pageRangeDisplayed={5}
+              />
+            </div>
+          )}
 
           <div className={`anime-grid ${viewMode}`}>
             {filteredAnime.map((item) => (
@@ -354,36 +538,57 @@ function MainContent() {
             )}
           </div>
 
-          <div className="catalog-section">
+          <div className="episodes-section" id="latest-episodes" ref={episodesRef}>
             <div className="results-bar">
-              <h3>Anime catalog (A–Z)</h3>
-              <span className="pill">Sorted alphabetically</span>
+              <h3>Latest episode releases</h3>
+              <span className="pill">From AniList airing schedule</span>
             </div>
-            <div className="catalog-grid">
-              {[...filteredAnime]
-                .filter((item) => item?.title)
-                .sort((a, b) => a.title.localeCompare(b.title))
-                .map((item) => (
-                  <Link
-                    className="catalog-item"
-                    key={`catalog-${item.mal_id}`}
-                    to={`/anime/${item.mal_id}`}
-                  >
-                    <img src={item.images.jpg.image_url} alt={item.title} />
-                    <div>
-                      <span>{item.title}</span>
-                      {item.trailer?.embed_url && (
-                        <span className="catalog-badge">Trailer</span>
-                      )}
+            {episodesLoading ? (
+              <p>Loading the latest releases…</p>
+            ) : episodesError ? (
+              <p>{episodesError}</p>
+            ) : (
+              <div className="episodes-grid">
+                {latestEpisodes.map((item) => (
+                  <article className="episode-card" key={item.id}>
+                    {item.image && (
+                      <img className="episode-image" src={item.image} alt={item.animeTitle} />
+                    )}
+                    <div className="episode-body">
+                      <h4>{item.animeTitle}</h4>
+                      <div className="episode-meta">
+                        <span>
+                          Date: {item.releaseAt ? new Date(item.releaseAt).toLocaleString() : "TBA"}
+                        </span>
+                        <span>{item.episodeTitle}</span>
+                      </div>
+                      <div className="episode-actions">
+                        {item.animeUrl && (
+                          <a className="detail-link" href={item.animeUrl} target="_blank" rel="noreferrer">
+                            Anime page
+                          </a>
+                        )}
+                        {item.watchUrl ? (
+                          <a className="detail-link" href={item.watchUrl} target="_blank" rel="noreferrer">
+                            Watch {item.watchSite ? `(${item.watchSite})` : "episode"}
+                          </a>
+                        ) : (
+                          <span className="muted">No streaming link</span>
+                        )}
+                      </div>
                     </div>
-                  </Link>
+                  </article>
                 ))}
-            </div>
+              </div>
+            )}
           </div>
         </section>
 
         <div className="Sidebar">
-          <Sidebar topAnime={topAnime.slice(0, 10)}></Sidebar>
+          <Sidebar
+            topAnime={(Array.isArray(topAnime) ? topAnime : []).slice(0, 10)}
+            imageMap={aniCovers}
+          ></Sidebar>
         </div>
       </div>
     </div>

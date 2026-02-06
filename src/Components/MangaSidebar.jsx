@@ -2,7 +2,8 @@ import React from "react";
 import { Link } from "react-router-dom";
 
 function MangaSidebar({ topManga }) {
-  const sortedTop = [...topManga]
+  const safeTop = Array.isArray(topManga) ? topManga : [];
+  const sortedTop = [...safeTop]
     .filter((manga) => manga && manga.mal_id)
     .sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999))
     .slice(0, 10);

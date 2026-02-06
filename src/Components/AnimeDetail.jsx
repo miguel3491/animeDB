@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { deleteDoc, doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
+import { fetchAniListCoversByMalIds, getAniListCoverFromCache } from "../utils/anilist";
 import "../styles.css";
 
 function AnimeDetail() {
@@ -11,6 +12,7 @@ function AnimeDetail() {
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
   const [isFavorite, setIsFavorite] = useState(false);
+  const [aniCover, setAniCover] = useState("");
 
   useEffect(() => {
     let isMounted = true;
@@ -57,6 +59,28 @@ function AnimeDetail() {
     };
   }, [id, user]);
 
+  useEffect(() => {
+    const malId = Number(anime?.mal_id);
+    if (!Number.isInteger(malId)) {
+      setAniCover("");
+      return;
+    }
+    const cached = getAniListCoverFromCache(malId);
+    if (cached) {
+      setAniCover(cached);
+      return;
+    }
+    let active = true;
+    fetchAniListCoversByMalIds([malId]).then((map) => {
+      if (!active) return;
+      const cover = map.get(malId) || getAniListCoverFromCache(malId);
+      setAniCover(cover || "");
+    });
+    return () => {
+      active = false;
+    };
+  }, [anime?.mal_id]);
+
   if (loading) {
     return (
       <div className="layout">
@@ -92,7 +116,7 @@ function AnimeDetail() {
     await setDoc(favoriteRef, {
       mal_id: anime.mal_id,
       title: anime.title,
-      image: anime.images?.jpg?.image_url || "",
+      image: aniCover,
       hasTrailer,
       mediaType: "anime",
       totalEpisodes: anime.episodes ?? null,
@@ -126,7 +150,11 @@ function AnimeDetail() {
         </div>
         <div className="detail-hero">
           <div className="detail-poster">
-            <img src={anime.images.jpg.image_url} alt={anime.title} />
+            {aniCover ? (
+              <img src={aniCover} alt={anime.title} />
+            ) : (
+              <div className="detail-placeholder" aria-label={`${anime.title} cover unavailable`}></div>
+            )}
           </div>
           <div className="detail-summary">
             <h2>{anime.title}</h2>

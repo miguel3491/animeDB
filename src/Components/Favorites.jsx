@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { collection, doc, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, orderBy, query, setDoc, updateDoc } from "firebase/firestore";
 import { Link } from "react-router-dom";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
+import { fetchAniListCoversByMalIds, getAniListCoverFromCache } from "../utils/anilist";
 import "../styles.css";
 
 function Favorites() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [favorites, setFavorites] = useState([]);
   const [loading, setLoading] = useState(true);
   const dragItem = useRef(null);
@@ -19,6 +20,8 @@ function Favorites() {
   const [activeTab, setActiveTab] = useState("anime");
   const backfillRunningRef = useRef(false);
   const backfilledRef = useRef(new Set());
+  const [aniCovers, setAniCovers] = useState({});
+  const [publishStatus, setPublishStatus] = useState({});
 
   const updateFavorite = useCallback(async (docId, updates) => {
     const favoriteRef = doc(db, "users", user.uid, "favorites", String(docId));
@@ -27,6 +30,60 @@ function Favorites() {
       updatedAt: new Date().toISOString()
     });
   }, [user]);
+
+  const publishReview = useCallback(async (item) => {
+    if (!user) {
+      return;
+    }
+    const reviewText = item.note?.trim();
+    if (!reviewText) {
+      return;
+    }
+    setPublishStatus((prev) => ({
+      ...prev,
+      [item.docId]: { state: "loading", message: "Publishing..." }
+    }));
+    const reviewId = `anime_${item.mal_id}_${user.uid}`;
+    const reviewRef = doc(db, "discussions", reviewId);
+    try {
+      const snapshot = await getDoc(reviewRef);
+      const createdAt = snapshot.exists()
+        ? snapshot.data().createdAt || new Date().toISOString()
+        : new Date().toISOString();
+      const cover =
+        aniCovers[item.mal_id] ||
+        getAniListCoverFromCache(item.mal_id) ||
+        item.image ||
+        "";
+      await setDoc(
+        reviewRef,
+        {
+          animeId: item.mal_id,
+          animeTitle: item.title,
+          animeUrl: `https://myanimelist.net/anime/${item.mal_id}`,
+          animeImage: cover,
+          review: reviewText,
+          rating: item.rating || "",
+          userId: user.uid,
+        userName: profile?.username || user.displayName || user.email || "Anonymous",
+        userPhoto: profile?.avatar || user.photoURL || "",
+          createdAt,
+          updatedAt: new Date().toISOString()
+        },
+        { merge: true }
+      );
+      const message = snapshot.exists() ? "Review updated." : "Review published.";
+      setPublishStatus((prev) => ({
+        ...prev,
+        [item.docId]: { state: "success", message }
+      }));
+    } catch (error) {
+      setPublishStatus((prev) => ({
+        ...prev,
+        [item.docId]: { state: "error", message: "Publish failed. Try again." }
+      }));
+    }
+  }, [aniCovers, profile?.avatar, profile?.username, user]);
 
   useEffect(() => {
     if (!user) {
@@ -190,6 +247,25 @@ function Favorites() {
     runBackfill();
   }, [favorites, loading, updateFavorite, user]);
 
+  useEffect(() => {
+    const animeIds = favorites
+      .filter((item) => (item.mediaType ?? "anime") === "anime")
+      .map((item) => item.mal_id)
+      .filter(Boolean);
+    if (animeIds.length === 0) return undefined;
+
+    let active = true;
+    fetchAniListCoversByMalIds(animeIds).then((map) => {
+      if (!active || map.size === 0) return;
+      const next = Object.fromEntries(map);
+      setAniCovers((prev) => ({ ...prev, ...next }));
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [favorites]);
+
   if (!user) {
     return (
       <div className="layout">
@@ -345,12 +421,27 @@ function Favorites() {
                 handleDrop(favorites.findIndex((fav) => fav.docId === item.docId))
               }
             >
-              <Link
-                className="favorite-cover"
-                to={item.mediaType === "manga" ? `/manga/${item.mal_id}` : `/anime/${item.mal_id}`}
-              >
-                <img src={item.image} alt={item.title} />
-              </Link>
+              {/*
+                Prefer AniList covers for anime; fall back to stored image for manga.
+              */}
+              {(() => {
+                const cover =
+                  (item.mediaType ?? "anime") === "anime"
+                    ? aniCovers[item.mal_id] || getAniListCoverFromCache(item.mal_id)
+                    : item.image;
+                return (
+                  <Link
+                    className="favorite-cover"
+                    to={item.mediaType === "manga" ? `/manga/${item.mal_id}` : `/anime/${item.mal_id}`}
+                  >
+                    {cover ? (
+                      <img src={cover} alt={item.title} />
+                    ) : (
+                      <div className="cover-placeholder" aria-label={`${item.title} cover unavailable`}></div>
+                    )}
+                  </Link>
+                );
+              })()}
               <div className="favorite-body">
                 <div className="favorite-title">
                   <Link to={item.mediaType === "manga" ? `/manga/${item.mal_id}` : `/anime/${item.mal_id}`}>
@@ -461,6 +552,22 @@ function Favorites() {
                   >
                     Save to Completed
                   </button>
+                )}
+                {getListStatus(item) === "Completed" && (item.mediaType ?? "anime") === "anime" && (
+                  <button
+                    className="publish-button"
+                    type="button"
+                    onClick={() => publishReview(item)}
+                    disabled={!item.note || !item.note.trim()}
+                    title={item.note?.trim() ? "Publish review to discussion" : "Add a note to publish"}
+                  >
+                    {publishStatus[item.docId]?.state === "success" ? "Published" : "Publish review"}
+                  </button>
+                )}
+                {publishStatus[item.docId]?.message && (
+                  <span className={`publish-status ${publishStatus[item.docId]?.state || ""}`}>
+                    {publishStatus[item.docId]?.message}
+                  </span>
                 )}
               </div>
             </div>

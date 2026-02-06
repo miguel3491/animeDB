@@ -7,6 +7,10 @@ import Favorites from "./Favorites";
 import MangaContent from "./MangaContent";
 import MangaDetail from "./MangaDetail";
 import News from "./News";
+import NewsDetail from "./NewsDetail";
+import Discussion from "./Discussion";
+import DiscussionDetail from "./DiscussionDetail";
+import Profile from "./Profile";
 
 function App(){
     return(
@@ -23,6 +27,10 @@ function App(){
                         <Route path="/manga/:id" element={<MangaDetail></MangaDetail>} />
                         <Route path="/favorites" element={<Favorites></Favorites>} />
                         <Route path="/news" element={<News></News>} />
+                        <Route path="/news/:id" element={<NewsDetail></NewsDetail>} />
+                        <Route path="/discussion" element={<Discussion></Discussion>} />
+                        <Route path="/discussion/:id" element={<DiscussionDetail></DiscussionDetail>} />
+                        <Route path="/profile" element={<Profile></Profile>} />
                     </Routes>
                 </main>
                 <footer>
