@@ -8,6 +8,13 @@ import { useAuth } from "../AuthContext";
 import { fetchAniListMangaCoversByMalIds, getAniListMangaCoverFromCache } from "../utils/anilist";
 import "../styles.css";
 
+const SEARCH_TTL = 2 * 60 * 1000;
+const TOP_TTL = 5 * 60 * 1000;
+const LATEST_TTL = 5 * 60 * 1000;
+const searchCache = new Map();
+let topMangaCache = { data: null, ts: 0 };
+let latestMangaCache = { data: null, ts: 0 };
+
 function MangaContent() {
   const [manga, setManga] = useState([]);
   const [topManga, setTopManga] = useState([]);
@@ -27,28 +34,50 @@ function MangaContent() {
   const [mangaCovers, setMangaCovers] = useState({});
 
   const obtainTopManga = async () => {
+    const now = Date.now();
+    if (topMangaCache.data && now - topMangaCache.ts < TOP_TTL) {
+      setTopManga(topMangaCache.data);
+      return;
+    }
     try {
       const api = await fetch(`https://api.jikan.moe/v4/top/manga`).then((res) =>
         res.json()
       );
-      setTopManga(Array.isArray(api?.data) ? api.data : []);
+      const data = Array.isArray(api?.data) ? api.data : [];
+      topMangaCache = { data, ts: Date.now() };
+      setTopManga(data);
     } catch (error) {
-      setTopManga([]);
+      if (!topMangaCache.data) {
+        setTopManga([]);
+      }
     }
   };
 
   const searchManga = useCallback(async (page) => {
     const currentPage = page ?? 1;
+    const cacheKey = `${search}|${currentPage}`;
+    const cached = searchCache.get(cacheKey);
+    const now = Date.now();
+    if (cached && now - cached.ts < SEARCH_TTL) {
+      setManga(cached.data);
+      setPageSize(cached.pagination);
+      return;
+    }
     try {
       const response = await fetch(
         `https://api.jikan.moe/v4/manga?q=${search}&page=${currentPage}`
       );
       const apiAll = await response.json();
-      setManga(apiAll?.data ?? []);
-      setPageSize(apiAll?.pagination ?? null);
+      const data = apiAll?.data ?? [];
+      const pagination = apiAll?.pagination ?? null;
+      searchCache.set(cacheKey, { data, pagination, ts: Date.now() });
+      setManga(data);
+      setPageSize(pagination);
     } catch (error) {
-      setManga([]);
-      setPageSize(null);
+      if (!cached) {
+        setManga([]);
+        setPageSize(null);
+      }
     }
   }, [search]);
 
@@ -95,6 +124,12 @@ function MangaContent() {
 
   useEffect(() => {
     const fetchLatestManga = async () => {
+      const now = Date.now();
+      if (latestMangaCache.data && now - latestMangaCache.ts < LATEST_TTL) {
+        setLatestManga(latestMangaCache.data);
+        setLatestLoading(false);
+        return;
+      }
       setLatestLoading(true);
       setLatestError("");
       try {
@@ -112,7 +147,7 @@ function MangaContent() {
             }
           }
         `;
-        const response = await fetch("https://graphql.anilist.co", {
+        const response = await fetch("/api/anilist", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -137,10 +172,15 @@ function MangaContent() {
           chapterTitle: entry?.chapters ? `Chapter ${entry.chapters}` : "Chapter ?",
           url: entry?.siteUrl || ""
         }));
+        latestMangaCache = { data: items, ts: Date.now() };
         setLatestManga(items);
       } catch (error) {
-        setLatestManga([]);
-        setLatestError("Latest manga releases are unavailable right now.");
+        if (latestMangaCache.data) {
+          setLatestManga(latestMangaCache.data);
+        } else {
+          setLatestManga([]);
+          setLatestError("Latest manga releases are unavailable right now.");
+        }
       } finally {
         setLatestLoading(false);
       }

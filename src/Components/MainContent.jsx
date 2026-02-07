@@ -8,6 +8,13 @@ import { useAuth } from "../AuthContext";
 import { fetchAniListCoversByMalIds, getAniListCoverFromCache } from "../utils/anilist";
 import "../styles.css"
 
+const SEARCH_TTL = 2 * 60 * 1000;
+const TOP_TTL = 5 * 60 * 1000;
+const LATEST_TTL = 5 * 60 * 1000;
+const searchCache = new Map();
+let topAnimeCache = { data: null, ts: 0 };
+let latestEpisodesCache = { data: null, ts: 0 };
+
 function MainContent() {
   const [anime, setAnime] = useState([]);
   const [topAnime, setTopAnime] = useState([]);
@@ -29,13 +36,22 @@ function MainContent() {
   // const [filterAnime, setFilter] = useState([]);
 
   const obtainTopAnime = async () => {
+    const now = Date.now();
+    if (topAnimeCache.data && now - topAnimeCache.ts < TOP_TTL) {
+      setTopAnime(topAnimeCache.data);
+      return;
+    }
     try {
       const api = await fetch(`https://api.jikan.moe/v4/top/anime`).then((res) =>
         res.json()
       );
-      setTopAnime(Array.isArray(api?.data) ? api.data : []);
+      const data = Array.isArray(api?.data) ? api.data : [];
+      topAnimeCache = { data, ts: Date.now() };
+      setTopAnime(data);
     } catch (error) {
-      setTopAnime([]);
+      if (!topAnimeCache.data) {
+        setTopAnime([]);
+      }
     }
   };
 
@@ -48,16 +64,29 @@ function MainContent() {
 
   const searchAnime = useCallback(async (page) => {
     const currentPage = page ?? 1; // default page is 1
+    const cacheKey = `${search}|${currentPage}`;
+    const cached = searchCache.get(cacheKey);
+    const now = Date.now();
+    if (cached && now - cached.ts < SEARCH_TTL) {
+      setAnime(cached.data);
+      setPageSize(cached.pagination);
+      return;
+    }
     try {
       const response = await fetch(
         `https://api.jikan.moe/v4/anime?q=${search}&page=${currentPage}`
       );
       const apiAll = await response.json();
-      setAnime(apiAll?.data ?? []);
-      setPageSize(apiAll?.pagination ?? null);
+      const data = apiAll?.data ?? [];
+      const pagination = apiAll?.pagination ?? null;
+      searchCache.set(cacheKey, { data, pagination, ts: Date.now() });
+      setAnime(data);
+      setPageSize(pagination);
     } catch (error) {
-      setAnime([]);
-      setPageSize(null);
+      if (!cached) {
+        setAnime([]);
+        setPageSize(null);
+      }
     }
   }, [search]);
 
@@ -130,7 +159,14 @@ function MainContent() {
   }, [anime, topAnime]);
 
   useEffect(() => {
+    const controller = new AbortController();
     const fetchLatestEpisodes = async () => {
+      const nowMs = Date.now();
+      if (latestEpisodesCache.data && nowMs - latestEpisodesCache.ts < LATEST_TTL) {
+        setLatestEpisodes(latestEpisodesCache.data);
+        setEpisodesLoading(false);
+        return;
+      }
       setEpisodesLoading(true);
       setEpisodesError("");
       try {
@@ -160,14 +196,18 @@ function MainContent() {
             }
           }
         `;
-        const response = await fetch("https://graphql.anilist.co", {
+        const response = await fetch("/api/anilist", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Accept: "application/json"
           },
-          body: JSON.stringify({ query, variables })
+          body: JSON.stringify({ query, variables }),
+          signal: controller.signal
         });
+        if (!response.ok) {
+          throw new Error(`AniList error (${response.status})`);
+        }
         const json = await response.json();
         if (json?.errors?.length) {
           throw new Error(json.errors[0]?.message || "AniList error");
@@ -198,16 +238,25 @@ function MainContent() {
             watchSite: chosen?.site || ""
           };
         });
+        latestEpisodesCache = { data: items, ts: Date.now() };
         setLatestEpisodes(items);
       } catch (error) {
-        setLatestEpisodes([]);
-        setEpisodesError("Latest episodes are unavailable right now.");
+        if (error?.name === "AbortError") return;
+        if (latestEpisodesCache.data) {
+          setLatestEpisodes(latestEpisodesCache.data);
+        } else {
+          setLatestEpisodes([]);
+          setEpisodesError("Latest episodes are unavailable right now.");
+        }
       } finally {
-        setEpisodesLoading(false);
+        if (!controller.signal.aborted) {
+          setEpisodesLoading(false);
+        }
       }
     };
 
     fetchLatestEpisodes();
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {

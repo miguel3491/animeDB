@@ -4,7 +4,7 @@ const cors = require("cors");
 const OpenAI = require("openai");
 
 const app = express();
-const port = process.env.PORT || 4000;
+const port = 4000;
 
 app.use(cors({ origin: "http://localhost:3000" }));
 app.use(express.json({ limit: "1mb" }));
@@ -83,6 +83,28 @@ app.post("/api/summary", async (req, res) => {
       error: "Failed to summarize",
       detail: err?.message || "Unknown error"
     });
+  }
+});
+
+app.post("/api/anilist", async (req, res) => {
+  try {
+    const { query, variables } = req.body || {};
+    if (!query) {
+      return res.status(400).json({ error: "Missing query" });
+    }
+    const response = await fetch("https://graphql.anilist.co", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify({ query, variables })
+    });
+    const data = await response.json();
+    return res.status(response.status).json(data);
+  } catch (err) {
+    console.error("AniList proxy error:", err?.message || err);
+    return res.status(500).json({ error: "AniList proxy failed" });
   }
 });
 

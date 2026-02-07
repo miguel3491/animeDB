@@ -1,4 +1,4 @@
-const ANILIST_ENDPOINT = "https://graphql.anilist.co";
+const ANILIST_ENDPOINT = "/api/anilist";
 const coverCache = new Map();
 const mangaCoverCache = new Map();
 
