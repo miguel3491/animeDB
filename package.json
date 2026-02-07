@@ -30,7 +30,7 @@
     "concurrently": "^9.1.0"
   },
   "scripts": {
-    "start": "concurrently \"npm run client\" \"npm run server\"",
+    "start": "concurrently -k -s first -n CLIENT,SERVER -c \"cyan.bold,magenta.bold\" \"npm run client\" \"npm run server\"",
     "client": "react-scripts start",
     "server": "node server/index.js",
     "build": "react-scripts build",

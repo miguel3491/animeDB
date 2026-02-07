@@ -6,7 +6,7 @@ const OpenAI = require("openai");
 const app = express();
 const port = 4000;
 
-app.use(cors({ origin: "http://localhost:3000" }));
+app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
 const apiKey = process.env.OPENAI_API_KEY;
