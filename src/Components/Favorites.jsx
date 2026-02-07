@@ -17,11 +17,21 @@ function Favorites() {
   const [completedPage, setCompletedPage] = useState(1);
   const [orderDrafts, setOrderDrafts] = useState({});
   const [statusDrafts, setStatusDrafts] = useState({});
+  const orderDraftsRef = useRef(orderDrafts);
+  const statusDraftsRef = useRef(statusDrafts);
   const [activeTab, setActiveTab] = useState("anime");
   const backfillRunningRef = useRef(false);
   const backfilledRef = useRef(new Set());
   const [aniCovers, setAniCovers] = useState({});
   const [publishStatus, setPublishStatus] = useState({});
+
+  useEffect(() => {
+    orderDraftsRef.current = orderDrafts;
+  }, [orderDrafts]);
+
+  useEffect(() => {
+    statusDraftsRef.current = statusDrafts;
+  }, [statusDrafts]);
 
   const updateFavorite = useCallback(async (docId, updates) => {
     const favoriteRef = doc(db, "users", user.uid, "favorites", String(docId));
@@ -43,7 +53,8 @@ function Favorites() {
       ...prev,
       [item.docId]: { state: "loading", message: "Publishing..." }
     }));
-    const reviewId = `anime_${item.mal_id}_${user.uid}`;
+    const mediaType = item.mediaType ?? "anime";
+    const reviewId = `${mediaType}_${item.mal_id}_${user.uid}`;
     const reviewRef = doc(db, "discussions", reviewId);
     try {
       const snapshot = await getDoc(reviewRef);
@@ -51,13 +62,24 @@ function Favorites() {
         ? snapshot.data().createdAt || new Date().toISOString()
         : new Date().toISOString();
       const cover =
-        aniCovers[item.mal_id] ||
-        getAniListCoverFromCache(item.mal_id) ||
-        item.image ||
-        "";
+        mediaType === "anime"
+          ? aniCovers[item.mal_id] ||
+            getAniListCoverFromCache(item.mal_id) ||
+            item.image ||
+            ""
+          : item.image || "";
+      const mediaUrl =
+        mediaType === "manga"
+          ? `https://myanimelist.net/manga/${item.mal_id}`
+          : `https://myanimelist.net/anime/${item.mal_id}`;
       await setDoc(
         reviewRef,
         {
+          mediaType,
+          mediaId: item.mal_id,
+          mediaTitle: item.title,
+          mediaUrl,
+          mediaImage: cover,
           animeId: item.mal_id,
           animeTitle: item.title,
           animeUrl: `https://myanimelist.net/anime/${item.mal_id}`,
@@ -65,8 +87,8 @@ function Favorites() {
           review: reviewText,
           rating: item.rating || "",
           userId: user.uid,
-        userName: profile?.username || user.displayName || user.email || "Anonymous",
-        userPhoto: profile?.avatar || user.photoURL || "",
+          userName: profile?.username || user.displayName || user.email || "Anonymous",
+          userPhoto: profile?.avatar || user.photoURL || "",
           createdAt,
           updatedAt: new Date().toISOString()
         },
@@ -113,7 +135,9 @@ function Favorites() {
           return !Number.isInteger(orderValue) || orderValue < 1;
         });
 
-      const hasDrafts = Object.keys(orderDrafts).length > 0 || Object.keys(statusDrafts).length > 0;
+      const hasDrafts =
+        Object.keys(orderDraftsRef.current).length > 0 ||
+        Object.keys(statusDraftsRef.current).length > 0;
       if ((needsNormalization(activeItems) || needsNormalization(completedItems)) && !normalizingRef.current && !hasDrafts) {
         normalizingRef.current = true;
         const activeSorted = sortActiveFavorites(activeItems);
@@ -131,22 +155,24 @@ function Favorites() {
       }
 
       setStatusDrafts((prev) => {
-        const next = { ...prev };
         const serverStatus = new Map(
           data.map((item) => [String(item.docId), item.status])
         );
+        let changed = false;
+        const next = { ...prev };
         Object.keys(next).forEach((key) => {
           if (serverStatus.get(String(key)) === next[key]) {
             delete next[key];
+            changed = true;
           }
         });
-        return next;
+        return changed ? next : prev;
       });
     });
 
     return () => unsubscribe();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, updateFavorite, orderDrafts, statusDrafts]);
+  }, [user, updateFavorite]);
 
   useEffect(() => {
     setActivePage(1);
@@ -553,7 +579,7 @@ function Favorites() {
                     Save to Completed
                   </button>
                 )}
-                {getListStatus(item) === "Completed" && (item.mediaType ?? "anime") === "anime" && (
+                {getListStatus(item) === "Completed" && (
                   <button
                     className="publish-button"
                     type="button"

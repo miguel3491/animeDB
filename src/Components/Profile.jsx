@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { collection, getDocs, limit, orderBy, query, where } from "firebase/firestore";
 import { useAuth } from "../AuthContext";
+import { db } from "../firebase";
 import "../styles.css";
 
 function Profile() {
@@ -9,10 +11,57 @@ function Profile() {
   const [status, setStatus] = useState("");
   const fileRef = useRef(null);
   const bgRef = useRef(null);
+  const [activity, setActivity] = useState([]);
+  const [activityLoading, setActivityLoading] = useState(true);
 
   useEffect(() => {
     setDraftName(profile?.username || "");
   }, [profile?.username]);
+
+  useEffect(() => {
+    let active = true;
+    const loadActivity = async () => {
+      if (!user?.uid) return;
+      setActivityLoading(true);
+      try {
+        const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        const activityRef = collection(db, "users", user.uid, "commentActivity");
+        const activityQuery = query(
+          activityRef,
+          where("commentedAt", ">=", since),
+          orderBy("commentedAt", "desc"),
+          limit(5)
+        );
+        const activitySnap = await getDocs(activityQuery);
+        const details = activitySnap.docs.map((docItem) => {
+          const data = docItem.data() || {};
+          return {
+            id: data.discussionId || docItem.id,
+            commentedAt: data.commentedAt || "",
+            title: data.mediaTitle || data.title || "Untitled",
+            image: data.mediaImage || data.image || "",
+            mediaType: data.mediaType || "anime"
+          };
+        });
+        if (active) {
+          setActivity(details);
+        }
+      } catch (err) {
+        if (active) {
+          setActivity([]);
+        }
+      } finally {
+        if (active) {
+          setActivityLoading(false);
+        }
+      }
+    };
+
+    loadActivity();
+    return () => {
+      active = false;
+    };
+  }, [user?.uid]);
 
   const onPickFile = (file, field) => {
     if (!file) return;
@@ -123,6 +172,35 @@ function Profile() {
             hidden
             onChange={(e) => onPickFile(e.target.files?.[0], "background")}
           />
+        </div>
+        <div className="public-section">
+          <div className="results-bar">
+            <h3>Your recent discussions</h3>
+            <span className="pill">Last 7 days</span>
+          </div>
+          {activityLoading ? (
+            <p>Loading activity...</p>
+          ) : activity.length === 0 ? (
+            <p className="muted">No discussion activity in the last 7 days.</p>
+          ) : (
+            <div className="public-activity-grid">
+              {activity.map((item) => (
+                <Link className="public-activity-card" key={item.id} to={`/discussion/${item.id}`}>
+                  {item.image ? (
+                    <img src={item.image} alt={item.title} />
+                  ) : (
+                    <div className="public-activity-image placeholder"></div>
+                  )}
+                  <div>
+                    <h4>{item.title}</h4>
+                    <p className="muted">
+                      Commented {item.commentedAt ? new Date(item.commentedAt).toLocaleDateString() : "recently"}
+                    </p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
       </section>
     </div>

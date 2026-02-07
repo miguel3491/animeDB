@@ -80,7 +80,7 @@ function DiscussionDetail() {
     <div className="layout">
       <section>
         <div className="results-bar">
-          <h3>{post.animeTitle}</h3>
+          <h3>{post.mediaTitle || post.animeTitle}</h3>
           <Link className="detail-link" to="/discussion">Back to discussion</Link>
         </div>
         <div className="discussion-grid">

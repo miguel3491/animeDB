@@ -1,7 +1,8 @@
 import React from "react";
 import { Link } from "react-router-dom";
+import { getAniListMangaCoverFromCache } from "../utils/anilist";
 
-function MangaSidebar({ topManga }) {
+function MangaSidebar({ topManga, imageMap }) {
   const safeTop = Array.isArray(topManga) ? topManga : [];
   const sortedTop = [...safeTop]
     .filter((manga) => manga && manga.mal_id)
@@ -16,7 +17,20 @@ function MangaSidebar({ topManga }) {
           {sortedTop.map((manga, index) => (
             <div className="sidebar-item" key={manga.mal_id}>
               <span className="side-rank">#{index + 1}</span>
-              <img className="side-image" src={manga.images.jpg.image_url} alt={manga.title}></img>
+              {(imageMap?.[manga.mal_id] || getAniListMangaCoverFromCache(manga.mal_id) || manga?.images?.jpg?.image_url || manga?.images?.webp?.image_url) ? (
+                <img
+                  className="side-image"
+                  src={
+                    imageMap?.[manga.mal_id] ||
+                    getAniListMangaCoverFromCache(manga.mal_id) ||
+                    manga?.images?.jpg?.image_url ||
+                    manga?.images?.webp?.image_url
+                  }
+                  alt={manga.title}
+                ></img>
+              ) : (
+                <div className="side-image placeholder" aria-label={`${manga.title} cover unavailable`}></div>
+              )}
               <Link className="anime-title" to={`/manga/${manga.mal_id}`}>
                 {manga.title}
               </Link>

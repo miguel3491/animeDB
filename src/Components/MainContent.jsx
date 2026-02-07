@@ -13,6 +13,7 @@ function MainContent() {
   const [topAnime, setTopAnime] = useState([]);
   const [search, setSearch] = useState("");
   const [pageSize, setPageSize] = useState();
+  const [currentPage, setCurrentPage] = useState(0);
   const [viewMode, setViewMode] = useState("grid");
   const [selectedGenre, setSelectedGenre] = useState("All");
   const [latestEpisodes, setLatestEpisodes] = useState([]);
@@ -20,8 +21,10 @@ function MainContent() {
   const [episodesError, setEpisodesError] = useState("");
   const [aniCovers, setAniCovers] = useState({});
   const episodesRef = useRef(null);
+  const searchTimeoutRef = useRef(null);
   const { user } = useAuth();
   const [favorites, setFavorites] = useState(new Set());
+  const showMiniStrip = search.trim().length === 0;
   // const [seasonAnime, setseasonAnime] = useState([]);
   // const [filterAnime, setFilter] = useState([]);
 
@@ -59,7 +62,24 @@ function MainContent() {
   }, [search]);
 
   const handlePageClick = async (event) => {
-    searchAnime(event.selected + 1); // change page
+    const nextPage = event.selected;
+    if (nextPage === currentPage) {
+      return;
+    }
+    setCurrentPage(nextPage);
+    searchAnime(nextPage + 1); // change page
+  };
+
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [search]);
+
+  const triggerSearch = () => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    setCurrentPage(0);
+    searchAnime(1);
   };
 
   //  const searchItems = (searchValue) => {
@@ -71,8 +91,20 @@ function MainContent() {
   // }
 
   useEffect(() => {
-    searchAnime();
-  }, [searchAnime]);
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    searchTimeoutRef.current = setTimeout(() => {
+      setCurrentPage(0);
+      searchAnime(1);
+    }, 350);
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [search, searchAnime]);
 
   useEffect(() => {
     obtainTopAnime();
@@ -263,7 +295,12 @@ function MainContent() {
     } = item;
     const hasTrailer = Boolean(trailer?.embed_url);
     const isFavorite = favorites.has(String(mal_id));
-    const cover = aniCovers[mal_id] || getAniListCoverFromCache(mal_id);
+    const cover =
+      aniCovers[mal_id] ||
+      getAniListCoverFromCache(mal_id) ||
+      item?.images?.jpg?.image_url ||
+      item?.images?.webp?.image_url ||
+      "";
 
     return (
       <article className="anime-card" key={mal_id}>
@@ -365,11 +402,11 @@ function MainContent() {
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
-                  searchAnime();
+                  triggerSearch();
                 }
               }}
             />
-            <button type="button" onClick={() => searchAnime()}>
+            <button type="button" onClick={triggerSearch}>
               Search
             </button>
           </div>
@@ -457,7 +494,8 @@ function MainContent() {
             </div>
           </div>
 
-          <div className="mini-strip spotlight">
+          {showMiniStrip && (
+            <div className="mini-strip spotlight">
             <div className="mini-strip-header">
               <div>
                 <h4>Latest Anime Drops</h4>
@@ -481,23 +519,24 @@ function MainContent() {
                   <article className="mini-card featured" key={`anime-mini-${item.id}`}>
                     <div className="mini-thumb">
                       {item.image ? (
-                        <img src={item.image} alt={item.animeTitle} />
-                      ) : (
-                        <div className="mini-placeholder"></div>
-                      )}
-                      <span className="mini-chip">{item.episodeTitle}</span>
-                    </div>
-                    <div className="mini-card-body">
-                      <span className="mini-title">{item.animeTitle}</span>
-                      <span className="muted">
-                        {item.releaseAt ? new Date(item.releaseAt).toLocaleDateString() : "TBA"}
-                      </span>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </div>
+                          <img src={item.image} alt={item.animeTitle} />
+                        ) : (
+                          <div className="mini-placeholder"></div>
+                        )}
+                      </div>
+                      <div className="mini-card-body">
+                        <span className="mini-title">{item.animeTitle}</span>
+                        <span className="mini-episode">{item.episodeTitle}</span>
+                        <span className="muted">
+                          {item.releaseAt ? new Date(item.releaseAt).toLocaleDateString() : "TBA"}
+                        </span>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {pageSize && (
             <div className="pagination top">
@@ -505,6 +544,7 @@ function MainContent() {
                 nextLabel="&rarr;"
                 previousLabel="&larr;"
                 breakLabel={"..."}
+                forcePage={currentPage}
                 pageCount={pageSize?.last_visible_page}
                 onPageChange={handlePageClick}
                 marginPagesDisplayed={2}
@@ -525,6 +565,7 @@ function MainContent() {
                 nextLabel="&rarr;"
                 previousLabel="&larr;"
                 breakLabel={"..."}
+                forcePage={currentPage}
                 pageCount={pageSize?.last_visible_page}
                 onPageChange={handlePageClick}
                 marginPagesDisplayed={2}
@@ -538,7 +579,7 @@ function MainContent() {
             )}
           </div>
 
-          <div className="episodes-section" id="latest-episodes" ref={episodesRef}>
+          <div className="episodes-section anime" id="latest-episodes" ref={episodesRef}>
             <div className="results-bar">
               <h3>Latest episode releases</h3>
               <span className="pill">From AniList airing schedule</span>

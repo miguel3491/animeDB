@@ -5,6 +5,7 @@ import MangaSidebar from "./MangaSidebar";
 import { collection, deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
+import { fetchAniListMangaCoversByMalIds, getAniListMangaCoverFromCache } from "../utils/anilist";
 import "../styles.css";
 
 function MangaContent() {
@@ -12,6 +13,7 @@ function MangaContent() {
   const [topManga, setTopManga] = useState([]);
   const [search, setSearch] = useState("");
   const [pageSize, setPageSize] = useState();
+  const [currentPage, setCurrentPage] = useState(0);
   const [viewMode, setViewMode] = useState("grid");
   const [selectedGenre, setSelectedGenre] = useState("All");
   const { user } = useAuth();
@@ -20,6 +22,9 @@ function MangaContent() {
   const [latestLoading, setLatestLoading] = useState(true);
   const [latestError, setLatestError] = useState("");
   const releasesRef = useRef(null);
+  const searchTimeoutRef = useRef(null);
+  const showMiniStrip = search.trim().length === 0;
+  const [mangaCovers, setMangaCovers] = useState({});
 
   const obtainTopManga = async () => {
     try {
@@ -48,12 +53,41 @@ function MangaContent() {
   }, [search]);
 
   const handlePageClick = async (event) => {
-    searchManga(event.selected + 1);
+    const nextPage = event.selected;
+    if (nextPage === currentPage) {
+      return;
+    }
+    setCurrentPage(nextPage);
+    searchManga(nextPage + 1);
   };
 
   useEffect(() => {
-    searchManga();
-  }, [searchManga]);
+    setCurrentPage(0);
+  }, [search]);
+
+  const triggerSearch = () => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    setCurrentPage(0);
+    searchManga(1);
+  };
+
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    searchTimeoutRef.current = setTimeout(() => {
+      setCurrentPage(0);
+      searchManga(1);
+    }, 350);
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [search, searchManga]);
 
   useEffect(() => {
     obtainTopManga();
@@ -115,6 +149,25 @@ function MangaContent() {
     fetchLatestManga();
   }, []);
 
+  useEffect(() => {
+    const ids = [
+      ...manga.map((item) => item?.mal_id),
+      ...topManga.map((item) => item?.mal_id)
+    ].filter(Boolean);
+    if (ids.length === 0) return undefined;
+
+    let active = true;
+    fetchAniListMangaCoversByMalIds(ids).then((map) => {
+      if (!active || map.size === 0) return;
+      const next = Object.fromEntries(map);
+      setMangaCovers((prev) => ({ ...prev, ...next }));
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [manga, topManga]);
+
   const genreOptions = useMemo(() => {
     const names = new Set();
     manga.forEach((item) => {
@@ -163,12 +216,19 @@ function MangaContent() {
       return;
     }
 
+    const cover =
+      item.cover ||
+      item.image ||
+      item.images?.jpg?.image_url ||
+      item.images?.webp?.image_url ||
+      "";
+
     await setDoc(favoriteRef, {
       mal_id: item.mal_id,
       title: item.title,
-      image: item.images?.jpg?.image_url || "",
+      image: cover,
       mediaType: "manga",
-      totalChapters: item.chapters ?? null,
+      totalChapters: item.chapters ?? item.totalChapters ?? null,
       status: "Plan to watch",
       rating: "",
       note: "",
@@ -208,11 +268,11 @@ function MangaContent() {
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
-                  searchManga();
+                  triggerSearch();
                 }
               }}
             />
-            <button type="button" onClick={() => searchManga()}>
+            <button type="button" onClick={triggerSearch}>
               Search
             </button>
           </div>
@@ -299,9 +359,13 @@ function MangaContent() {
             </div>
           </div>
 
-          <div className="mini-strip">
+          {showMiniStrip && (
+            <div className="mini-strip spotlight">
             <div className="mini-strip-header">
-              <h4>Latest Manga Drops</h4>
+              <div>
+                <h4>Latest Manga Drops</h4>
+                <p className="muted">Fresh chapters from AniList</p>
+              </div>
               <button
                 type="button"
                 className="mini-strip-link"
@@ -317,21 +381,27 @@ function MangaContent() {
             ) : (
               <div className="mini-strip-grid">
                 {latestManga.slice(0, 6).map((item) => (
-                  <article className="mini-card" key={`mini-${item.id}`}>
-                    {item.image ? (
-                      <img src={item.image} alt={item.title} />
-                    ) : (
-                      <div className="mini-placeholder"></div>
-                    )}
-                    <div className="mini-card-body">
-                      <span>{item.title}</span>
-                      <span className="muted">{item.chapterTitle}</span>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </div>
+                  <article className="mini-card featured" key={`mini-${item.id}`}>
+                    <div className="mini-thumb">
+                      {item.image ? (
+                          <img src={item.image} alt={item.title} />
+                        ) : (
+                          <div className="mini-placeholder"></div>
+                        )}
+                      </div>
+                      <div className="mini-card-body">
+                        <span className="mini-title">{item.title}</span>
+                        <span className="mini-episode">{item.chapterTitle}</span>
+                        <span className="muted">
+                          {item.releaseAt ? new Date(item.releaseAt).toLocaleDateString() : "TBA"}
+                        </span>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {pageSize && (
             <div className="pagination top">
@@ -339,6 +409,7 @@ function MangaContent() {
                 nextLabel="&rarr;"
                 previousLabel="&larr;"
                 breakLabel={"..."}
+                forcePage={currentPage}
                 pageCount={pageSize?.last_visible_page}
                 onPageChange={handlePageClick}
                 marginPagesDisplayed={2}
@@ -359,11 +430,22 @@ function MangaContent() {
                 volumes,
                 status,
                 score
-              }) => (
+              }) => {
+                const cover =
+                  mangaCovers[mal_id] ||
+                  getAniListMangaCoverFromCache(mal_id) ||
+                  images?.jpg?.image_url ||
+                  images?.webp?.image_url ||
+                  "";
+                return (
                 <article className="anime-card" key={mal_id}>
                   <Link to={`/manga/${mal_id}`}>
                     <div className="media-wrap">
-                      <img src={images.jpg.image_url} alt={title} />
+                      {cover ? (
+                        <img src={cover} alt={title} />
+                      ) : (
+                        <div className="media-placeholder" aria-label={`${title} cover unavailable`}></div>
+                      )}
                     </div>
                   </Link>
                   <div className="card-body">
@@ -387,7 +469,7 @@ function MangaContent() {
                       <button
                         className={`favorite-button ${favorites.has(`manga_${mal_id}`) ? "active" : ""}`}
                         type="button"
-                        onClick={() => toggleFavorite({ mal_id, title, images })}
+                        onClick={() => toggleFavorite({ mal_id, title, images, chapters, cover })}
                         disabled={!user}
                         title={user ? "Save to favorites" : "Sign in to save favorites"}
                       >
@@ -396,7 +478,7 @@ function MangaContent() {
                     </div>
                   </div>
                 </article>
-              )
+              )}
             )}
           </div>
 
@@ -406,6 +488,7 @@ function MangaContent() {
                 nextLabel="&rarr;"
                 previousLabel="&larr;"
                 breakLabel={"..."}
+                forcePage={currentPage}
                 pageCount={pageSize?.last_visible_page}
                 onPageChange={handlePageClick}
                 marginPagesDisplayed={2}
@@ -419,7 +502,7 @@ function MangaContent() {
             )}
           </div>
 
-          <div className="episodes-section" ref={releasesRef}>
+          <div className="episodes-section anime" ref={releasesRef}>
             <div className="results-bar">
               <h3>Latest manga releases</h3>
               <span className="pill">From AniList updates</span>
@@ -461,7 +544,7 @@ function MangaContent() {
         </section>
 
         <div className="Sidebar">
-          <MangaSidebar topManga={topManga}></MangaSidebar>
+          <MangaSidebar topManga={topManga} imageMap={mangaCovers}></MangaSidebar>
         </div>
       </div>
     </div>

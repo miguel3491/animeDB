@@ -10,6 +10,9 @@ function AnimeDetail() {
   const { id } = useParams();
   const [anime, setAnime] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [characters, setCharacters] = useState([]);
+  const [charactersLoading, setCharactersLoading] = useState(true);
+  const [charactersError, setCharactersError] = useState("");
   const { user } = useAuth();
   const [isFavorite, setIsFavorite] = useState(false);
   const [aniCover, setAniCover] = useState("");
@@ -35,6 +38,37 @@ function AnimeDetail() {
     };
 
     fetchAnime();
+    return () => {
+      isMounted = false;
+    };
+  }, [id]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchCharacters = async () => {
+      setCharactersLoading(true);
+      setCharactersError("");
+      try {
+        const response = await fetch(`https://api.jikan.moe/v4/anime/${id}/characters`);
+        const data = await response.json();
+        if (isMounted) {
+          const list = Array.isArray(data?.data) ? data.data : [];
+          const sorted = [...list].sort((a, b) => (b?.favorites || 0) - (a?.favorites || 0));
+          setCharacters(sorted.slice(0, 8));
+        }
+      } catch (error) {
+        if (isMounted) {
+          setCharacters([]);
+          setCharactersError("Character info unavailable.");
+        }
+      } finally {
+        if (isMounted) {
+          setCharactersLoading(false);
+        }
+      }
+    };
+
+    fetchCharacters();
     return () => {
       isMounted = false;
     };
@@ -103,6 +137,11 @@ function AnimeDetail() {
   }
 
   const hasTrailer = Boolean(anime.trailer?.embed_url);
+  const formatList = (items) =>
+    items && items.length ? items.map((item) => item.name).join(", ") : "None listed";
+  const premiered = anime.season ? `${anime.season} ${anime.year || ""}`.trim() : "N/A";
+  const aired = anime.aired?.string || "N/A";
+  const broadcast = anime.broadcast?.string || "N/A";
   const toggleFavorite = async () => {
     if (!user) {
       return;
@@ -160,11 +199,11 @@ function AnimeDetail() {
             <h2>{anime.title}</h2>
             {anime.title_english && <p className="detail-subtitle">{anime.title_english}</p>}
             <div className="detail-meta">
-              <span>Type: {anime.type || "?"}</span>
-              <span>Episodes: {anime.episodes ?? "?"}</span>
-              <span>Status: {anime.status || "?"}</span>
+              <span>Type: {anime.type || "N/A"}</span>
+              <span>Episodes: {anime.episodes ?? "N/A"}</span>
+              <span>Status: {anime.status || "N/A"}</span>
               <span>Score: {anime.score ?? "N/A"}</span>
-              <span>Rating: {anime.rating || "?"}</span>
+              <span>Rating: {anime.rating || "N/A"}</span>
             </div>
             <p className="detail-synopsis">{anime.synopsis || "No synopsis available."}</p>
             <div className="tag-row">
@@ -173,6 +212,33 @@ function AnimeDetail() {
               ))}
             </div>
           </div>
+        </div>
+
+        <div className="detail-characters">
+          <h3>Key Characters</h3>
+          {charactersLoading ? (
+            <p>Loading characters...</p>
+          ) : charactersError ? (
+            <p>{charactersError}</p>
+          ) : characters.length === 0 ? (
+            <p>No characters found for this title.</p>
+          ) : (
+            <div className="character-grid">
+              {characters.map((entry) => (
+                <div className="character-card" key={entry.character?.mal_id || entry.character?.name}>
+                  {entry.character?.images?.jpg?.image_url ? (
+                    <img src={entry.character.images.jpg.image_url} alt={entry.character?.name} />
+                  ) : (
+                    <div className="character-placeholder"></div>
+                  )}
+                  <div>
+                    <h4>{entry.character?.name || "Unknown"}</h4>
+                    <span className="muted">{entry.role || "Supporting"}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {hasTrailer && (
@@ -195,12 +261,22 @@ function AnimeDetail() {
         <div className="sidebar-card">
           <h4>Info Snapshot</h4>
           <div className="detail-list">
-            <span>Studios: {anime.studios?.map((studio) => studio.name).join(", ") || "?"}</span>
-            <span>Source: {anime.source || "?"}</span>
-            <span>Duration: {anime.duration || "?"}</span>
-            <span>Season: {anime.season ? `${anime.season} ${anime.year}` : "?"}</span>
-            <span>Popularity: #{anime.popularity ?? "?"}</span>
-            <span>Rank: #{anime.rank ?? "?"}</span>
+            <span>Type: {anime.type || "N/A"}</span>
+            <span>Episodes: {anime.episodes ?? "N/A"}</span>
+            <span>Status: {anime.status || "N/A"}</span>
+            <span>Aired: {aired}</span>
+            <span>Premiered: {premiered}</span>
+            <span>Broadcast: {broadcast}</span>
+            <span>Producers: {formatList(anime.producers)}</span>
+            <span>Licensors: {formatList(anime.licensors)}</span>
+            <span>Studios: {formatList(anime.studios)}</span>
+            <span>Source: {anime.source || "N/A"}</span>
+            <span>Genres: {formatList(anime.genres)}</span>
+            <span>Demographic: {formatList(anime.demographics)}</span>
+            <span>Duration: {anime.duration || "N/A"}</span>
+            <span>Rating: {anime.rating || "N/A"}</span>
+            <span>Popularity: #{anime.popularity ?? "N/A"}</span>
+            <span>Rank: #{anime.rank ?? "N/A"}</span>
           </div>
           {anime.streaming?.length ? (
             <>

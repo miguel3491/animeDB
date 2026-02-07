@@ -104,6 +104,10 @@ function MangaDetail() {
     setIsFavorite(true);
   };
 
+  const formatList = (items) =>
+    items && items.length ? items.map((item) => item.name).join(", ") : "None listed";
+  const published = manga.published?.string || "N/A";
+
   return (
     <div className="layout detail-layout">
       <section className="detail-panel">
@@ -130,12 +134,12 @@ function MangaDetail() {
             <h2>{manga.title}</h2>
             {manga.title_english && <p className="detail-subtitle">{manga.title_english}</p>}
             <div className="detail-meta">
-              <span>Type: {manga.type || "?"}</span>
-              <span>Chapters: {manga.chapters ?? "?"}</span>
-              <span>Volumes: {manga.volumes ?? "?"}</span>
-              <span>Status: {manga.status || "?"}</span>
+              <span>Type: {manga.type || "N/A"}</span>
+              <span>Chapters: {manga.chapters ?? "N/A"}</span>
+              <span>Volumes: {manga.volumes ?? "N/A"}</span>
+              <span>Status: {manga.status || "N/A"}</span>
               <span>Score: {manga.score ?? "N/A"}</span>
-              <span>Rating: {manga.rating || "?"}</span>
+              <span>Rating: {manga.rating || "N/A"}</span>
             </div>
             <p className="detail-synopsis">{manga.synopsis || "No synopsis available."}</p>
             <div className="tag-row">
@@ -151,11 +155,19 @@ function MangaDetail() {
         <div className="sidebar-card">
           <h4>Info Snapshot</h4>
           <div className="detail-list">
-            <span>Authors: {manga.authors?.map((author) => author.name).join(", ") || "?"}</span>
-            <span>Serialization: {manga.serializations?.map((s) => s.name).join(", ") || "?"}</span>
-            <span>Published: {manga.published?.string || "?"}</span>
-            <span>Popularity: #{manga.popularity ?? "?"}</span>
-            <span>Rank: #{manga.rank ?? "?"}</span>
+            <span>Type: {manga.type || "N/A"}</span>
+            <span>Chapters: {manga.chapters ?? "N/A"}</span>
+            <span>Volumes: {manga.volumes ?? "N/A"}</span>
+            <span>Status: {manga.status || "N/A"}</span>
+            <span>Published: {published}</span>
+            <span>Authors: {formatList(manga.authors)}</span>
+            <span>Serialization: {formatList(manga.serializations)}</span>
+            <span>Genres: {formatList(manga.genres)}</span>
+            <span>Demographic: {formatList(manga.demographics)}</span>
+            <span>Score: {manga.score ?? "N/A"}</span>
+            <span>Rating: {manga.rating || "N/A"}</span>
+            <span>Popularity: #{manga.popularity ?? "N/A"}</span>
+            <span>Rank: #{manga.rank ?? "N/A"}</span>
           </div>
         </div>
       </aside>
