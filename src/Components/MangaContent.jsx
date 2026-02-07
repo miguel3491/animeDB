@@ -5,7 +5,7 @@ import MangaSidebar from "./MangaSidebar";
 import { collection, deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
-import { fetchAniListMangaCoversByMalIds, getAniListMangaCoverFromCache } from "../utils/anilist";
+import { fetchAniList, fetchAniListMangaCoversByMalIds, getAniListMangaCoverFromCache } from "../utils/anilist";
 import "../styles.css";
 
 const SEARCH_TTL = 2 * 60 * 1000;
@@ -21,6 +21,7 @@ function MangaContent() {
   const [search, setSearch] = useState("");
   const [pageSize, setPageSize] = useState();
   const [currentPage, setCurrentPage] = useState(0);
+  const [isPageLoading, setIsPageLoading] = useState(false);
   const [viewMode, setViewMode] = useState("grid");
   const [selectedGenre, setSelectedGenre] = useState("All");
   const { user } = useAuth();
@@ -119,6 +120,14 @@ function MangaContent() {
   }, [search, searchManga]);
 
   useEffect(() => {
+    const timeout = setTimeout(() => {
+      setIsPageLoading(false);
+    }, 260);
+    setIsPageLoading(true);
+    return () => clearTimeout(timeout);
+  }, [currentPage]);
+
+  useEffect(() => {
     obtainTopManga();
   }, []);
 
@@ -147,15 +156,7 @@ function MangaContent() {
             }
           }
         `;
-        const response = await fetch("/api/anilist", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json"
-          },
-          body: JSON.stringify({ query, variables: { page: 1, perPage: 20 } })
-        });
-        const json = await response.json();
+        const json = await fetchAniList({ query, variables: { page: 1, perPage: 20 } });
         if (json?.errors?.length) {
           throw new Error(json.errors[0]?.message || "AniList error");
         }
@@ -458,45 +459,59 @@ function MangaContent() {
             </div>
           )}
 
-          <div className={`anime-grid ${viewMode}`}>
-            {filteredManga.map(
-              ({
-                mal_id,
-                title,
-                images,
-                type,
-                synopsis,
-                chapters,
-                volumes,
-                status,
-                score
-              }) => {
-                const cover =
-                  mangaCovers[mal_id] ||
-                  getAniListMangaCoverFromCache(mal_id) ||
-                  images?.jpg?.image_url ||
-                  images?.webp?.image_url ||
-                  "";
-                return (
-                <article className="anime-card" key={mal_id}>
-                  <Link to={`/manga/${mal_id}`}>
-                    <div className="media-wrap">
-                      {cover ? (
-                        <img src={cover} alt={title} />
-                      ) : (
-                        <div className="media-placeholder" aria-label={`${title} cover unavailable`}></div>
-                      )}
-                    </div>
-                  </Link>
+          {isPageLoading ? (
+            <div className={`anime-grid ${viewMode}`}>
+              {Array.from({ length: 8 }).map((_, index) => (
+                <div className="anime-card skeleton-card" key={`manga-skeleton-${index}`}>
+                  <div className="media-wrap skeleton-block"></div>
                   <div className="card-body">
-                    <div className="tag-row">
-                      {type && <span className="tag">{type}</span>}
-                      {status && <span className="tag">{status}</span>}
-                    </div>
-                    <Link className="card-title-link" to={`/manga/${mal_id}`}>
-                      <h4 className="card-title">{title}</h4>
+                    <div className="skeleton-line"></div>
+                    <div className="skeleton-line short"></div>
+                    <div className="skeleton-line"></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className={`anime-grid ${viewMode}`}>
+              {filteredManga.map(
+                ({
+                  mal_id,
+                  title,
+                  images,
+                  type,
+                  synopsis,
+                  chapters,
+                  volumes,
+                  status,
+                  score
+                }) => {
+                  const cover =
+                    mangaCovers[mal_id] ||
+                    getAniListMangaCoverFromCache(mal_id) ||
+                    images?.jpg?.image_url ||
+                    images?.webp?.image_url ||
+                    "";
+                  return (
+                  <article className="anime-card" key={mal_id}>
+                    <Link to={`/manga/${mal_id}`}>
+                      <div className="media-wrap">
+                        {cover ? (
+                          <img src={cover} alt={title} />
+                        ) : (
+                          <div className="media-placeholder" aria-label={`${title} cover unavailable`}></div>
+                        )}
+                      </div>
                     </Link>
-                    <div className="card-meta">
+                    <div className="card-body">
+                      <div className="tag-row">
+                        {type && <span className="tag">{type}</span>}
+                        {status && <span className="tag">{status}</span>}
+                      </div>
+                      <Link className="card-title-link" to={`/manga/${mal_id}`}>
+                        <h4 className="card-title">{title}</h4>
+                      </Link>
+                      <div className="card-meta">
                       <span>Chapters: {chapters ?? "?"}</span>
                       <span>Volumes: {volumes ?? "?"}</span>
                     </div>

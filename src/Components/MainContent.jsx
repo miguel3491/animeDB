@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 import { collection, deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
-import { fetchAniListCoversByMalIds, getAniListCoverFromCache } from "../utils/anilist";
+import { fetchAniList, fetchAniListCoversByMalIds, getAniListCoverFromCache } from "../utils/anilist";
 import "../styles.css"
 
 const SEARCH_TTL = 2 * 60 * 1000;
@@ -21,6 +21,7 @@ function MainContent() {
   const [search, setSearch] = useState("");
   const [pageSize, setPageSize] = useState();
   const [currentPage, setCurrentPage] = useState(0);
+  const [isPageLoading, setIsPageLoading] = useState(false);
   const [viewMode, setViewMode] = useState("grid");
   const [selectedGenre, setSelectedGenre] = useState("All");
   const [latestEpisodes, setLatestEpisodes] = useState([]);
@@ -136,6 +137,14 @@ function MainContent() {
   }, [search, searchAnime]);
 
   useEffect(() => {
+    const timeout = setTimeout(() => {
+      setIsPageLoading(false);
+    }, 260);
+    setIsPageLoading(true);
+    return () => clearTimeout(timeout);
+  }, [currentPage]);
+
+  useEffect(() => {
     obtainTopAnime();
   }, []);
 
@@ -196,19 +205,7 @@ function MainContent() {
             }
           }
         `;
-        const response = await fetch("/api/anilist", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json"
-          },
-          body: JSON.stringify({ query, variables }),
-          signal: controller.signal
-        });
-        if (!response.ok) {
-          throw new Error(`AniList error (${response.status})`);
-        }
-        const json = await response.json();
+        const json = await fetchAniList({ query, variables });
         if (json?.errors?.length) {
           throw new Error(json.errors[0]?.message || "AniList error");
         }
@@ -602,11 +599,26 @@ function MainContent() {
             </div>
           )}
 
-          <div className={`anime-grid ${viewMode}`}>
-            {filteredAnime.map((item) => (
-              <AnimeCardItem item={item} key={item.mal_id} />
-            ))}
-          </div>
+          {isPageLoading ? (
+            <div className={`anime-grid ${viewMode}`}>
+              {Array.from({ length: 8 }).map((_, index) => (
+                <div className="anime-card skeleton-card" key={`skeleton-${index}`}>
+                  <div className="media-wrap skeleton-block"></div>
+                  <div className="card-body">
+                    <div className="skeleton-line"></div>
+                    <div className="skeleton-line short"></div>
+                    <div className="skeleton-line"></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className={`anime-grid ${viewMode}`}>
+              {filteredAnime.map((item) => (
+                <AnimeCardItem item={item} key={item.mal_id} />
+              ))}
+            </div>
+          )}
 
           <div className="pagination">
             {pageSize && (

@@ -582,6 +582,9 @@ a{
     box-shadow: var(--shadow);
     position: relative;
     overflow: hidden;
+    opacity: 0;
+    transform: translateY(10px);
+    animation: sectionIn 0.45s ease forwards;
 }
 .hero::after {
     content: "";
@@ -608,6 +611,10 @@ a{
     justify-content: space-between;
     margin: 24px 0 16px;
     gap: 16px;
+    opacity: 0;
+    transform: translateY(10px);
+    animation: sectionIn 0.45s ease forwards;
+    animation-delay: 0.06s;
 }
 .results-bar h3 {
     margin: 0;
@@ -691,6 +698,23 @@ a{
     gap: 22px;
     transition: all 0.3s ease;
 }
+.anime-grid .anime-card {
+    animation: cardEnter 0.35s ease both;
+    opacity: 0;
+    transform: translateY(8px);
+}
+.anime-grid .anime-card:nth-child(1) { animation-delay: 0.02s; }
+.anime-grid .anime-card:nth-child(2) { animation-delay: 0.04s; }
+.anime-grid .anime-card:nth-child(3) { animation-delay: 0.06s; }
+.anime-grid .anime-card:nth-child(4) { animation-delay: 0.08s; }
+.anime-grid .anime-card:nth-child(5) { animation-delay: 0.1s; }
+.anime-grid .anime-card:nth-child(6) { animation-delay: 0.12s; }
+.anime-grid .anime-card:nth-child(7) { animation-delay: 0.14s; }
+.anime-grid .anime-card:nth-child(8) { animation-delay: 0.16s; }
+.anime-grid .anime-card:nth-child(9) { animation-delay: 0.18s; }
+.anime-grid .anime-card:nth-child(10) { animation-delay: 0.2s; }
+.anime-grid .anime-card:nth-child(11) { animation-delay: 0.22s; }
+.anime-grid .anime-card:nth-child(12) { animation-delay: 0.24s; }
 .anime-grid.list {
     grid-template-columns: 1fr;
 }
@@ -708,8 +732,7 @@ a{
     display: flex;
     flex-direction: column;
     min-height: 100%;
-    transition: transform 0.25s ease, box-shadow 0.25s ease;
-    animation: cardEnter 0.35s ease both;
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border 0.25s ease;
 }
 .anime-grid.list .anime-card {
     flex-direction: row;
@@ -734,9 +757,17 @@ a{
 .anime-card:hover {
     transform: translateY(-4px);
     box-shadow: 0 28px 65px rgba(7, 10, 22, 0.45);
+    border-color: rgba(255, 255, 255, 0.25);
 }
 .anime-card a {
     display: block;
+}
+.media-wrap {
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.anime-card:hover .media-wrap {
+    transform: perspective(900px) rotateX(2deg) rotateY(-2deg);
+    box-shadow: 0 12px 30px rgba(7, 10, 22, 0.35);
 }
 .media-wrap {
     position: relative;
@@ -1143,6 +1174,17 @@ a{
     from {
         opacity: 0;
         transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes sectionIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
     }
     to {
         opacity: 1;
