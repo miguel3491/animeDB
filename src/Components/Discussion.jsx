@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { addDoc, collection, doc, getDocs, onSnapshot, orderBy, query, setDoc, updateDoc, writeBatch } from "firebase/firestore";
+import { collection, doc, getDocs, onSnapshot, orderBy, query, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import "../styles.css";
@@ -208,14 +208,39 @@ export function DiscussionPost({
       return;
     }
     setCommentError("");
+    const nowIso = new Date().toISOString();
+    const batch = writeBatch(db);
     const commentsRef = collection(db, "discussions", post.id, "comments");
-    await addDoc(commentsRef, {
+    const commentRef = doc(commentsRef);
+    batch.set(commentRef, {
       text: trimmed,
       userId: user.uid,
       userName: profile?.username || user.displayName || user.email || "Anonymous",
       userPhoto: profile?.avatar || user.photoURL || "",
-      createdAt: new Date().toISOString()
+      createdAt: nowIso
     });
+
+    // Denormalized inbox event for the post author. This avoids N listeners in the header.
+    if (post.userId && post.userId !== user.uid) {
+      const inboxRef = collection(db, "users", post.userId, "inboxEvents");
+      const inboxEventRef = doc(inboxRef, commentRef.id);
+      batch.set(inboxEventRef, {
+        type: "comment",
+        seen: false,
+        clientAt: nowIso,
+        createdAt: nowIso,
+        fromUid: user.uid,
+        fromName: profile?.username || user.displayName || user.email || "Anonymous",
+        fromAvatar: profile?.avatar || user.photoURL || "",
+        discussionId: post.id,
+        mediaType,
+        mediaId: mediaId || null,
+        mediaTitle,
+        mediaImage
+      });
+    }
+
+    await batch.commit();
     try {
       const activityRef = doc(db, "users", user.uid, "commentActivity", post.id);
       await setDoc(

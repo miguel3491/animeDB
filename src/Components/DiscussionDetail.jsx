@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { collection, doc, getDocs, onSnapshot, writeBatch } from "firebase/firestore";
+import { collection, doc, getDocs, limit, onSnapshot, query, where, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import { DiscussionPost } from "./Discussion";
@@ -65,6 +65,43 @@ function DiscussionDetail() {
 
     return () => unsub();
   }, [id]);
+
+  useEffect(() => {
+    // Mark inbox events as seen when the post owner opens the thread.
+    if (!user?.uid) return;
+    if (!post?.id) return;
+    if (post.userId !== user.uid) return;
+
+    let active = true;
+    const mark = async () => {
+      try {
+        const inboxRef = collection(db, "users", user.uid, "inboxEvents");
+        const q = query(inboxRef, where("seen", "==", false), limit(200));
+        const snap = await getDocs(q);
+        if (!active || snap.empty) return;
+
+        const batch = writeBatch(db);
+        let touched = 0;
+        snap.docs.forEach((docItem) => {
+          const data = docItem.data() || {};
+          if (data.type !== "comment") return;
+          if (data.discussionId !== post.id) return;
+          batch.update(docItem.ref, { seen: true, seenAt: new Date().toISOString() });
+          touched += 1;
+        });
+        if (touched > 0) {
+          await batch.commit();
+        }
+      } catch (err) {
+        // ignore
+      }
+    };
+
+    mark();
+    return () => {
+      active = false;
+    };
+  }, [post?.id, post?.userId, user?.uid]);
 
   if (loading) {
     return (

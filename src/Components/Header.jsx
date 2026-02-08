@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../AuthContext";
-import { collection, onSnapshot, orderBy, query, where } from "firebase/firestore";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 
 function Header(){    
@@ -14,10 +14,6 @@ function Header(){
     const [inboxHelpOpen, setInboxHelpOpen] = useState(false);
     const fileRef = useRef(null);
     const bgRef = useRef(null);
-    const commentUnsubsRef = useRef(new Map());
-    const commentCacheRef = useRef(new Map());
-    const followerUnsubRef = useRef(null);
-    const followerCountRef = useRef(0);
     const lastInboxRef = useRef(0);
     const inboxTimeoutRef = useRef(null);
 
@@ -34,131 +30,22 @@ function Header(){
     useEffect(() => {
         if (!user?.uid) {
             setInboxCount(0);
-            commentUnsubsRef.current.forEach((unsub) => unsub());
-            commentUnsubsRef.current.clear();
-            commentCacheRef.current.clear();
-            followerCountRef.current = 0;
-            if (followerUnsubRef.current) {
-                followerUnsubRef.current();
-                followerUnsubRef.current = null;
-            }
             return;
         }
 
-        const discussionsRef = collection(db, "discussions");
-        const discussionsQuery = query(discussionsRef, where("userId", "==", user.uid));
-
-        const unsubPosts = onSnapshot(discussionsQuery, (snapshot) => {
-            const postIds = new Set();
-            snapshot.docs.forEach((docItem) => {
-                const postId = docItem.id;
-                postIds.add(postId);
-                if (commentUnsubsRef.current.has(postId)) {
-                    return;
-                }
-                const commentsRef = collection(db, "discussions", postId, "comments");
-                const commentsQuery = query(commentsRef, orderBy("createdAt", "asc"));
-                const unsubComments = onSnapshot(commentsQuery, (commentSnap) => {
-                    const timestamps = commentSnap.docs
-                        .map((docItem) => docItem.data())
-                        .filter((comment) => comment.userId !== user.uid)
-                        .map((comment) => Date.parse(comment.createdAt || ""));
-                    commentCacheRef.current.set(postId, timestamps);
-
-                    let lastSeen = 0;
-                    try {
-                        lastSeen = Number(localStorage.getItem(`discussion-seen-${postId}`)) || 0;
-                    } catch (err) {
-                        lastSeen = 0;
-                    }
-
-                    const unread = timestamps.filter((time) => !Number.isNaN(time) && time > lastSeen).length;
-                    const existing = commentCacheRef.current.get(`${postId}-count`) || 0;
-                    if (existing !== unread) {
-                        commentCacheRef.current.set(`${postId}-count`, unread);
-                    }
-                    const total = Array.from(commentCacheRef.current.entries())
-                        .filter(([key]) => key.endsWith("-count"))
-                        .reduce((sum, [, count]) => sum + count, 0);
-                    setInboxCount(total + (followerCountRef.current || 0));
-                });
-                commentUnsubsRef.current.set(postId, unsubComments);
-            });
-
-            commentUnsubsRef.current.forEach((unsub, postId) => {
-                if (!postIds.has(postId)) {
-                    unsub();
-                    commentUnsubsRef.current.delete(postId);
-                    commentCacheRef.current.delete(postId);
-                    commentCacheRef.current.delete(`${postId}-count`);
-                }
-            });
-        });
-
-        const followersRef = collection(db, "users", user.uid, "followers");
-        const followersQuery = query(followersRef, orderBy("clientAt", "desc"));
-        followerUnsubRef.current = onSnapshot(
-            followersQuery,
+        const inboxRef = collection(db, "users", user.uid, "inboxEvents");
+        const inboxQuery = query(inboxRef, where("seen", "==", false));
+        const unsub = onSnapshot(
+            inboxQuery,
             (snap) => {
-                let lastSeen = 0;
-                try {
-                    lastSeen = Number(localStorage.getItem("followers-seen")) || 0;
-                } catch (err) {
-                    lastSeen = 0;
-                }
-                const unread = snap.docs
-                    .slice(0, 50)
-                    .map((docItem) => docItem.data() || {})
-                    .map((row) => Date.parse(row.clientAt || ""))
-                    .filter((time) => time && !Number.isNaN(time) && time > lastSeen).length;
-                followerCountRef.current = unread;
-
-                const total = Array.from(commentCacheRef.current.entries())
-                    .filter(([key]) => key.endsWith("-count"))
-                    .reduce((sum, [, count]) => sum + count, 0);
-                setInboxCount(total + unread);
+                setInboxCount(snap.size);
             },
             () => {
-                followerCountRef.current = 0;
-                const total = Array.from(commentCacheRef.current.entries())
-                    .filter(([key]) => key.endsWith("-count"))
-                    .reduce((sum, [, count]) => sum + count, 0);
-                setInboxCount(total);
+                setInboxCount(0);
             }
         );
 
-        const handleSeen = (event) => {
-            const postId = event?.detail?.postId;
-            if (!postId || !commentCacheRef.current.has(postId)) return;
-            const timestamps = commentCacheRef.current.get(postId) || [];
-            let lastSeen = 0;
-            try {
-                lastSeen = Number(localStorage.getItem(`discussion-seen-${postId}`)) || 0;
-            } catch (err) {
-                lastSeen = 0;
-            }
-            const unread = timestamps.filter((time) => !Number.isNaN(time) && time > lastSeen).length;
-            commentCacheRef.current.set(`${postId}-count`, unread);
-            const total = Array.from(commentCacheRef.current.entries())
-                .filter(([key]) => key.endsWith("-count"))
-                .reduce((sum, [, count]) => sum + count, 0);
-            setInboxCount(total + (followerCountRef.current || 0));
-        };
-
-        window.addEventListener("discussion-seen", handleSeen);
-
-        return () => {
-            unsubPosts();
-            window.removeEventListener("discussion-seen", handleSeen);
-            commentUnsubsRef.current.forEach((unsub) => unsub());
-            commentUnsubsRef.current.clear();
-            commentCacheRef.current.clear();
-            followerCountRef.current = 0;
-            if (followerUnsubRef.current) {
-                followerUnsubRef.current();
-                followerUnsubRef.current = null;
-            }
-        };
+        return () => unsub();
     }, [user?.uid]);
 
     useEffect(() => {

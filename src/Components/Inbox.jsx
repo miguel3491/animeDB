@@ -1,6 +1,15 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { collection, doc, getDoc, onSnapshot, orderBy, query, where } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  writeBatch
+} from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import "../styles.css";
@@ -10,75 +19,112 @@ function Inbox() {
   const location = useLocation();
   const fromPath = `${location.pathname}${location.search || ""}`;
 
-  const [followers, setFollowers] = useState([]);
-  const [followerProfiles, setFollowerProfiles] = useState({});
-  const [followersSeenAt, setFollowersSeenAt] = useState(() => {
-    try {
-      return Number(localStorage.getItem("followers-seen")) || 0;
-    } catch (err) {
-      return 0;
-    }
-  });
-
-  const [threads, setThreads] = useState([]);
-  const [threadsLoading, setThreadsLoading] = useState(false);
-
-  const commentUnsubsRef = useRef(new Map());
-  const commentCacheRef = useRef(new Map());
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [profiles, setProfiles] = useState({});
 
   useEffect(() => {
     if (!user?.uid) {
-      setFollowers([]);
-      setFollowerProfiles({});
+      setEvents([]);
       return;
     }
 
-    const followersRef = collection(db, "users", user.uid, "followers");
-    const q = query(followersRef, orderBy("clientAt", "desc"));
+    setLoading(true);
+    const ref = collection(db, "users", user.uid, "inboxEvents");
+    const q = query(ref, orderBy("clientAt", "desc"), limit(100));
     const unsub = onSnapshot(
       q,
       (snap) => {
-        const rows = snap.docs.slice(0, 25).map((docItem) => {
+        const rows = snap.docs.map((docItem) => {
           const data = docItem.data() || {};
           return {
-            uid: docItem.id,
+            id: docItem.id,
+            type: data.type || "unknown",
+            seen: Boolean(data.seen),
             clientAt: data.clientAt || "",
-            createdAt: data.createdAt || null,
-            name: data.name || "",
-            avatar: data.avatar || ""
+            fromUid: data.fromUid || "",
+            fromName: data.fromName || "",
+            fromAvatar: data.fromAvatar || "",
+            discussionId: data.discussionId || "",
+            mediaType: data.mediaType || "",
+            mediaTitle: data.mediaTitle || "",
+            mediaImage: data.mediaImage || "",
+            reportId: data.reportId || "",
+            reportTitle: data.reportTitle || ""
           };
         });
-        setFollowers(rows);
+        setEvents(rows);
+        setLoading(false);
       },
       () => {
-        setFollowers([]);
+        setEvents([]);
+        setLoading(false);
       }
     );
     return () => unsub();
   }, [user?.uid]);
 
-  useEffect(() => {
-    const missing = followers
-      .filter((f) => !f.name || !f.avatar)
-      .map((f) => f.uid)
-      .filter((uid) => uid && !followerProfiles[uid]);
+  const unseenCount = useMemo(() => events.filter((e) => !e.seen).length, [events]);
 
-    if (missing.length === 0) return;
+  const followEvents = useMemo(
+    () => events.filter((e) => e.type === "follow"),
+    [events]
+  );
+  const unseenFollows = useMemo(
+    () => followEvents.filter((e) => !e.seen),
+    [followEvents]
+  );
+
+  const unseenCommentThreads = useMemo(() => {
+    const map = new Map();
+    events.forEach((e) => {
+      if (e.type !== "comment") return;
+      if (e.seen) return;
+      if (!e.discussionId) return;
+      const existing = map.get(e.discussionId) || {
+        discussionId: e.discussionId,
+        title: e.mediaTitle || "Untitled",
+        image: e.mediaImage || "",
+        latestAt: e.clientAt || "",
+        count: 0,
+        ids: []
+      };
+      existing.count += 1;
+      existing.ids.push(e.id);
+      if (e.clientAt && (!existing.latestAt || e.clientAt > existing.latestAt)) {
+        existing.latestAt = e.clientAt;
+      }
+      if (!existing.title && e.mediaTitle) existing.title = e.mediaTitle;
+      if (!existing.image && e.mediaImage) existing.image = e.mediaImage;
+      map.set(e.discussionId, existing);
+    });
+    return Array.from(map.values()).sort((a, b) => (b.latestAt || "").localeCompare(a.latestAt || ""));
+  }, [events]);
+
+  const bugEvents = useMemo(
+    () => events.filter((e) => e.type === "bugReportUpdate" && !e.seen),
+    [events]
+  );
+
+  useEffect(() => {
+    const missing = new Set();
+    events.forEach((e) => {
+      if (!e.fromUid) return;
+      if (profiles[e.fromUid]) return;
+      if (e.fromName || e.fromAvatar) return;
+      missing.add(e.fromUid);
+    });
+    const list = Array.from(missing).slice(0, 15);
+    if (!user?.uid || list.length === 0) return;
 
     let active = true;
     Promise.all(
-      missing.slice(0, 25).map(async (uid) => {
+      list.map(async (uid) => {
         try {
           const snap = await getDoc(doc(db, "users", uid));
           if (!snap.exists()) return [uid, null];
           const data = snap.data() || {};
-          return [
-            uid,
-            {
-              username: data.username || "User",
-              avatar: data.avatar || ""
-            }
-          ];
+          return [uid, { username: data.username || "User", avatar: data.avatar || "" }];
         } catch (err) {
           return [uid, null];
         }
@@ -90,140 +136,31 @@ function Inbox() {
         if (value) updates[uid] = value;
       });
       if (Object.keys(updates).length > 0) {
-        setFollowerProfiles((prev) => ({ ...prev, ...updates }));
+        setProfiles((prev) => ({ ...prev, ...updates }));
       }
     });
-
     return () => {
       active = false;
     };
-  }, [followers, followerProfiles]);
+  }, [events, profiles, user?.uid]);
 
-  const followerUnread = useMemo(() => {
-    const seen = followersSeenAt || 0;
-    return followers.filter((f) => {
-      const time = f?.clientAt ? Date.parse(f.clientAt) : 0;
-      return time && !Number.isNaN(time) && time > seen;
-    }).length;
-  }, [followers, followersSeenAt]);
-
-  const markFollowersSeen = () => {
-    const newest = followers.reduce((max, f) => {
-      const time = f?.clientAt ? Date.parse(f.clientAt) : 0;
-      return Math.max(max, Number.isNaN(time) ? 0 : time);
-    }, 0);
+  const markEventsSeen = async (ids) => {
+    if (!user?.uid) return;
+    const unique = Array.from(new Set(ids)).filter(Boolean);
+    if (unique.length === 0) return;
     try {
-      localStorage.setItem("followers-seen", String(newest || Date.now()));
+      const batch = writeBatch(db);
+      unique.slice(0, 200).forEach((id) => {
+        batch.update(doc(db, "users", user.uid, "inboxEvents", id), {
+          seen: true,
+          seenAt: new Date().toISOString()
+        });
+      });
+      await batch.commit();
     } catch (err) {
       // ignore
     }
-    setFollowersSeenAt(newest || Date.now());
   };
-
-  useEffect(() => {
-    if (!user?.uid) {
-      setThreads([]);
-      return;
-    }
-    setThreadsLoading(true);
-
-    const discussionsRef = collection(db, "discussions");
-    const discussionsQuery = query(discussionsRef, where("userId", "==", user.uid));
-
-    const unsubPosts = onSnapshot(
-      discussionsQuery,
-      (snapshot) => {
-        const postIds = new Set();
-        const postMeta = new Map();
-
-        snapshot.docs.forEach((docItem) => {
-          const postId = docItem.id;
-          const data = docItem.data() || {};
-          postIds.add(postId);
-          postMeta.set(postId, {
-            postId,
-            title: data.mediaTitle || data.animeTitle || data.title || "Untitled",
-            image: data.mediaImage || data.animeImage || "",
-            createdAt: data.createdAt || ""
-          });
-
-          if (commentUnsubsRef.current.has(postId)) return;
-
-          const commentsRef = collection(db, "discussions", postId, "comments");
-          const commentsQuery = query(commentsRef, orderBy("createdAt", "asc"));
-          const unsubComments = onSnapshot(
-            commentsQuery,
-            (commentSnap) => {
-              const timestamps = commentSnap.docs
-                .map((row) => row.data())
-                .filter((comment) => comment.userId !== user.uid)
-                .map((comment) => Date.parse(comment.createdAt || ""))
-                .filter((time) => time && !Number.isNaN(time));
-
-              commentCacheRef.current.set(postId, timestamps);
-
-              let lastSeen = 0;
-              try {
-                lastSeen = Number(localStorage.getItem(`discussion-seen-${postId}`)) || 0;
-              } catch (err) {
-                lastSeen = 0;
-              }
-
-              const unread = timestamps.filter((time) => time > lastSeen).length;
-              commentCacheRef.current.set(`${postId}-count`, unread);
-
-              const rows = Array.from(postMeta.entries()).map(([id, meta]) => {
-                const times = commentCacheRef.current.get(id) || [];
-                const count = commentCacheRef.current.get(`${id}-count`) || 0;
-                const latest = times.reduce((max, t) => Math.max(max, t || 0), 0);
-                return {
-                  ...meta,
-                  unread: count,
-                  latestCommentAt: latest
-                };
-              });
-
-              rows.sort((a, b) => (b.latestCommentAt || 0) - (a.latestCommentAt || 0));
-              setThreads(rows);
-              setThreadsLoading(false);
-            },
-            () => {
-              commentCacheRef.current.set(`${postId}-count`, 0);
-            }
-          );
-
-          commentUnsubsRef.current.set(postId, unsubComments);
-        });
-
-        commentUnsubsRef.current.forEach((unsub, postId) => {
-          if (!postIds.has(postId)) {
-            unsub();
-            commentUnsubsRef.current.delete(postId);
-            commentCacheRef.current.delete(postId);
-            commentCacheRef.current.delete(`${postId}-count`);
-          }
-        });
-
-        if (snapshot.empty) {
-          setThreads([]);
-          setThreadsLoading(false);
-        }
-      },
-      () => {
-        setThreads([]);
-        setThreadsLoading(false);
-      }
-    );
-
-    return () => {
-      unsubPosts();
-      commentUnsubsRef.current.forEach((unsub) => unsub());
-      commentUnsubsRef.current.clear();
-      commentCacheRef.current.clear();
-    };
-  }, [user?.uid]);
-
-  const unreadThreads = threads.filter((t) => t.unread > 0);
 
   if (!user) {
     return (
@@ -241,42 +178,52 @@ function Inbox() {
       <section className="detail-panel inbox-panel">
         <div className="results-bar">
           <h2>Inbox</h2>
-          <span className="pill">Private</span>
+          <span className={`pill ${unseenCount > 0 ? "pill-hot" : ""}`}>
+            {unseenCount > 99 ? "+99" : unseenCount}
+          </span>
         </div>
 
         <p className="muted inbox-intro">
-          Your inbox shows new comments on your posts and new followers. Counts clear when you view the thread or mark followers as seen.
+          Inbox includes: new comments on your discussion posts, new followers, and bug report updates.
         </p>
+
+        {loading && <p className="muted">Loading inbox...</p>}
 
         <div className="inbox-grid">
           <div className="inbox-section">
             <div className="inbox-section-head">
               <h3>New followers</h3>
               <div className="inbox-section-actions">
-                <span className={`pill ${followerUnread > 0 ? "pill-hot" : ""}`}>
-                  {followerUnread > 99 ? "+99" : followerUnread}
+                <span className={`pill ${unseenFollows.length > 0 ? "pill-hot" : ""}`}>
+                  {unseenFollows.length > 99 ? "+99" : unseenFollows.length}
                 </span>
-                <button type="button" className="detail-link" onClick={markFollowersSeen} disabled={followers.length === 0}>
+                <button
+                  type="button"
+                  className="detail-link"
+                  onClick={() => markEventsSeen(unseenFollows.map((e) => e.id))}
+                  disabled={unseenFollows.length === 0}
+                >
                   Mark seen
                 </button>
               </div>
             </div>
-            {followers.length === 0 ? (
+
+            {followEvents.length === 0 ? (
               <p className="muted">No followers yet.</p>
             ) : (
               <div className="inbox-list">
-                {followers.slice(0, 10).map((f) => {
-                  const time = f?.clientAt ? Date.parse(f.clientAt) : 0;
-                  const isNew = time && !Number.isNaN(time) && time > followersSeenAt;
-                  const profile = followerProfiles[f.uid];
-                  const name = f.name || profile?.username || "User";
-                  const avatar = f.avatar || profile?.avatar || "";
+                {followEvents.slice(0, 10).map((e) => {
+                  const name = e.fromName || profiles[e.fromUid]?.username || "User";
+                  const avatar = e.fromAvatar || profiles[e.fromUid]?.avatar || "";
                   return (
                     <Link
-                      key={`follower-${f.uid}`}
+                      key={`follow-${e.id}`}
                       className="inbox-row"
-                      to={`/profile/${f.uid}`}
+                      to={e.fromUid ? `/profile/${e.fromUid}` : "/profile"}
                       state={{ from: fromPath }}
+                      onClick={() => {
+                        if (!e.seen) markEventsSeen([e.id]);
+                      }}
                     >
                       {avatar ? (
                         <img className="inbox-avatar" src={avatar} alt={name} loading="lazy" />
@@ -286,10 +233,10 @@ function Inbox() {
                       <div className="inbox-row-text">
                         <div className="inbox-row-title">
                           <span>{name}</span>
-                          {isNew && <span className="pill pill-hot">New</span>}
+                          {!e.seen && <span className="pill pill-hot">New</span>}
                         </div>
                         <p className="muted">
-                          Followed {f.clientAt ? new Date(f.clientAt).toLocaleString() : "recently"}
+                          Followed {e.clientAt ? new Date(e.clientAt).toLocaleString() : "recently"}
                         </p>
                       </div>
                     </Link>
@@ -301,24 +248,25 @@ function Inbox() {
 
           <div className="inbox-section">
             <div className="inbox-section-head">
-              <h3>New comments on your posts</h3>
-              <span className={`pill ${unreadThreads.length > 0 ? "pill-hot" : ""}`}>
-                {unreadThreads.reduce((sum, t) => sum + t.unread, 0) > 99 ? "+99" : unreadThreads.reduce((sum, t) => sum + t.unread, 0)}
+              <h3>New comments</h3>
+              <span className={`pill ${unseenCommentThreads.length > 0 ? "pill-hot" : ""}`}>
+                {unseenCommentThreads.reduce((sum, t) => sum + t.count, 0) > 99
+                  ? "+99"
+                  : unseenCommentThreads.reduce((sum, t) => sum + t.count, 0)}
               </span>
             </div>
 
-            {threadsLoading ? (
-              <p className="muted">Loading threads...</p>
-            ) : unreadThreads.length === 0 ? (
+            {unseenCommentThreads.length === 0 ? (
               <p className="muted">No new comments.</p>
             ) : (
               <div className="inbox-list">
-                {unreadThreads.slice(0, 10).map((t) => (
+                {unseenCommentThreads.slice(0, 10).map((t) => (
                   <Link
-                    key={`thread-${t.postId}`}
+                    key={`thread-${t.discussionId}`}
                     className="inbox-row"
-                    to={`/discussion/${t.postId}`}
+                    to={`/discussion/${t.discussionId}`}
                     state={{ from: fromPath }}
+                    onClick={() => markEventsSeen(t.ids)}
                   >
                     {t.image ? (
                       <img className="inbox-thumb" src={t.image} alt={t.title} loading="lazy" />
@@ -328,15 +276,48 @@ function Inbox() {
                     <div className="inbox-row-text">
                       <div className="inbox-row-title">
                         <span>{t.title}</span>
-                        <span className="pill pill-hot">{t.unread > 99 ? "+99" : t.unread}</span>
+                        <span className="pill pill-hot">{t.count > 99 ? "+99" : t.count}</span>
                       </div>
-                      <p className="muted">Open the thread to clear the count.</p>
+                      <p className="muted">Open thread to view replies.</p>
                     </div>
                   </Link>
                 ))}
               </div>
             )}
           </div>
+        </div>
+
+        <div className="inbox-section" style={{ marginTop: 18 }}>
+          <div className="inbox-section-head">
+            <h3>Bug report updates</h3>
+            <span className={`pill ${bugEvents.length > 0 ? "pill-hot" : ""}`}>
+              {bugEvents.length > 99 ? "+99" : bugEvents.length}
+            </span>
+          </div>
+          {bugEvents.length === 0 ? (
+            <p className="muted">No updates yet.</p>
+          ) : (
+            <div className="inbox-list">
+              {bugEvents.slice(0, 5).map((e) => (
+                <Link
+                  key={`bug-${e.id}`}
+                  className="inbox-row"
+                  to="/profile"
+                  state={{ from: fromPath }}
+                  onClick={() => markEventsSeen([e.id])}
+                >
+                  <div className="inbox-avatar placeholder"></div>
+                  <div className="inbox-row-text">
+                    <div className="inbox-row-title">
+                      <span>{e.reportTitle || "Bug report updated"}</span>
+                      <span className="pill pill-hot">New</span>
+                    </div>
+                    <p className="muted">Open profile to view details.</p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
       </section>
     </div>

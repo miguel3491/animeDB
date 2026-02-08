@@ -249,10 +249,11 @@ function Profile() {
   const resolveReport = async (item) => {
     if (!isOwner) return;
     try {
+      const resolvedAt = new Date().toISOString();
       const reportRef = doc(db, "bugReports", item.id);
       await updateDoc(reportRef, {
         status: "resolved",
-        resolvedAt: new Date().toISOString(),
+        resolvedAt,
         resolvedBy: user.uid
       });
       if (item.reporterId) {
@@ -263,8 +264,23 @@ function Profile() {
             reportId: item.id,
             title: item.title || "Bug report",
             status: "resolved",
-            resolvedAt: new Date().toISOString(),
+            resolvedAt,
             message: "Your report has been resolved."
+          },
+          { merge: true }
+        );
+
+        // Mirror into the user's unified inbox feed.
+        const inboxRef = doc(db, "users", item.reporterId, "inboxEvents", `bug-${item.id}`);
+        await setDoc(
+          inboxRef,
+          {
+            type: "bugReportUpdate",
+            seen: false,
+            clientAt: resolvedAt,
+            createdAt: resolvedAt,
+            reportId: item.id,
+            reportTitle: item.title || "Bug report"
           },
           { merge: true }
         );

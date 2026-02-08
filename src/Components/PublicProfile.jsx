@@ -27,7 +27,7 @@ function PublicProfile() {
   const { uid } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, profile: myProfile } = useAuth();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activity, setActivity] = useState([]);
@@ -250,9 +250,27 @@ function PublicProfile() {
         batch.delete(targetFollowerRef);
         batch.delete(myFollowingRef);
       } else {
-        const payload = { createdAt: serverTimestamp(), clientAt: new Date().toISOString() };
+        const payload = {
+          createdAt: serverTimestamp(),
+          clientAt: new Date().toISOString(),
+          fromUid: user.uid,
+          fromName: myProfile?.username || user.displayName || user.email || "Anonymous",
+          fromAvatar: myProfile?.avatar || user.photoURL || ""
+        };
         batch.set(targetFollowerRef, payload, { merge: true });
         batch.set(myFollowingRef, payload, { merge: true });
+
+        const inboxRef = collection(db, "users", uid, "inboxEvents");
+        const inboxEventRef = doc(inboxRef);
+        batch.set(inboxEventRef, {
+          type: "follow",
+          seen: false,
+          clientAt: new Date().toISOString(),
+          createdAt: serverTimestamp(),
+          fromUid: user.uid,
+          fromName: myProfile?.username || user.displayName || user.email || "Anonymous",
+          fromAvatar: myProfile?.avatar || user.photoURL || ""
+        });
       }
       await batch.commit();
     } catch (err) {
