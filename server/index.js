@@ -28,6 +28,8 @@ const STALE_MAX = 15 * 60 * 1000;
 const ANN_FEED_URL = "https://www.animenewsnetwork.com/news/rss.xml";
 const annCache = new Map();
 const ANN_TTL = 5 * 60 * 1000;
+const mangaSeasonLastPageCache = new Map();
+const MANGA_SEASON_LASTPAGE_TTL = 60 * 60 * 1000;
 
 const shouldServeStale = (cached, ttl) => {
   if (!cached) return false;
@@ -83,6 +85,86 @@ const fetchWithTimeout = async (url, { timeoutMs = 10000 } = {}) => {
   } finally {
     clearTimeout(timeout);
   }
+};
+
+const getCachedMangaSeasonLastPage = (key) => {
+  const cached = mangaSeasonLastPageCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.ts > MANGA_SEASON_LASTPAGE_TTL) {
+    mangaSeasonLastPageCache.delete(key);
+    return null;
+  }
+  return cached.value;
+};
+
+const setCachedMangaSeasonLastPage = (key, value) => {
+  mangaSeasonLastPageCache.set(key, { value, ts: Date.now() });
+};
+
+const fetchAniListMangaSeasonPageLen = async ({ page, perPage, start, end }) => {
+  const query = `
+    query ($page: Int, $perPage: Int, $start: FuzzyDateInt, $end: FuzzyDateInt) {
+      Page(page: $page, perPage: $perPage) {
+        media(type: MANGA, startDate_greater: $start, startDate_lesser: $end, sort: POPULARITY_DESC) { id }
+      }
+    }
+  `;
+  const variables = { page, perPage, start, end };
+  const response = await fetch("https://graphql.anilist.co", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ query, variables })
+  });
+  const json = await response.json().catch(() => ({}));
+  const media = json?.data?.Page?.media;
+  return Array.isArray(media) ? media.length : 0;
+};
+
+const computeAniListMangaSeasonLastPage = async ({ start, end, perPage }) => {
+  // AniList reports very large totals for this query but deep pages frequently return empty results.
+  // We probe for the last non-empty page and cache it per season/year to keep the UI honest.
+  const MAX_PAGE = 256;
+  let low = 1;
+  let high = 1;
+
+  for (let i = 0; i < 12; i += 1) {
+    const len = await fetchAniListMangaSeasonPageLen({ page: high, perPage, start, end });
+    if (len === 0) {
+      break;
+    }
+    low = high;
+    if (len < perPage) {
+      return low;
+    }
+    high = Math.min(MAX_PAGE, high * 2);
+    if (high === low) {
+      return low;
+    }
+  }
+
+  if (high === low) {
+    return low;
+  }
+
+  // If we never found an empty page, cap at MAX_PAGE.
+  const highLen = await fetchAniListMangaSeasonPageLen({ page: high, perPage, start, end });
+  if (highLen > 0) {
+    return high;
+  }
+
+  while (low + 1 < high) {
+    const mid = Math.floor((low + high) / 2);
+    const len = await fetchAniListMangaSeasonPageLen({ page: mid, perPage, start, end });
+    if (len === 0) {
+      high = mid;
+    } else {
+      low = mid;
+      if (len < perPage) {
+        return low;
+      }
+    }
+  }
+  return low;
 };
 
 const seasonFromMonth = (month1to12) => {
@@ -876,6 +958,22 @@ app.get("/api/jikan/manga/seasonal", async (req, res) => {
       const toInt = (iso) => Number(String(iso).replace(/-/g, ""));
       const startInt = toInt(range.start) - 1;
       const endInt = toInt(range.end) + 1;
+      const lastPageKey = `anilist-manga-seasonal-last|${year}|${season}|${limit}`;
+      let effectiveLastPage = getCachedMangaSeasonLastPage(lastPageKey);
+      if (!effectiveLastPage && page === 1) {
+        try {
+          effectiveLastPage = await computeAniListMangaSeasonLastPage({
+            start: startInt,
+            end: endInt,
+            perPage: limit
+          });
+          if (effectiveLastPage) {
+            setCachedMangaSeasonLastPage(lastPageKey, effectiveLastPage);
+          }
+        } catch (err) {
+          // ignore probe failures
+        }
+      }
       const aniQuery = `
         query ($page: Int, $perPage: Int, $start: FuzzyDateInt, $end: FuzzyDateInt) {
           Page(page: $page, perPage: $perPage) {
@@ -944,8 +1042,10 @@ app.get("/api/jikan/manga/seasonal", async (req, res) => {
         data: deduped,
         pagination: {
           current_page: pageInfo.currentPage || page,
-          last_visible_page: pageInfo.lastPage || page,
-          has_next_page: Boolean(pageInfo.hasNextPage)
+          last_visible_page: effectiveLastPage || pageInfo.lastPage || page,
+          has_next_page: effectiveLastPage
+            ? (pageInfo.currentPage || page) < effectiveLastPage
+            : Boolean(pageInfo.hasNextPage)
         },
         fromAniList: true
       };
