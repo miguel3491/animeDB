@@ -624,6 +624,13 @@ a{
 .anime-title:hover {
     color: var(--accent-3);
 }
+.anime-title.disabled {
+    opacity: 0.72;
+    cursor: default;
+}
+.anime-title.disabled:hover {
+    color: var(--text);
+}
 .side-text {
     display: grid;
     gap: 4px;
