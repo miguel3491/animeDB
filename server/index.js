@@ -744,7 +744,7 @@ app.get("/api/jikan/manga/seasonal", async (req, res) => {
 
   const range = year && season ? startEndForSeason(year, season) : null;
   const url = range
-    ? `jikan-manga-seasonal|${year}|${season}|${page}|${limit}`
+    ? `anilist-manga-seasonal|${year}|${season}|${page}|${limit}`
     : `https://api.jikan.moe/v4/manga?status=publishing&order_by=start_date&sort=desc&page=${encodeURIComponent(
         page
       )}&limit=${encodeURIComponent(limit)}&fields=${encodeURIComponent("mal_id,title,images,published,status")}`;
@@ -805,96 +805,97 @@ app.get("/api/jikan/manga/seasonal", async (req, res) => {
   }
 
   if (range) {
-    // Jikan doesn't have explicit "manga seasons". We approximate by filtering publishing manga by start date.
-    const startIso = range.start;
-    const endIso = range.end;
-    const within = (value) => {
-      if (!value) return false;
-      const iso = String(value).slice(0, 10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
-      return iso >= startIso && iso <= endIso;
-    };
-
-    const wantOffset = (page - 1) * limit;
-    let seenMatches = 0;
-    const collected = [];
-    let hasMore = false;
-    let jikanPage = 1;
-    const maxScanPages = 8;
-    const scanLimit = 25;
-    const fields = "mal_id,title,images,published,status";
-
-    for (; jikanPage <= maxScanPages; jikanPage += 1) {
-      const scanUrl =
-        `https://api.jikan.moe/v4/manga?status=publishing&order_by=start_date&sort=desc` +
-        `&page=${encodeURIComponent(jikanPage)}&limit=${encodeURIComponent(scanLimit)}` +
-        `&fields=${encodeURIComponent(fields)}`;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-      try {
-        const response = await fetch(scanUrl, { signal: controller.signal });
-        lastStatus = response.status;
-        if (!response.ok) {
-          const retryable = [429, 502, 503, 504].includes(response.status);
-          if (!retryable) break;
-          await new Promise((resolve) => setTimeout(resolve, 700));
-          continue;
-        }
-        const json = await response.json();
-        const items = Array.isArray(json?.data) ? json.data : [];
-        for (const item of items) {
-          const from = item?.published?.from;
-          if (isoToYear(from) < 2025) continue;
-          if (!within(from)) continue;
-
-          if (seenMatches < wantOffset) {
-            seenMatches += 1;
-            continue;
+    // Use AniList for seasonal manga by startDate range. Jikan doesn't support manga seasons directly,
+    // and scanning its pages for older seasons becomes rate-limit heavy.
+    try {
+      const toInt = (iso) => Number(String(iso).replace(/-/g, ""));
+      const startInt = toInt(range.start) - 1;
+      const endInt = toInt(range.end) + 1;
+      const aniQuery = `
+        query ($page: Int, $perPage: Int, $start: FuzzyDateInt, $end: FuzzyDateInt) {
+          Page(page: $page, perPage: $perPage) {
+            pageInfo { currentPage lastPage hasNextPage }
+            media(type: MANGA, startDate_greater: $start, startDate_lesser: $end, sort: POPULARITY_DESC) {
+              idMal
+              title { userPreferred english romaji }
+              coverImage { extraLarge large }
+              startDate { year month day }
+              genres
+              format
+              chapters
+              volumes
+              description(asHtml: false)
+              averageScore
+              status
+            }
           }
-          collected.push(item);
-          seenMatches += 1;
-          if (collected.length >= limit) break;
         }
+      `;
+      const variables = { page, perPage: limit, start: startInt, end: endInt };
+      const response = await fetch("https://graphql.anilist.co", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ query: aniQuery, variables })
+      });
+      const json = await response.json();
+      const media = json?.data?.Page?.media || [];
+      const pageInfo = json?.data?.Page?.pageInfo || {};
 
-        if (collected.length >= limit) {
-          // We don't know total matches; assume there may be more in later pages.
-          hasMore = Boolean(json?.pagination?.has_next_page) || jikanPage < maxScanPages;
-          break;
-        }
+      const mapped = media
+        .map((item) => {
+          const title =
+            item?.title?.userPreferred ||
+            item?.title?.english ||
+            item?.title?.romaji ||
+            "Unknown title";
+          const image = item?.coverImage?.extraLarge || item?.coverImage?.large || "";
+          const start = item?.startDate || {};
+          const from = toIsoDate(start.year, start.month, start.day);
+          return {
+            mal_id: item?.idMal || null,
+            title,
+            images: image
+              ? { jpg: { image_url: image }, webp: { image_url: image } }
+              : { jpg: { image_url: "" }, webp: { image_url: "" } },
+            genres: Array.isArray(item?.genres) ? item.genres.map((name) => ({ name })) : [],
+            type: item?.format || null,
+            synopsis: item?.description || "",
+            chapters: item?.chapters ?? null,
+            volumes: item?.volumes ?? null,
+            status: item?.status || null,
+            score: item?.averageScore ? Number(item.averageScore) / 10 : null,
+            published: from ? { from } : { from: null }
+          };
+        })
+        .filter((item) => isoToYear(item?.published?.from) >= 2025);
 
-        if (!json?.pagination?.has_next_page) {
-          hasMore = false;
-          break;
-        }
-      } catch (err) {
-        if (err?.name !== "AbortError") {
-          console.error("Jikan manga seasonal scan error:", err?.message || err);
-        }
-      } finally {
-        clearTimeout(timeout);
+      const deduped = dedupeByKey(mapped, (item) => {
+        const id = item?.mal_id;
+        const from = item?.published?.from || "";
+        return id ? `${id}|${from}` : `${item?.title || "unknown"}|${from}`;
+      });
+
+      const payload = {
+        data: deduped,
+        pagination: {
+          current_page: pageInfo.currentPage || page,
+          last_visible_page: pageInfo.lastPage || page,
+          has_next_page: Boolean(pageInfo.hasNextPage)
+        },
+        fromAniList: true
+      };
+      jikanCache.set(url, { data: payload, ts: Date.now() });
+      if (!res.headersSent) {
+        return res.json(payload);
       }
+      return;
+    } catch (err) {
+      console.error("AniList manga seasonal failed:", err?.message || err);
+      if (!res.headersSent) {
+        return res.status(502).json({ error: "Manga seasonal feed unavailable" });
+      }
+      return;
     }
-
-    const deduped = dedupeByKey(collected, (item) => {
-      const id = item?.mal_id;
-      const from = item?.published?.from || "";
-      return id ? `${id}|${from}` : "";
-    });
-
-    const payload = {
-      data: deduped,
-      pagination: {
-        current_page: page,
-        last_visible_page: hasMore ? page + 1 : page,
-        has_next_page: hasMore
-      },
-      approximated: true
-    };
-    jikanCache.set(url, { data: payload, ts: Date.now() });
-    if (!res.headersSent) {
-      return res.json(payload);
-    }
-    return;
   }
 
   if (!res.headersSent) {

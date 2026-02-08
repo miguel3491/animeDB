@@ -752,6 +752,9 @@ function MangaContent({ mode } = {}) {
             <div className="results-controls">
               <span className="pill">{filteredManga.length} titles</span>
               {searchError && <span className="pill muted">{searchError}</span>}
+              {isSeasonalMode && !isListLoading && !search.trim() && filteredManga.length === 0 && !searchError && (
+                <span className="pill muted">No seasonal manga found for this season yet.</span>
+              )}
               {isSeasonalMode && !search.trim() && (
                 <>
                   <label className="genre-filter">
@@ -1016,6 +1019,15 @@ function MangaContent({ mode } = {}) {
                   </article>
                 );
               })}
+              {!isListLoading && filteredManga.length === 0 && (
+                <div className="empty-state">
+                  <p className="muted">
+                    {isSeasonalMode
+                      ? "No manga matches this season. Try a different year or season."
+                      : "No titles available right now."}
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
