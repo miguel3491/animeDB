@@ -15,6 +15,12 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
+import {
+  fetchAniListCoversByMalIds,
+  fetchAniListMangaCoversByMalIds,
+  getAniListCoverFromCache,
+  getAniListMangaCoverFromCache
+} from "../utils/anilist";
 import "../styles.css";
 
 function PublicProfile() {
@@ -30,6 +36,9 @@ function PublicProfile() {
   const [followBusy, setFollowBusy] = useState(false);
   const [favoritesActivity, setFavoritesActivity] = useState([]);
   const [favoritesActivityLoading, setFavoritesActivityLoading] = useState(false);
+  const [activityAnimeCovers, setActivityAnimeCovers] = useState({});
+  const [activityMangaCovers, setActivityMangaCovers] = useState({});
+  const [brokenThumbs, setBrokenThumbs] = useState(() => new Set());
   const fromPath = `${location.pathname}${location.search || ""}`;
 
   const goBack = () => {
@@ -161,6 +170,7 @@ function PublicProfile() {
             id: docItem.id,
             action: data.action || "updated",
             mediaType: data.mediaType || "anime",
+            mal_id: Number(data.mal_id) || null,
             title: data.title || "Untitled",
             image: data.image || "",
             status: data.status || "",
@@ -178,6 +188,43 @@ function PublicProfile() {
     );
     return () => unsubscribe();
   }, [isFollowing, uid, user]);
+
+  useEffect(() => {
+    const animeIds = favoritesActivity
+      .filter((evt) => evt.mediaType === "anime" && evt.mal_id && !evt.image)
+      .map((evt) => evt.mal_id)
+      .filter(Boolean);
+    const mangaIds = favoritesActivity
+      .filter((evt) => evt.mediaType === "manga" && evt.mal_id && !evt.image)
+      .map((evt) => evt.mal_id)
+      .filter(Boolean);
+
+    if (animeIds.length === 0 && mangaIds.length === 0) {
+      return undefined;
+    }
+
+    let active = true;
+
+    if (animeIds.length > 0) {
+      fetchAniListCoversByMalIds(animeIds).then((map) => {
+        if (!active || map.size === 0) return;
+        const next = Object.fromEntries(map);
+        setActivityAnimeCovers((prev) => ({ ...prev, ...next }));
+      });
+    }
+
+    if (mangaIds.length > 0) {
+      fetchAniListMangaCoversByMalIds(mangaIds).then((map) => {
+        if (!active || map.size === 0) return;
+        const next = Object.fromEntries(map);
+        setActivityMangaCovers((prev) => ({ ...prev, ...next }));
+      });
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [favoritesActivity]);
 
   const displayName = profile?.username || "Unknown user";
   const initials = useMemo(() => {
@@ -344,11 +391,31 @@ function PublicProfile() {
             <div className="favorites-activity">
               {favoritesActivity.map((evt) => (
                 <div className="activity-row" key={evt.id}>
-                  {evt.image ? (
-                    <img className="activity-thumb" src={evt.image} alt={evt.title} />
-                  ) : (
-                    <div className="activity-thumb placeholder" aria-hidden="true"></div>
-                  )}
+                  {(() => {
+                    const malId = evt.mal_id;
+                    const cached =
+                      evt.mediaType === "manga"
+                        ? activityMangaCovers[malId] || getAniListMangaCoverFromCache(malId)
+                        : activityAnimeCovers[malId] || getAniListCoverFromCache(malId);
+                    const src = cached || evt.image || "";
+                    if (!src || brokenThumbs.has(src)) {
+                      return (
+                        <div className="activity-thumb placeholder" aria-hidden="true"></div>
+                      );
+                    }
+                    return (
+                      <img
+                        className="activity-thumb"
+                        src={src}
+                        alt={evt.title}
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        onError={() => {
+                          setBrokenThumbs((prev) => new Set(prev).add(src));
+                        }}
+                      />
+                    );
+                  })()}
                   <div className="activity-text">
                     <div className="activity-title">
                       <span className={`activity-badge ${evt.action}`}>{evt.action.replace(/_/g, " ")}</span>
