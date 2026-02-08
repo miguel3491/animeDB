@@ -2411,8 +2411,8 @@ a{
     border: 1px solid rgba(255, 214, 109, 0.35);
 }
 .discussion-meta {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, max-content));
+    display: flex;
+    flex-wrap: wrap;
     gap: 6px 14px;
     align-items: center;
     font-size: 12px;
@@ -2428,7 +2428,9 @@ a{
 .discussion-user-link {
     color: var(--text);
     font-weight: 600;
-    max-width: 220px;
+    font-size: inherit;
+    line-height: inherit;
+    max-width: 160px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
