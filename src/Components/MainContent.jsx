@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import Sidebar from "./Sidebar";
 import ReactPaginate from "react-paginate";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { collection, deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
@@ -23,6 +23,7 @@ let latestEpisodesCache = { data: null, ts: 0 };
 
 function MainContent({ mode } = {}) {
   const location = useLocation();
+  const navigate = useNavigate();
   const isSeasonalMode = mode === "seasonal";
   const fromPath = `${location.pathname}${location.search || ""}`;
   const isAnimeActive = location.pathname === "/" || location.pathname.startsWith("/seasonal/anime");
@@ -785,9 +786,14 @@ function MainContent({ mode } = {}) {
                     type="button"
                     className="search-suggestion-item"
                     onClick={() => {
-                      setSearch(item.title);
+                      if (!item?.mal_id) {
+                        setSearch(item.title);
+                        setSuggestionsOpen(false);
+                        triggerSearch();
+                        return;
+                      }
                       setSuggestionsOpen(false);
-                      triggerSearch();
+                      navigate(`/anime/${item.mal_id}`, { state: { from: fromPath } });
                     }}
                   >
                     {item.image ? (

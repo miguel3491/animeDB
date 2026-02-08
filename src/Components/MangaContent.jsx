@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactPaginate from "react-paginate";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import MangaSidebar from "./MangaSidebar";
 import { collection, deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
@@ -23,6 +23,7 @@ let latestMangaCache = { data: null, ts: 0 };
 
 function MangaContent({ mode } = {}) {
   const location = useLocation();
+  const navigate = useNavigate();
   const isSeasonalMode = mode === "seasonal";
   const fromPath = `${location.pathname}${location.search || ""}`;
   const isAnimeActive = location.pathname === "/" || location.pathname.startsWith("/seasonal/anime");
@@ -722,9 +723,14 @@ function MangaContent({ mode } = {}) {
                     type="button"
                     className="search-suggestion-item"
                     onClick={() => {
-                      setSearch(item.title);
+                      if (!item?.mal_id) {
+                        setSearch(item.title);
+                        setSuggestionsOpen(false);
+                        triggerSearch();
+                        return;
+                      }
                       setSuggestionsOpen(false);
-                      triggerSearch();
+                      navigate(`/manga/${item.mal_id}`, { state: { from: fromPath } });
                     }}
                   >
                     {item.image ? (
