@@ -118,6 +118,15 @@ function Favorites() {
         },
         { merge: true }
       );
+      // Persist an indicator on the favorite doc so it remains visible after refresh.
+      try {
+        await updateDoc(doc(db, "users", user.uid, "favorites", String(item.docId)), {
+          discussionId: reviewId,
+          discussionPostedAt: new Date().toISOString()
+        });
+      } catch (err) {
+        // Non-fatal: discussion post may succeed even if this indicator fails to write.
+      }
       const message = snapshot.exists() ? "Review updated." : "Review published.";
       setPublishStatus((prev) => ({
         ...prev,
@@ -623,6 +632,16 @@ function Favorites() {
                   >
                     {publishStatus[item.docId]?.state === "success" ? "Published" : "Publish review"}
                   </button>
+                )}
+                {(getListStatus(item) === "Completed" && (publishStatus[item.docId]?.state === "success" || item.discussionId)) && (
+                  <div className="posted-indicator">
+                    <span className="posted-badge">Posted to Discussion</span>
+                    {item.discussionId && (
+                      <Link className="detail-link" to={`/discussion/${item.discussionId}`} state={{ from: "/favorites" }}>
+                        View thread
+                      </Link>
+                    )}
+                  </div>
                 )}
                 {publishStatus[item.docId]?.message && (
                   <span className={`publish-status ${publishStatus[item.docId]?.state || ""}`}>
