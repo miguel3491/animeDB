@@ -77,11 +77,11 @@ const dedupeByKey = (items, getKey) => {
   return out;
 };
 
-const fetchWithTimeout = async (url, { timeoutMs = 10000 } = {}) => {
+const fetchWithTimeout = async (url, { timeoutMs = 10000, init = {} } = {}) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { signal: controller.signal });
+    return await fetch(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timeout);
   }
@@ -101,6 +101,8 @@ const setCachedMangaSeasonLastPage = (key, value) => {
   mangaSeasonLastPageCache.set(key, { value, ts: Date.now() });
 };
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const fetchAniListMangaSeasonPageLen = async ({ page, perPage, start, end }) => {
   const query = `
     query ($page: Int, $perPage: Int, $start: FuzzyDateInt, $end: FuzzyDateInt) {
@@ -110,14 +112,33 @@ const fetchAniListMangaSeasonPageLen = async ({ page, perPage, start, end }) => 
     }
   `;
   const variables = { page, perPage, start, end };
-  const response = await fetch("https://graphql.anilist.co", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ query, variables })
-  });
-  const json = await response.json().catch(() => ({}));
-  const media = json?.data?.Page?.media;
-  return Array.isArray(media) ? media.length : 0;
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetchWithTimeout("https://graphql.anilist.co", {
+      timeoutMs: 12000,
+      init: {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ query, variables })
+      }
+    });
+    lastStatus = response.status;
+    if (!response.ok) {
+      const retryable = [429, 502, 503, 504].includes(response.status);
+      if (!retryable) {
+        throw new Error(`AniList probe failed (${response.status})`);
+      }
+      await sleep(650 * (attempt + 1));
+      continue;
+    }
+    const json = await response.json().catch(() => ({}));
+    if (Array.isArray(json?.errors) && json.errors.length > 0) {
+      throw new Error(String(json.errors?.[0]?.message || "AniList probe error"));
+    }
+    const media = json?.data?.Page?.media;
+    return Array.isArray(media) ? media.length : 0;
+  }
+  throw new Error(`AniList probe failed (${lastStatus || "network error"})`);
 };
 
 const computeAniListMangaSeasonLastPage = async ({ start, end, perPage }) => {
@@ -884,6 +905,8 @@ app.get("/api/jikan/manga/seasonal", async (req, res) => {
   const season = normalizeSeason(req.query?.season);
   const limit = Math.max(1, Math.min(25, Number(req.query?.limit) || 20));
   const page = Math.max(1, Number(req.query?.page) || 1);
+  const SAFE_MAX_MANGA_SEASON_PAGES = 60;
+  const PROBE_PER_PAGE = 20;
 
   if (year && year < 2025) {
     return res.status(400).json({ error: "year must be 2025 or later" });
@@ -899,11 +922,29 @@ app.get("/api/jikan/manga/seasonal", async (req, res) => {
   const cached = jikanCache.get(url);
   const now = Date.now();
   if (cached && now - cached.ts < JIKAN_SEASON_TTL) {
-    return res.json(cached.data);
+    const cachedData = cached.data;
+    const poisoned =
+      Boolean(range) &&
+      cachedData?.fromAniList === true &&
+      Array.isArray(cachedData?.data) &&
+      cachedData.data.length === 0 &&
+      page === 1;
+    if (!poisoned) {
+      return res.json(cached.data);
+    }
   }
   if (shouldServeStale(cached, JIKAN_SEASON_TTL)) {
-    res.set("X-Cache", "STALE");
-    res.json(cached.data);
+    const cachedData = cached?.data;
+    const poisoned =
+      Boolean(range) &&
+      cachedData?.fromAniList === true &&
+      Array.isArray(cachedData?.data) &&
+      cachedData.data.length === 0 &&
+      page === 1;
+    if (!poisoned) {
+      res.set("X-Cache", "STALE");
+      res.json(cached.data);
+    }
   }
 
   let lastStatus = 0;
@@ -958,14 +999,15 @@ app.get("/api/jikan/manga/seasonal", async (req, res) => {
       const toInt = (iso) => Number(String(iso).replace(/-/g, ""));
       const startInt = toInt(range.start) - 1;
       const endInt = toInt(range.end) + 1;
-      const lastPageKey = `anilist-manga-seasonal-last|${year}|${season}|${limit}`;
+      const shouldProbeLastPage = page === 1 && limit === PROBE_PER_PAGE;
+      const lastPageKey = `anilist-manga-seasonal-last|${year}|${season}|${PROBE_PER_PAGE}`;
       let effectiveLastPage = getCachedMangaSeasonLastPage(lastPageKey);
-      if (!effectiveLastPage && page === 1) {
+      if (!effectiveLastPage && shouldProbeLastPage) {
         try {
           effectiveLastPage = await computeAniListMangaSeasonLastPage({
             start: startInt,
             end: endInt,
-            perPage: limit
+            perPage: PROBE_PER_PAGE
           });
           if (effectiveLastPage) {
             setCachedMangaSeasonLastPage(lastPageKey, effectiveLastPage);
@@ -995,12 +1037,21 @@ app.get("/api/jikan/manga/seasonal", async (req, res) => {
         }
       `;
       const variables = { page, perPage: limit, start: startInt, end: endInt };
-      const response = await fetch("https://graphql.anilist.co", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ query: aniQuery, variables })
+      const response = await fetchWithTimeout("https://graphql.anilist.co", {
+        timeoutMs: 12000,
+        init: {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ query: aniQuery, variables })
+        }
       });
+      if (!response.ok) {
+        throw new Error(`AniList request failed (${response.status})`);
+      }
       const json = await response.json();
+      if (Array.isArray(json?.errors) && json.errors.length > 0) {
+        throw new Error(String(json.errors?.[0]?.message || "AniList error"));
+      }
       const media = json?.data?.Page?.media || [];
       const pageInfo = json?.data?.Page?.pageInfo || {};
 
@@ -1042,10 +1093,12 @@ app.get("/api/jikan/manga/seasonal", async (req, res) => {
         data: deduped,
         pagination: {
           current_page: pageInfo.currentPage || page,
-          last_visible_page: effectiveLastPage || pageInfo.lastPage || page,
+          last_visible_page: effectiveLastPage ||
+            Math.min(pageInfo.lastPage || page, SAFE_MAX_MANGA_SEASON_PAGES),
           has_next_page: effectiveLastPage
             ? (pageInfo.currentPage || page) < effectiveLastPage
-            : Boolean(pageInfo.hasNextPage)
+            : (pageInfo.currentPage || page) <
+              Math.min(pageInfo.lastPage || page, SAFE_MAX_MANGA_SEASON_PAGES)
         },
         fromAniList: true
       };
@@ -1056,6 +1109,17 @@ app.get("/api/jikan/manga/seasonal", async (req, res) => {
       return;
     } catch (err) {
       console.error("AniList manga seasonal failed:", err?.message || err);
+      if (cached && !res.headersSent) {
+        const cachedData = cached?.data;
+        const poisoned =
+          cachedData?.fromAniList === true &&
+          Array.isArray(cachedData?.data) &&
+          cachedData.data.length === 0 &&
+          page === 1;
+        if (!poisoned) {
+          return res.json(cached.data);
+        }
+      }
       if (!res.headersSent) {
         return res.status(502).json({ error: "Manga seasonal feed unavailable" });
       }
