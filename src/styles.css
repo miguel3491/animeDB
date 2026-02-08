@@ -2428,13 +2428,15 @@ a{
 .discussion-user-link {
     color: var(--text);
     font-weight: 600;
-    font-size: inherit;
-    line-height: inherit;
     max-width: 160px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     display: inline-block;
+}
+.discussion-meta .discussion-user-link {
+    font-size: 12px;
+    line-height: 1.2;
 }
 .discussion-user-link:hover {
     color: var(--accent-2);
