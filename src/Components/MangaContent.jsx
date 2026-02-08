@@ -943,7 +943,11 @@ function MangaContent({ mode } = {}) {
                   ? seasonLabelFromIso(published?.from) ||
                     `${seasonOptions.find((s) => s.value === seasonName)?.label || "Season"} ${seasonYear}`
                   : "";
-                const key = hasMal ? String(mal_id) : `manga-seasonal-${title}-${index}`;
+                const key = hasMal
+                  ? (isSeasonalMode
+                      ? `manga-${mal_id}-${String(published?.from || "")}-${index}`
+                      : String(mal_id))
+                  : `manga-seasonal-${title}-${index}`;
 
                 return (
                   <article className="anime-card" key={key}>

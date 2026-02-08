@@ -50,6 +50,19 @@ const absAnn = (value) => {
 
 const stripTags = (value = "") => String(value).replace(/<[^>]+>/g, "").trim();
 
+const dedupeByKey = (items, getKey) => {
+  const seen = new Set();
+  const out = [];
+  for (const item of items || []) {
+    const key = getKey(item);
+    if (!key) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+};
+
 const fetchWithTimeout = async (url, { timeoutMs = 10000 } = {}) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -757,7 +770,12 @@ app.get("/api/jikan/manga/seasonal", async (req, res) => {
         if (response.ok) {
           const data = await response.json();
           if (Array.isArray(data?.data)) {
-            data.data = data.data.filter((item) => isoToYear(item?.published?.from) >= 2025);
+            const filtered = data.data.filter((item) => isoToYear(item?.published?.from) >= 2025);
+            data.data = dedupeByKey(filtered, (item) => {
+              const id = item?.mal_id;
+              const from = item?.published?.from || "";
+              return id ? `${id}|${from}` : "";
+            });
           }
           jikanCache.set(url, { data, ts: Date.now() });
           clearTimeout(timeout);
@@ -857,8 +875,14 @@ app.get("/api/jikan/manga/seasonal", async (req, res) => {
       }
     }
 
+    const deduped = dedupeByKey(collected, (item) => {
+      const id = item?.mal_id;
+      const from = item?.published?.from || "";
+      return id ? `${id}|${from}` : "";
+    });
+
     const payload = {
-      data: collected,
+      data: deduped,
       pagination: {
         current_page: page,
         last_visible_page: hasMore ? page + 1 : page,

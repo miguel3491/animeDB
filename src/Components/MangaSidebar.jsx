@@ -26,7 +26,14 @@ function MangaSidebar({ topManga, imageMap, fromPath }) {
         <h4>Seasonal Manga</h4>
         <div className="sidebar-scroll">
           {sortedTop.map((manga, index) => (
-            <div className="sidebar-item" key={manga.mal_id ?? `${manga.title}-${index}`}>
+            <div
+              className="sidebar-item"
+              key={
+                manga?.mal_id
+                  ? `side-manga-${manga.mal_id}-${String(manga?.published?.from || "")}-${index}`
+                  : `${manga.title}-${index}`
+              }
+            >
               <span className="side-rank">#{index + 1}</span>
               {(imageMap?.[manga.mal_id] || getAniListMangaCoverFromCache(manga.mal_id) || manga?.images?.jpg?.image_url || manga?.images?.webp?.image_url) ? (
                 <img
