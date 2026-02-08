@@ -11,10 +11,13 @@ function NewsDetail() {
   const [article, setArticle] = useState(null);
   const [articleLoading, setArticleLoading] = useState(false);
   const [summary, setSummary] = useState(null);
-  const [, setSummaryError] = useState("");
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState("");
   const [brokenImages, setBrokenImages] = useState(() => new Set());
   const [summaryNotice, setSummaryNotice] = useState("");
+  const [summaryUsed, setSummaryUsed] = useState(false);
   const summaryRequestedRef = useRef(false);
+  const itemId = item?.id || "";
 
   useEffect(() => {
     if (item || !decodedId) return;
@@ -29,88 +32,124 @@ function NewsDetail() {
   }, [decodedId, item]);
 
   useEffect(() => {
-    if (!item) return;
-    let cancelled = false;
+    if (!itemId) return;
+    // Reset per-article UI state.
+    summaryRequestedRef.current = false;
+    setSummaryLoading(false);
+    setSummaryError("");
+    setSummaryNotice("");
+    setSummary(null);
 
-    const summaryDisabled = sessionStorage.getItem("summary-disabled") === "1";
-    if (summaryDisabled) {
-      return undefined;
+    const disabled = sessionStorage.getItem("summary-disabled") === "1";
+    if (disabled) {
+      setSummaryNotice("AI summary is currently disabled for this session.");
+      return;
     }
 
-    // Use cached summary if available.
-    const localCached = localStorage.getItem(`news-summary-${item.id}`);
+    // Load cached summary if available.
+    const localKey = `news-summary-${itemId}`;
+    const usedKey = `news-summary-used-${itemId}`;
+
+    try {
+      const used = localStorage.getItem(usedKey) === "1";
+      setSummaryUsed(used);
+      if (used) {
+        setSummaryNotice("AI summary already generated for this article.");
+      }
+    } catch (err) {
+      setSummaryUsed(false);
+    }
+
+    const localCached = localStorage.getItem(localKey);
     if (localCached) {
       try {
         setSummary(JSON.parse(localCached));
-        return undefined;
+        return;
       } catch (err) {
         // ignore cache errors
       }
     }
-    const cached = sessionStorage.getItem(`news-summary-${item.id}`);
+
+    const cached = sessionStorage.getItem(localKey);
     if (cached) {
       try {
         setSummary(JSON.parse(cached));
-        return undefined;
       } catch (err) {
         // ignore cache errors
       }
     }
+  }, [itemId]);
 
-    // Only generate once per article (per browser) to control API usage.
-    const used = localStorage.getItem(`news-summary-used-${item.id}`) === "1";
-    if (used) {
-      setSummaryNotice("AI summary already generated for this article.");
-      return undefined;
+  const generateSummary = async () => {
+    if (!item) return;
+    if (summaryLoading) return;
+
+    const disabled = sessionStorage.getItem("summary-disabled") === "1";
+    if (disabled) {
+      setSummaryNotice("AI summary is currently disabled for this session.");
+      return;
     }
 
-    if (summaryRequestedRef.current) {
-      return undefined;
+    const localKey = `news-summary-${item.id}`;
+    const usedKey = `news-summary-used-${item.id}`;
+
+    try {
+      const used = localStorage.getItem(usedKey) === "1";
+      if (used) {
+        setSummaryUsed(true);
+        setSummaryNotice("AI summary already generated for this article.");
+        const cached = localStorage.getItem(localKey);
+        if (cached) {
+          setSummary(JSON.parse(cached));
+        }
+        return;
+      }
+    } catch (err) {
+      // ignore storage errors
     }
+
+    if (summaryRequestedRef.current) return;
     summaryRequestedRef.current = true;
 
-    const loadSummary = async () => {
-      try {
-        const response = await fetch("/api/summary", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: item.title,
-            content: item.content || item.summary || item.description || ""
-          })
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          const detail = String(data?.detail || data?.error || "Summary unavailable.");
-          if (detail.toLowerCase().includes("quota")) {
-            sessionStorage.setItem("summary-disabled", "1");
-            throw new Error("AI summary unavailable: API quota exceeded.");
-          }
-          throw new Error(detail);
+    setSummaryLoading(true);
+    setSummaryError("");
+    setSummaryNotice("");
+
+    try {
+      const response = await fetch("/api/summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: item.title,
+          content: item.content || item.summary || item.description || ""
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = String(data?.detail || data?.error || "Summary unavailable.");
+        if (detail.toLowerCase().includes("quota") || detail.toLowerCase().includes("missing")) {
+          sessionStorage.setItem("summary-disabled", "1");
         }
-        if (!cancelled) {
-          setSummary(data);
-          sessionStorage.setItem(`news-summary-${item.id}`, JSON.stringify(data));
-          try {
-            localStorage.setItem(`news-summary-${item.id}`, JSON.stringify(data));
-            localStorage.setItem(`news-summary-used-${item.id}`, "1");
-          } catch (err) {
-            // ignore storage errors
-          }
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setSummaryError(err?.message || "Summary unavailable right now.");
-        }
+        throw new Error(detail);
       }
-    };
 
-    loadSummary();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [item]);
+      setSummary(data);
+      sessionStorage.setItem(localKey, JSON.stringify(data));
+      try {
+        localStorage.setItem(localKey, JSON.stringify(data));
+        localStorage.setItem(usedKey, "1");
+        setSummaryUsed(true);
+      } catch (err) {
+        // ignore storage errors
+      }
+    } catch (err) {
+      setSummaryError(err?.message || "Summary unavailable right now.");
+    } finally {
+      setSummaryLoading(false);
+      summaryRequestedRef.current = false;
+    }
+  };
 
   useEffect(() => {
     if (!item?.link) return;
@@ -184,115 +223,157 @@ function NewsDetail() {
   return (
     <div className="layout detail-layout">
       <section className="detail-panel news-detail">
-        <div className="detail-header">
-          <div>
-            <p className="news-source">{item.sourceName}</p>
-            <h2>{displayTitle}</h2>
-            {item.pubDate && (
-              <p className="news-date">{new Date(item.pubDate).toLocaleString()}</p>
-            )}
-          </div>
-          <button type="button" className="detail-link" onClick={goBack}>
-            &#8592; Back to results
-          </button>
-        </div>
-        {galleryImages.length > 0 && (
-          <div className="news-media">
-            {!brokenImages.has(heroImage) && heroImage && (
-              <img
-                className="news-detail-image"
-                src={heroImage}
-                alt={displayTitle}
-                loading="lazy"
-                referrerPolicy="no-referrer"
-                onError={() => {
-                  setBrokenImages((prev) => new Set(prev).add(heroImage));
-                }}
-              />
-            )}
-            {brokenImages.has(heroImage) && heroImage && (
-              <a className="detail-link" href={heroImage} target="_blank" rel="noreferrer">
-                Open image
-              </a>
-            )}
-            {galleryImages.length > 1 && (
-              <div className="news-media-grid">
-                {galleryImages.slice(1).map((src) => {
-                  const broken = brokenImages.has(src);
-                  return (
-                    <a
-                      key={`news-media-${src}`}
-                      className="news-media-thumb"
-                      href={src}
-                      target="_blank"
-                      rel="noreferrer"
-                      title="Open image"
-                    >
-                      {broken ? (
-                        <span className="news-media-broken">Open image</span>
-                      ) : (
-                        <img
-                          src={src}
-                          alt=""
-                          loading="lazy"
-                          referrerPolicy="no-referrer"
-                          onError={() => {
-                            setBrokenImages((prev) => new Set(prev).add(src));
-                          }}
-                        />
-                      )}
-                    </a>
-                  );
-                })}
+        <div className="news-detail-grid">
+          <div className="news-main">
+            <div className="detail-header">
+              <div>
+                <p className="news-source">{item.sourceName}</p>
+                <h2>{displayTitle}</h2>
+                {item.pubDate && (
+                  <p className="news-date">{new Date(item.pubDate).toLocaleString()}</p>
+                )}
+              </div>
+              <button type="button" className="detail-link" onClick={goBack}>
+                &#8592; Back to results
+              </button>
+            </div>
+
+            {galleryImages.length > 0 && (
+              <div className="news-media">
+                {!brokenImages.has(heroImage) && heroImage && (
+                  <img
+                    className="news-detail-image"
+                    src={heroImage}
+                    alt={displayTitle}
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    onError={() => {
+                      setBrokenImages((prev) => new Set(prev).add(heroImage));
+                    }}
+                  />
+                )}
+                {brokenImages.has(heroImage) && heroImage && (
+                  <a className="detail-link" href={heroImage} target="_blank" rel="noreferrer">
+                    Open image
+                  </a>
+                )}
+                {galleryImages.length > 1 && (
+                  <div className="news-media-grid">
+                    {galleryImages.slice(1).map((src) => {
+                      const broken = brokenImages.has(src);
+                      return (
+                        <a
+                          key={`news-media-${src}`}
+                          className="news-media-thumb"
+                          href={src}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Open image"
+                        >
+                          {broken ? (
+                            <span className="news-media-broken">Open image</span>
+                          ) : (
+                            <img
+                              src={src}
+                              alt=""
+                              loading="lazy"
+                              referrerPolicy="no-referrer"
+                              onError={() => {
+                                setBrokenImages((prev) => new Set(prev).add(src));
+                              }}
+                            />
+                          )}
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
+                {externalCount > 0 && (
+                  <p className="muted news-media-note">
+                    Some images are hosted by third-party sites and may block embedding. Click a thumbnail to open it directly.
+                  </p>
+                )}
               </div>
             )}
-            {externalCount > 0 && (
-              <p className="muted news-media-note">
-                Some images are hosted by third-party sites and may block embedding. Click a thumbnail to open it directly.
-              </p>
-            )}
+
+            <div className="news-body">
+              {articleLoading ? (
+                <p className="muted">Loading the full article...</p>
+              ) : bodyHtml ? (
+                <div dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+              ) : (
+                <p>{displayBody}</p>
+              )}
+            </div>
           </div>
-        )}
-        <div className="news-body">
-          {articleLoading ? (
-            <p className="muted">Loading the full article...</p>
-          ) : bodyHtml ? (
-            <div dangerouslySetInnerHTML={{ __html: bodyHtml }} />
-          ) : (
-            <p>{displayBody}</p>
-          )}
-        </div>
-        {(summaryNotice || (summary && summary.summary)) && (
-          <div className="news-summary">
-            <h4>AI Summary</h4>
-            {summaryNotice && !summary?.summary ? (
-              <p className="muted">{summaryNotice}</p>
-            ) : (
-              <p>{summary?.summary}</p>
-            )}
-            {summary?.keyPoints?.length > 0 && (
-              <ul className="news-points">
-                {summary.keyPoints.map((point, index) => (
-                  <li key={`${item.id}-point-${index}`}>{point}</li>
+
+          <aside className="news-side">
+            <div className="news-summary news-summary--side">
+              <div className="news-summary-head">
+                <h4>AI Summary</h4>
+                {!summary?.summary && (
+                  <button
+                    type="button"
+                    className="favorite-button news-ai-button"
+                    onClick={generateSummary}
+                    disabled={summaryLoading || summaryUsed}
+                    title={summaryUsed ? "Summary already generated for this article" : "Generate one summary per article"}
+                  >
+                    {summaryUsed ? "Used" : summaryLoading ? "Generating..." : "Generate"}
+                  </button>
+                )}
+              </div>
+
+              {summaryLoading && !summary?.summary && (
+                <div className="news-ai-skeleton" aria-label="Generating summary">
+                  <div className="skeleton-line" />
+                  <div className="skeleton-line" />
+                  <div className="skeleton-line short" />
+                </div>
+              )}
+
+              {summaryError && !summary?.summary && (
+                <p className="publish-status error">{summaryError}</p>
+              )}
+
+              {!summary?.summary && !summaryLoading && !summaryError && summaryNotice && (
+                <p className="muted">{summaryNotice}</p>
+              )}
+
+              {summary?.summary && <p>{summary.summary}</p>}
+
+              {summary?.keyPoints?.length > 0 && (
+                <ul className="news-points">
+                  {summary.keyPoints.map((point, index) => (
+                    <li key={`${item.id}-point-${index}`}>{point}</li>
+                  ))}
+                </ul>
+              )}
+
+              {!summary?.summary && !summaryLoading && !summaryError && !summaryNotice && (
+                <p className="muted">
+                  Generate a short summary for this story (one time per article in your browser).
+                </p>
+              )}
+            </div>
+
+            {item.categories?.length > 0 && (
+              <div className="news-tags">
+                {item.categories.map((cat) => (
+                  <span key={`${item.id}-${cat}`} className="tag">
+                    {cat}
+                  </span>
                 ))}
-              </ul>
+              </div>
             )}
-          </div>
-        )}
-        {item.categories?.length > 0 && (
-          <div className="news-tags">
-            {item.categories.map((cat) => (
-              <span key={`${item.id}-${cat}`} className="tag">
-                {cat}
-              </span>
-            ))}
-          </div>
-        )}
-        {item.link && (
-          <a className="detail-link" href={item.link} target="_blank" rel="noreferrer">
-            Original source
-          </a>
-        )}
+
+            {item.link && (
+              <a className="detail-link" href={item.link} target="_blank" rel="noreferrer">
+                Original source
+              </a>
+            )}
+          </aside>
+        </div>
       </section>
     </div>
   );
