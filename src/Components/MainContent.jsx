@@ -61,7 +61,7 @@ function MainContent({ mode } = {}) {
   const [favoritePulseId, setFavoritePulseId] = useState(null);
   const [toast, setToast] = useState("");
   const toastTimeoutRef = useRef(null);
-  const showMiniStrip = search.trim().length === 0;
+  const showMiniStrip = search.trim().length === 0 && location.pathname === "/";
   // const [seasonAnime, setseasonAnime] = useState([]);
   // const [filterAnime, setFilter] = useState([]);
 

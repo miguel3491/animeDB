@@ -59,7 +59,7 @@ function MangaContent({ mode } = {}) {
   const searchAbortRef = useRef(null);
   const searchRequestRef = useRef(0);
   const favoritePulseTimeout = useRef(null);
-  const showMiniStrip = search.trim().length === 0;
+  const showMiniStrip = search.trim().length === 0 && location.pathname === "/manga";
   const [mangaCovers, setMangaCovers] = useState({});
   const [favoritePulseId, setFavoritePulseId] = useState(null);
 
