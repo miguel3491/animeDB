@@ -2449,6 +2449,18 @@ a{
     gap: 12px;
     margin-bottom: 12px;
 }
+.comment-preview-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    font-size: 12px;
+}
+.comment-pagination {
+    margin-top: 6px;
+    margin-bottom: 12px;
+}
 .comment-item {
     display: grid;
     grid-template-columns: 36px 1fr;

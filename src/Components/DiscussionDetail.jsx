@@ -134,6 +134,7 @@ function DiscussionDetail() {
             user={user}
             onDelete={handleDelete}
             detailLink={false}
+            commentMode="thread"
             draft={draft}
             onDraftChange={setDraft}
             spoilerBlurEnabled={spoilerBlurEnabled}

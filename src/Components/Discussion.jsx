@@ -11,6 +11,8 @@ export function DiscussionPost({
   onDelete,
   detailLink = true,
   spoilerBlurEnabled = true,
+  commentMode = "preview",
+  previewLimit = 2,
   draft,
   onDraftChange
 }) {
@@ -22,6 +24,9 @@ export function DiscussionPost({
   const mediaTitle = post.mediaTitle || post.animeTitle || post.title || "Untitled";
   const mediaImage = post.mediaImage || post.animeImage || "";
   const [comments, setComments] = useState([]);
+  const [commentPage, setCommentPage] = useState(0);
+  const threadInitRef = useRef(false);
+  const prevCommentsLenRef = useRef(0);
   const [commentText, setCommentText] = useState("");
   const [commentError, setCommentError] = useState("");
   const [commentBounce, setCommentBounce] = useState(false);
@@ -95,6 +100,39 @@ export function DiscussionPost({
       setComments(data);
     });
   }, [post.id]);
+
+  useEffect(() => {
+    threadInitRef.current = false;
+    setCommentPage(0);
+  }, [post.id]);
+
+  const COMMENTS_PER_PAGE = 10;
+  const isThread = commentMode === "thread";
+  const totalCommentPages = Math.max(
+    1,
+    Math.ceil(comments.length / COMMENTS_PER_PAGE)
+  );
+
+  useEffect(() => {
+    if (!isThread) return;
+    const lastPage = Math.max(0, totalCommentPages - 1);
+    if (!threadInitRef.current) {
+      threadInitRef.current = true;
+      setCommentPage(lastPage);
+      return;
+    }
+    const prevLen = prevCommentsLenRef.current;
+    const prevLastPage = Math.max(0, Math.ceil(prevLen / COMMENTS_PER_PAGE) - 1);
+    if (commentPage === prevLastPage && prevLen !== comments.length) {
+      setCommentPage(lastPage);
+    } else if (commentPage > lastPage) {
+      setCommentPage(lastPage);
+    }
+  }, [COMMENTS_PER_PAGE, commentPage, comments.length, isThread, totalCommentPages]);
+
+  useEffect(() => {
+    prevCommentsLenRef.current = comments.length;
+  }, [comments.length]);
 
   useEffect(() => {
     return () => {
@@ -206,7 +244,21 @@ export function DiscussionPost({
     bounceTimeoutRef.current = setTimeout(() => {
       setCommentBounce(false);
     }, 320);
+
+    if (isThread) {
+      const nextTotal = comments.length + 1;
+      const nextLastPage = Math.max(0, Math.ceil(nextTotal / COMMENTS_PER_PAGE) - 1);
+      setCommentPage(nextLastPage);
+    }
   };
+
+  const visibleComments = (() => {
+    if (!isThread) {
+      return comments.slice(0, previewLimit);
+    }
+    const start = commentPage * COMMENTS_PER_PAGE;
+    return comments.slice(start, start + COMMENTS_PER_PAGE);
+  })();
 
   return (
     <article className={`discussion-card ${spoilerHidden ? "spoiler-hidden" : ""}`}>
@@ -344,7 +396,7 @@ export function DiscussionPost({
           <p className="muted">No comments yet. Be the first to reply.</p>
         ) : (
           <div className="comment-list">
-            {comments.map((comment) => (
+            {visibleComments.map((comment) => (
               <div className="comment-item" key={comment.id}>
                 {comment.userPhoto ? (
                   <img className="comment-avatar" src={comment.userPhoto} alt={comment.userName} />
@@ -370,6 +422,38 @@ export function DiscussionPost({
             ))}
           </div>
         )}
+
+        {!isThread && comments.length > previewLimit && (
+          <div className="comment-preview-footer">
+            <span className="muted">
+              Showing {previewLimit} of {comments.length} comments.
+            </span>
+            <Link className="detail-link" to={`/discussion/${post.id}`} state={{ from: fromPath }}>
+              View thread
+            </Link>
+          </div>
+        )}
+
+        {isThread && totalCommentPages > 1 && (
+          <div className="pagination comment-pagination">
+            <ul>
+              {Array.from({ length: totalCommentPages }, (_, i) => (
+                <li key={`comment-page-${post.id}-${i + 1}`}>
+                  <button
+                    type="button"
+                    onClick={() => setCommentPage(i)}
+                    style={{
+                      background: commentPage === i ? "rgba(255,255,255,0.2)" : "transparent"
+                    }}
+                  >
+                    {i + 1}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <div className="comment-form">
           <input
             type="text"
