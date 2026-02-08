@@ -1,8 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import "../styles.css";
 
 function News() {
+  const location = useLocation();
+  const isAnimeActive = location.pathname === "/" || location.pathname.startsWith("/seasonal/anime");
+  const isMangaActive = location.pathname === "/manga" || location.pathname.startsWith("/seasonal/manga");
+  const isNewsActive = location.pathname.startsWith("/news");
+  const isDiscussionActive = location.pathname.startsWith("/discussion");
   const [items, setItems] = useState([]);
   const [search, setSearch] = useState("");
   const [timeFilter, setTimeFilter] = useState("all");
@@ -80,14 +85,29 @@ function News() {
       <div className="menu">
         <div className="left-filters">
           <ul id="nav-filter">
-            <li>
-              <Link className="Small filter-button" to="/">Anime</Link>
+            <li className="nav-dropdown">
+              <Link className={`Small filter-button has-dropdown ${isAnimeActive ? "active" : ""}`} to="/">
+                Anime <span className="dropdown-caret" aria-hidden="true">▾</span>
+              </Link>
+              <div className="dropdown-menu" role="menu" aria-label="Anime menu">
+                <Link className="dropdown-item" role="menuitem" to="/">All Anime</Link>
+                <Link className="dropdown-item" role="menuitem" to="/seasonal/anime">Seasonal Anime</Link>
+              </div>
+            </li>
+            <li className="nav-dropdown">
+              <Link className={`Small filter-button has-dropdown ${isMangaActive ? "active" : ""}`} to="/manga">
+                Manga <span className="dropdown-caret" aria-hidden="true">▾</span>
+              </Link>
+              <div className="dropdown-menu" role="menu" aria-label="Manga menu">
+                <Link className="dropdown-item" role="menuitem" to="/manga">All Manga</Link>
+                <Link className="dropdown-item" role="menuitem" to="/seasonal/manga">Seasonal Manga</Link>
+              </div>
             </li>
             <li>
-              <Link className="Small filter-button" to="/manga">Manga</Link>
+              <Link className={`Small filter-button ${isNewsActive ? "active" : ""}`} to="/news">News</Link>
             </li>
             <li>
-              <Link className="Small filter-button active" to="/news">News</Link>
+              <Link className={`Small filter-button ${isDiscussionActive ? "active" : ""}`} to="/discussion">Discussion</Link>
             </li>
           </ul>
         </div>

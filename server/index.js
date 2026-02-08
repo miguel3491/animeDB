@@ -433,10 +433,11 @@ app.get("/api/jikan", async (req, res) => {
 
 app.get("/api/jikan/season", async (req, res) => {
   const limit = Math.max(1, Math.min(20, Number(req.query?.limit) || 10));
+  const page = Math.max(1, Number(req.query?.page) || 1);
   const fields = "mal_id,title,images,aired";
   const url = `https://api.jikan.moe/v4/seasons/now?filter=tv&limit=${encodeURIComponent(
     limit
-  )}&fields=${encodeURIComponent(fields)}`;
+  )}&page=${encodeURIComponent(page)}&fields=${encodeURIComponent(fields)}`;
 
   const cached = jikanCache.get(url);
   const now = Date.now();
@@ -542,6 +543,66 @@ app.get("/api/jikan/season", async (req, res) => {
 
   if (!res.headersSent) {
     return res.status(lastStatus || 502).json({ error: "Seasonal feed unavailable" });
+  }
+  return;
+});
+
+app.get("/api/jikan/manga/seasonal", async (req, res) => {
+  const limit = Math.max(1, Math.min(20, Number(req.query?.limit) || 20));
+  const page = Math.max(1, Number(req.query?.page) || 1);
+  const fields = "mal_id,title,images,published,status";
+  const url =
+    `https://api.jikan.moe/v4/manga?status=publishing&order_by=start_date&sort=desc` +
+    `&page=${encodeURIComponent(page)}&limit=${encodeURIComponent(limit)}` +
+    `&fields=${encodeURIComponent(fields)}`;
+
+  const cached = jikanCache.get(url);
+  const now = Date.now();
+  if (cached && now - cached.ts < JIKAN_SEASON_TTL) {
+    return res.json(cached.data);
+  }
+  if (shouldServeStale(cached, JIKAN_SEASON_TTL)) {
+    res.set("X-Cache", "STALE");
+    res.json(cached.data);
+  }
+
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      lastStatus = response.status;
+      if (response.ok) {
+        const data = await response.json();
+        jikanCache.set(url, { data, ts: Date.now() });
+        clearTimeout(timeout);
+        if (!res.headersSent) {
+          return res.json(data);
+        }
+        return;
+      }
+      const retryable = [429, 502, 503, 504].includes(response.status);
+      if (!retryable) {
+        clearTimeout(timeout);
+        break;
+      }
+    } catch (err) {
+      if (err?.name !== "AbortError") {
+        console.error("Jikan manga seasonal proxy error:", err?.message || err);
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)));
+  }
+
+  if (cached && !res.headersSent) {
+    return res.json(cached.data);
+  }
+
+  if (!res.headersSent) {
+    return res.status(lastStatus || 502).json({ error: "Manga seasonal feed unavailable" });
   }
   return;
 });

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactPaginate from "react-paginate";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import MangaSidebar from "./MangaSidebar";
 import { collection, deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
@@ -13,12 +13,20 @@ const SEARCH_TTL = 2 * 60 * 1000;
 const TOP_TTL = 5 * 60 * 1000;
 const LATEST_TTL = 5 * 60 * 1000;
 const DEFAULT_TTL = 5 * 60 * 1000;
+const SEASON_TTL = 5 * 60 * 1000;
 const searchCache = new Map();
 const defaultCache = new Map();
+const seasonCache = new Map();
 let topMangaCache = { data: null, ts: 0 };
 let latestMangaCache = { data: null, ts: 0 };
 
-function MangaContent() {
+function MangaContent({ mode } = {}) {
+  const location = useLocation();
+  const isSeasonalMode = mode === "seasonal";
+  const isAnimeActive = location.pathname === "/" || location.pathname.startsWith("/seasonal/anime");
+  const isMangaActive = location.pathname === "/manga" || location.pathname.startsWith("/seasonal/manga");
+  const isNewsActive = location.pathname.startsWith("/news");
+  const isDiscussionActive = location.pathname.startsWith("/discussion");
   const [manga, setManga] = useState([]);
   const [topManga, setTopManga] = useState([]);
   const [search, setSearch] = useState("");
@@ -107,18 +115,61 @@ function MangaContent() {
     }
   }, []);
 
+  const loadSeasonalManga = useCallback(async (page = 1) => {
+    const cacheKey = `seasonal|${page}`;
+    const cached = seasonCache.get(cacheKey);
+    const now = Date.now();
+    if (cached && now - cached.ts < SEASON_TTL) {
+      setManga(cached.data);
+      setPageSize(cached.pagination);
+      return;
+    }
+    try {
+      setIsListLoading(true);
+      const response = await fetch(
+        `/api/jikan/manga/seasonal?page=${encodeURIComponent(page)}&limit=20`
+      );
+      const apiAll = await response.json();
+      const data = apiAll?.data ?? [];
+      const pagination = apiAll?.pagination ?? null;
+      seasonCache.set(cacheKey, { data, pagination, ts: Date.now() });
+      setManga(data);
+      setPageSize(pagination);
+      setSearchError("");
+    } catch (error) {
+      if (!cached) {
+        if (mangaRef.current.length === 0) {
+          setManga([]);
+          setPageSize(null);
+        }
+        setSearchError("Seasonal titles are unavailable right now.");
+      }
+    } finally {
+      setIsListLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!search.trim()) {
-      loadDefaultManga(currentPage + 2);
+      const page = currentPage + 1;
+      if (isSeasonalMode) {
+        loadSeasonalManga(page);
+      } else {
+        loadDefaultManga(page);
+      }
     }
-  }, [currentPage, loadDefaultManga, search]);
+  }, [currentPage, isSeasonalMode, loadDefaultManga, loadSeasonalManga, search]);
 
   const searchManga = useCallback(async (page) => {
     const currentPage = page ?? 1;
     const query = search.trim();
     if (!query) {
       setSearchError("");
-      loadDefaultManga(1);
+      if (isSeasonalMode) {
+        loadSeasonalManga(1);
+      } else {
+        loadDefaultManga(1);
+      }
       return;
     }
     const cacheKey = `${query}|${currentPage}`;
@@ -203,16 +254,24 @@ function MangaContent() {
     if (search.trim()) {
       searchManga(nextPage + 1);
     } else {
-      loadDefaultManga(nextPage + 1);
+      if (isSeasonalMode) {
+        loadSeasonalManga(nextPage + 1);
+      } else {
+        loadDefaultManga(nextPage + 1);
+      }
     }
   };
 
   useEffect(() => {
     setCurrentPage(0);
     if (!search.trim()) {
-      loadDefaultManga(1);
+      if (isSeasonalMode) {
+        loadSeasonalManga(1);
+      } else {
+        loadDefaultManga(1);
+      }
     }
-  }, [search, loadDefaultManga]);
+  }, [search, isSeasonalMode, loadDefaultManga, loadSeasonalManga]);
 
   const triggerSearch = () => {
     if (searchTimeoutRef.current) {
@@ -222,7 +281,11 @@ function MangaContent() {
     if (search.trim()) {
       searchManga(1);
     } else {
-      loadDefaultManga(1);
+      if (isSeasonalMode) {
+        loadSeasonalManga(1);
+      } else {
+        loadDefaultManga(1);
+      }
     }
   };
 
@@ -529,17 +592,29 @@ function MangaContent() {
       <div className="menu">
         <div className="left-filters">
           <ul id="nav-filter">
-            <li>
-              <Link className="Small filter-button" to="/">Anime</Link>
+            <li className="nav-dropdown">
+              <Link className={`Small filter-button has-dropdown ${isAnimeActive ? "active" : ""}`} to="/">
+                Anime <span className="dropdown-caret" aria-hidden="true">▾</span>
+              </Link>
+              <div className="dropdown-menu" role="menu" aria-label="Anime menu">
+                <Link className="dropdown-item" role="menuitem" to="/">All Anime</Link>
+                <Link className="dropdown-item" role="menuitem" to="/seasonal/anime">Seasonal Anime</Link>
+              </div>
+            </li>
+            <li className="nav-dropdown">
+              <Link className={`Small filter-button has-dropdown ${isMangaActive ? "active" : ""}`} to="/manga">
+                Manga <span className="dropdown-caret" aria-hidden="true">▾</span>
+              </Link>
+              <div className="dropdown-menu" role="menu" aria-label="Manga menu">
+                <Link className="dropdown-item" role="menuitem" to="/manga">All Manga</Link>
+                <Link className="dropdown-item" role="menuitem" to="/seasonal/manga">Seasonal Manga</Link>
+              </div>
             </li>
             <li>
-              <Link className="Small filter-button active" to="/manga">Manga</Link>
+              <Link className={`Small filter-button ${isNewsActive ? "active" : ""}`} to="/news">News</Link>
             </li>
             <li>
-              <Link className="Small filter-button" to="/news">News</Link>
-            </li>
-            <li>
-              <Link className="Small filter-button" to="/discussion">Discussion</Link>
+              <Link className={`Small filter-button ${isDiscussionActive ? "active" : ""}`} to="/discussion">Discussion</Link>
             </li>
           </ul>
         </div>
@@ -613,7 +688,7 @@ function MangaContent() {
 
           <div className="results-bar">
             <h3>
-              {search ? `Results for “${search}”` : "Trending & top matches"}
+              {search ? `Results for “${search}”` : isSeasonalMode ? "Seasonal manga" : "Trending & top matches"}
             </h3>
             <div className="results-controls">
               <span className="pill">{filteredManga.length} titles</span>

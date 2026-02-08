@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import Sidebar from "./Sidebar";
 import ReactPaginate from "react-paginate";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { collection, deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
@@ -13,12 +13,20 @@ const SEARCH_TTL = 2 * 60 * 1000;
 const TOP_TTL = 5 * 60 * 1000;
 const LATEST_TTL = 5 * 60 * 1000;
 const DEFAULT_TTL = 5 * 60 * 1000;
+const SEASON_TTL = 5 * 60 * 1000;
 const searchCache = new Map();
 const defaultCache = new Map();
+const seasonCache = new Map();
 let topAnimeCache = { data: null, ts: 0 };
 let latestEpisodesCache = { data: null, ts: 0 };
 
-function MainContent() {
+function MainContent({ mode } = {}) {
+  const location = useLocation();
+  const isSeasonalMode = mode === "seasonal";
+  const isAnimeActive = location.pathname === "/" || location.pathname.startsWith("/seasonal/anime");
+  const isMangaActive = location.pathname === "/manga" || location.pathname.startsWith("/seasonal/manga");
+  const isNewsActive = location.pathname.startsWith("/news");
+  const isDiscussionActive = location.pathname.startsWith("/discussion");
   const [anime, setAnime] = useState([]);
   const [topAnime, setTopAnime] = useState([]);
   const [search, setSearch] = useState("");
@@ -115,24 +123,61 @@ function MainContent() {
     }
   }, []);
 
-  useEffect(() => {
-    if (!search.trim()) {
-      loadDefaultAnime(currentPage + 2);
+  const loadSeasonalAnime = useCallback(async (page = 1) => {
+    const cacheKey = `seasonal|${page}`;
+    const cached = seasonCache.get(cacheKey);
+    const now = Date.now();
+    if (cached && now - cached.ts < SEASON_TTL) {
+      setAnime(cached.data);
+      setPageSize(cached.pagination);
+      return;
     }
-  }, [currentPage, loadDefaultAnime, search]);
+    try {
+      setIsListLoading(true);
+      const response = await fetch(
+        `/api/jikan/season?page=${encodeURIComponent(page)}&limit=20`
+      );
+      const apiAll = await response.json();
+      const data = apiAll?.data ?? [];
+      const pagination = apiAll?.pagination ?? null;
+      seasonCache.set(cacheKey, { data, pagination, ts: Date.now() });
+      setAnime(data);
+      setPageSize(pagination);
+      setSearchError("");
+    } catch (error) {
+      if (!cached) {
+        if (animeRef.current.length === 0) {
+          setAnime([]);
+          setPageSize(null);
+        }
+        setSearchError("Seasonal titles are unavailable right now.");
+      }
+    } finally {
+      setIsListLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!search.trim()) {
-      loadDefaultAnime(currentPage + 2);
+      const page = currentPage + 1;
+      if (isSeasonalMode) {
+        loadSeasonalAnime(page);
+      } else {
+        loadDefaultAnime(page);
+      }
     }
-  }, [currentPage, loadDefaultAnime, search]);
+  }, [currentPage, isSeasonalMode, loadDefaultAnime, loadSeasonalAnime, search]);
 
   const searchAnime = useCallback(async (page) => {
     const currentPage = page ?? 1; // default page is 1
     const query = search.trim();
     if (!query) {
       setSearchError("");
-      loadDefaultAnime(1);
+      if (isSeasonalMode) {
+        loadSeasonalAnime(1);
+      } else {
+        loadDefaultAnime(1);
+      }
       return;
     }
     const cacheKey = `${query}|${currentPage}`;
@@ -219,16 +264,24 @@ function MainContent() {
     if (search.trim()) {
       searchAnime(nextPage + 1); // change page
     } else {
-      loadDefaultAnime(nextPage + 1);
+      if (isSeasonalMode) {
+        loadSeasonalAnime(nextPage + 1);
+      } else {
+        loadDefaultAnime(nextPage + 1);
+      }
     }
   };
 
   useEffect(() => {
     setCurrentPage(0);
     if (!search.trim()) {
-      loadDefaultAnime(1);
+      if (isSeasonalMode) {
+        loadSeasonalAnime(1);
+      } else {
+        loadDefaultAnime(1);
+      }
     }
-  }, [search, loadDefaultAnime]);
+  }, [search, isSeasonalMode, loadDefaultAnime, loadSeasonalAnime]);
 
   const triggerSearch = () => {
     if (searchTimeoutRef.current) {
@@ -238,7 +291,11 @@ function MainContent() {
     if (search.trim()) {
       searchAnime(1);
     } else {
-      loadDefaultAnime(1);
+      if (isSeasonalMode) {
+        loadSeasonalAnime(1);
+      } else {
+        loadDefaultAnime(1);
+      }
     }
   };
 
@@ -597,17 +654,29 @@ function MainContent() {
       <div className="menu">
         <div className="left-filters">
           <ul id="nav-filter">
-            <li>
-              <Link className="Small filter-button active" to="/">Anime</Link>
+            <li className="nav-dropdown">
+              <Link className={`Small filter-button has-dropdown ${isAnimeActive ? "active" : ""}`} to="/">
+                Anime <span className="dropdown-caret" aria-hidden="true">▾</span>
+              </Link>
+              <div className="dropdown-menu" role="menu" aria-label="Anime menu">
+                <Link className="dropdown-item" role="menuitem" to="/">All Anime</Link>
+                <Link className="dropdown-item" role="menuitem" to="/seasonal/anime">Seasonal Anime</Link>
+              </div>
+            </li>
+            <li className="nav-dropdown">
+              <Link className={`Small filter-button has-dropdown ${isMangaActive ? "active" : ""}`} to="/manga">
+                Manga <span className="dropdown-caret" aria-hidden="true">▾</span>
+              </Link>
+              <div className="dropdown-menu" role="menu" aria-label="Manga menu">
+                <Link className="dropdown-item" role="menuitem" to="/manga">All Manga</Link>
+                <Link className="dropdown-item" role="menuitem" to="/seasonal/manga">Seasonal Manga</Link>
+              </div>
             </li>
             <li>
-              <Link className="Small filter-button" to="/manga">Manga</Link>
+              <Link className={`Small filter-button ${isNewsActive ? "active" : ""}`} to="/news">News</Link>
             </li>
             <li>
-              <Link className="Small filter-button" to="/news">News</Link>
-            </li>
-            <li>
-              <Link className="Small filter-button" to="/discussion">Discussion</Link>
+              <Link className={`Small filter-button ${isDiscussionActive ? "active" : ""}`} to="/discussion">Discussion</Link>
             </li>
           </ul>
         </div>
@@ -682,7 +751,7 @@ function MainContent() {
 
           <div className="results-bar">
             <h3>
-              {search ? `Results for “${search}”` : "Trending & top matches"}
+              {search ? `Results for “${search}”` : isSeasonalMode ? "Seasonal anime" : "Trending & top matches"}
             </h3>
             <div className="results-controls">
               <span className="pill">{filteredAnime.length} titles</span>

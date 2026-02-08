@@ -23,8 +23,10 @@ function App(){
                 <main>
                     <Routes>
                         <Route path="/" element={<MainContent></MainContent>} />
+                        <Route path="/seasonal/anime" element={<MainContent mode="seasonal"></MainContent>} />
                         <Route path="/anime/:id" element={<AnimeDetail></AnimeDetail>} />
                         <Route path="/manga" element={<MangaContent></MangaContent>} />
+                        <Route path="/seasonal/manga" element={<MangaContent mode="seasonal"></MangaContent>} />
                         <Route path="/manga/:id" element={<MangaDetail></MangaDetail>} />
                         <Route path="/favorites" element={<Favorites></Favorites>} />
                         <Route path="/news" element={<News></News>} />
