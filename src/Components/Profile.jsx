@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { collection, getDocs, limit, orderBy, query, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDocs, limit, orderBy, query, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { useAuth } from "../AuthContext";
 import { db } from "../firebase";
 import "../styles.css";
@@ -13,6 +13,19 @@ function Profile() {
   const bgRef = useRef(null);
   const [activity, setActivity] = useState([]);
   const [activityLoading, setActivityLoading] = useState(true);
+  const [reportTitle, setReportTitle] = useState("");
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportSteps, setReportSteps] = useState("");
+  const [reportSeverity, setReportSeverity] = useState("Medium");
+  const [reportStatus, setReportStatus] = useState("");
+  const [reports, setReports] = useState([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportUpdates, setReportUpdates] = useState([]);
+  const [reportUpdatesLoading, setReportUpdatesLoading] = useState(false);
+  const [archiveStatus, setArchiveStatus] = useState("");
+  const OWNER_UID = process.env.REACT_APP_OWNER_UID;
+  const isOwner = Boolean(user?.uid && OWNER_UID && user.uid === OWNER_UID);
+  const ARCHIVE_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
 
   useEffect(() => {
     setDraftName(profile?.username || "");
@@ -63,6 +76,107 @@ function Profile() {
     };
   }, [user?.uid]);
 
+  useEffect(() => {
+    if (!user?.uid) {
+      setReportUpdates([]);
+      return;
+    }
+    let active = true;
+    const loadUpdates = async () => {
+      setReportUpdatesLoading(true);
+      try {
+        const updatesRef = collection(db, "users", user.uid, "bugReportUpdates");
+        const updatesQuery = query(updatesRef, orderBy("resolvedAt", "desc"), limit(5));
+        const snap = await getDocs(updatesQuery);
+        const rows = snap.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() }));
+        if (active) {
+          setReportUpdates(rows);
+        }
+      } catch (err) {
+        if (active) {
+          setReportUpdates([]);
+        }
+      } finally {
+        if (active) {
+          setReportUpdatesLoading(false);
+        }
+      }
+    };
+    loadUpdates();
+    return () => {
+      active = false;
+    };
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!isOwner) {
+      setReports([]);
+      return;
+    }
+    let active = true;
+    const archiveResolvedReports = async () => {
+      try {
+        const cutoff = Date.now() - ARCHIVE_AFTER_MS;
+        const reportsRef = collection(db, "bugReports");
+        const resolvedQuery = query(
+          reportsRef,
+          where("status", "==", "resolved"),
+          orderBy("resolvedAt", "asc"),
+          limit(50)
+        );
+        const snap = await getDocs(resolvedQuery);
+        if (snap.empty) return;
+        const batch = writeBatch(db);
+        snap.docs.forEach((docItem) => {
+          const data = docItem.data() || {};
+          const resolvedAt = Date.parse(data.resolvedAt || "");
+          if (!resolvedAt || Number.isNaN(resolvedAt) || resolvedAt > cutoff) return;
+          batch.set(doc(db, "bugReportsArchive", docItem.id), {
+            ...data,
+            archivedAt: new Date().toISOString()
+          });
+          batch.delete(doc(db, "bugReports", docItem.id));
+          if (data.reporterId) {
+            batch.delete(doc(db, "users", data.reporterId, "bugReportUpdates", docItem.id));
+          }
+        });
+        await batch.commit();
+        if (active) {
+          setArchiveStatus("Resolved reports are archived after 3 days.");
+        }
+      } catch (err) {
+        if (active) {
+          setArchiveStatus("");
+        }
+      }
+    };
+    const loadReports = async () => {
+      setReportsLoading(true);
+      try {
+        await archiveResolvedReports();
+        const reportsRef = collection(db, "bugReports");
+        const reportsQuery = query(reportsRef, orderBy("createdAt", "desc"), limit(25));
+        const snap = await getDocs(reportsQuery);
+        const rows = snap.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() }));
+        if (active) {
+          setReports(rows);
+        }
+      } catch (err) {
+        if (active) {
+          setReports([]);
+        }
+      } finally {
+        if (active) {
+          setReportsLoading(false);
+        }
+      }
+    };
+    loadReports();
+    return () => {
+      active = false;
+    };
+  }, [isOwner]);
+
   const onPickFile = (file, field) => {
     if (!file) return;
     const maxSize = 400 * 1024;
@@ -94,6 +208,65 @@ function Profile() {
       setStatus("Profile saved.");
     } catch (err) {
       setStatus(err?.message || "Profile update failed.");
+    }
+  };
+
+  const submitBugReport = async () => {
+    if (!reportTitle.trim() || !reportDetails.trim()) {
+      setReportStatus("Add a title and description.");
+      return;
+    }
+    try {
+      await addDoc(collection(db, "bugReports"), {
+        title: reportTitle.trim(),
+        details: reportDetails.trim(),
+        steps: reportSteps.trim(),
+        severity: reportSeverity,
+        pageUrl: window.location.href,
+        createdAt: new Date().toISOString(),
+        status: "open",
+        reporterId: user.uid,
+        reporterName: profile?.username || user.displayName || user.email || "Anonymous",
+        reporterEmail: user.email || "",
+        reporterAvatar: profile?.avatar || user.photoURL || "",
+        ownerId: OWNER_UID || ""
+      });
+      setReportTitle("");
+      setReportDetails("");
+      setReportSteps("");
+      setReportSeverity("Medium");
+      setReportStatus("Report submitted. Thank you!");
+    } catch (err) {
+      setReportStatus(err?.message || "Report failed to submit.");
+    }
+  };
+
+  const resolveReport = async (item) => {
+    if (!isOwner) return;
+    try {
+      const reportRef = doc(db, "bugReports", item.id);
+      await updateDoc(reportRef, {
+        status: "resolved",
+        resolvedAt: new Date().toISOString(),
+        resolvedBy: user.uid
+      });
+      if (item.reporterId) {
+        const updateRef = doc(db, "users", item.reporterId, "bugReportUpdates", item.id);
+        await setDoc(
+          updateRef,
+          {
+            reportId: item.id,
+            title: item.title || "Bug report",
+            status: "resolved",
+            resolvedAt: new Date().toISOString(),
+            message: "Your report has been resolved."
+          },
+          { merge: true }
+        );
+      }
+      setReports((prev) => prev.filter((report) => report.id !== item.id));
+    } catch (err) {
+      setReportStatus(err?.message || "Failed to resolve report.");
     }
   };
 
@@ -158,6 +331,7 @@ function Profile() {
             </button>
           </div>
           {status && <p className="muted">{status}</p>}
+          <p className="muted">User ID: {user.uid}</p>
           <input
             ref={fileRef}
             type="file"
@@ -173,6 +347,129 @@ function Profile() {
             onChange={(e) => onPickFile(e.target.files?.[0], "background")}
           />
         </div>
+        <div className="public-section">
+          <div className="results-bar">
+            <h3>Report a bug</h3>
+            <span className="pill">Help improve AnimeDB</span>
+          </div>
+          <div className="bug-report">
+            <label>
+              Title
+              <input
+                type="text"
+                value={reportTitle}
+                onChange={(e) => setReportTitle(e.target.value)}
+                placeholder="Short summary of the issue"
+              />
+            </label>
+            <label>
+              Description
+              <textarea
+                rows={4}
+                value={reportDetails}
+                onChange={(e) => setReportDetails(e.target.value)}
+                placeholder="What happened? What did you expect?"
+              ></textarea>
+            </label>
+            <label>
+              Steps to reproduce (optional)
+              <textarea
+                rows={3}
+                value={reportSteps}
+                onChange={(e) => setReportSteps(e.target.value)}
+                placeholder="1) ... 2) ..."
+              ></textarea>
+            </label>
+            <label>
+              Severity
+              <select value={reportSeverity} onChange={(e) => setReportSeverity(e.target.value)}>
+                <option>Low</option>
+                <option>Medium</option>
+                <option>High</option>
+                <option>Critical</option>
+              </select>
+            </label>
+            <button type="button" className="save-button" onClick={submitBugReport}>
+              Submit report
+            </button>
+            {reportStatus && <p className="muted">{reportStatus}</p>}
+          </div>
+        </div>
+        <div className="public-section">
+          <div className="results-bar">
+            <h3>Bug report updates</h3>
+            <span className="pill">Your notifications</span>
+          </div>
+          <p className="muted">Resolved updates are archived after 3 days.</p>
+          {reportUpdatesLoading ? (
+            <p>Loading updates...</p>
+          ) : reportUpdates.length === 0 ? (
+            <p className="muted">No updates yet.</p>
+          ) : (
+            <div className="bug-report-list">
+              {reportUpdates.map((item) => (
+                <div className="bug-report-card" key={item.id}>
+                  <div>
+                    <h4>{item.title}</h4>
+                    <p className="muted">{item.message || "Report update available."}</p>
+                  </div>
+                  <div className="bug-report-meta">
+                    <span className="pill">{item.status || "resolved"}</span>
+                    <span className="muted">
+                      {item.resolvedAt ? new Date(item.resolvedAt).toLocaleString() : ""}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {isOwner && (
+          <div className="public-section">
+            <div className="results-bar">
+              <h3>Incoming bug reports</h3>
+              <span className="pill">Owner inbox</span>
+            </div>
+            {archiveStatus && <p className="muted">{archiveStatus}</p>}
+            {reportsLoading ? (
+              <p>Loading reports...</p>
+            ) : reports.length === 0 ? (
+              <p className="muted">No reports yet.</p>
+            ) : (
+              <div className="bug-report-list">
+                {reports
+                  .filter((item) => item.status !== "resolved")
+                  .map((item) => (
+                  <div className="bug-report-card" key={item.id}>
+                    <div>
+                      <h4>{item.title}</h4>
+                      <p className="muted">{item.details}</p>
+                      {item.steps && <p className="muted">Steps: {item.steps}</p>}
+                    </div>
+                    <div className="bug-report-meta">
+                      <span className="pill">{item.severity || "Medium"}</span>
+                      <span className="muted">{item.reporterName || "Anonymous"}</span>
+                      <span className="muted">
+                        {item.createdAt ? new Date(item.createdAt).toLocaleString() : ""}
+                      </span>
+                    </div>
+                    <div className="bug-report-actions">
+                      <button type="button" className="save-button" onClick={() => resolveReport(item)}>
+                        Mark resolved
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {!OWNER_UID && (
+          <p className="muted">
+            Owner inbox is disabled. Set <code>REACT_APP_OWNER_UID</code> in your
+            environment to view incoming reports.
+          </p>
+        )}
         <div className="public-section">
           <div className="results-bar">
             <h3>Your recent discussions</h3>

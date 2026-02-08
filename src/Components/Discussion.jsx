@@ -21,12 +21,17 @@ export function DiscussionPost({
   const [comments, setComments] = useState([]);
   const [commentText, setCommentText] = useState("");
   const [commentError, setCommentError] = useState("");
+  const [commentBounce, setCommentBounce] = useState(false);
+  const [badgePop, setBadgePop] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [draftReview, setDraftReview] = useState(draft?.review ?? post.review ?? "");
   const [draftRating, setDraftRating] = useState(draft?.rating ?? post.rating ?? "");
   const onDraftChangeRef = useRef(onDraftChange);
   const isOwner = user?.uid === post.userId;
   const storageKey = `discussion-seen-${post.id}`;
+  const lastUnreadRef = useRef(0);
+  const bounceTimeoutRef = useRef(null);
+  const badgeTimeoutRef = useRef(null);
 
   useEffect(() => {
     onDraftChangeRef.current = onDraftChange;
@@ -87,6 +92,17 @@ export function DiscussionPost({
     });
   }, [post.id]);
 
+  useEffect(() => {
+    return () => {
+      if (bounceTimeoutRef.current) {
+        clearTimeout(bounceTimeoutRef.current);
+      }
+      if (badgeTimeoutRef.current) {
+        clearTimeout(badgeTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const latestCommentAt = comments.reduce((max, comment) => {
     const time = comment?.createdAt ? Date.parse(comment.createdAt) : 0;
     return Math.max(max, Number.isNaN(time) ? 0 : time);
@@ -125,6 +141,24 @@ export function DiscussionPost({
     }).length;
   }
 
+  useEffect(() => {
+    if (unreadCount > 0 && unreadCount !== lastUnreadRef.current) {
+      setBadgePop(true);
+      if (badgeTimeoutRef.current) {
+        clearTimeout(badgeTimeoutRef.current);
+      }
+      badgeTimeoutRef.current = setTimeout(() => {
+        setBadgePop(false);
+      }, 420);
+    }
+    lastUnreadRef.current = unreadCount;
+    return () => {
+      if (badgeTimeoutRef.current) {
+        clearTimeout(badgeTimeoutRef.current);
+      }
+    };
+  }, [unreadCount]);
+
   const submitComment = async () => {
     if (!user) {
       setCommentError("Sign in to add a comment.");
@@ -161,6 +195,13 @@ export function DiscussionPost({
       // ignore activity failures
     }
     setCommentText("");
+    setCommentBounce(true);
+    if (bounceTimeoutRef.current) {
+      clearTimeout(bounceTimeoutRef.current);
+    }
+    bounceTimeoutRef.current = setTimeout(() => {
+      setCommentBounce(false);
+    }, 320);
   };
 
   return (
@@ -191,7 +232,7 @@ export function DiscussionPost({
             {post.rating ? <span>Rating: {post.rating}/10</span> : <span>Rating: N/A</span>}
             <span>{mediaType === "manga" ? "Manga" : "Anime"}</span>
             {unreadCount > 0 && (
-              <span className="comment-badge">{unreadCount} new</span>
+              <span className={`comment-badge ${badgePop ? "pop" : ""}`}>{unreadCount} new</span>
             )}
           </div>
         </div>
@@ -312,7 +353,12 @@ export function DiscussionPost({
             onChange={(e) => setCommentText(e.target.value)}
             disabled={!user}
           />
-          <button type="button" onClick={submitComment} disabled={!user}>
+          <button
+            type="button"
+            onClick={submitComment}
+            disabled={!user}
+            className={commentBounce ? "bounce" : ""}
+          >
             Post
           </button>
         </div>

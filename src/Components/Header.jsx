@@ -10,10 +10,13 @@ function Header(){
     const [draftName, setDraftName] = useState("");
     const [status, setStatus] = useState("");
     const [inboxCount, setInboxCount] = useState(0);
+    const [inboxPop, setInboxPop] = useState(false);
     const fileRef = useRef(null);
     const bgRef = useRef(null);
     const commentUnsubsRef = useRef(new Map());
     const commentCacheRef = useRef(new Map());
+    const lastInboxRef = useRef(0);
+    const inboxTimeoutRef = useRef(null);
 
     useEffect(() => {
         setDraftName(profile?.username || "");
@@ -107,6 +110,24 @@ function Header(){
         };
     }, [user?.uid]);
 
+    useEffect(() => {
+        if (inboxCount > 0 && inboxCount !== lastInboxRef.current) {
+            setInboxPop(true);
+            if (inboxTimeoutRef.current) {
+                clearTimeout(inboxTimeoutRef.current);
+            }
+            inboxTimeoutRef.current = setTimeout(() => {
+                setInboxPop(false);
+            }, 420);
+        }
+        lastInboxRef.current = inboxCount;
+        return () => {
+            if (inboxTimeoutRef.current) {
+                clearTimeout(inboxTimeoutRef.current);
+            }
+        };
+    }, [inboxCount]);
+
     const initials = (profile?.username || "User")
       .split(" ")
       .filter(Boolean)
@@ -185,7 +206,7 @@ function Header(){
                                     )}
                                 </button>
                                 {inboxCount > 0 && (
-                                    <span className="profile-badge">{formatInbox(inboxCount)}</span>
+                                    <span className={`profile-badge ${inboxPop ? "pop" : ""}`}>{formatInbox(inboxCount)}</span>
                                 )}
                             </div>
                             {open && (

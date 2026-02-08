@@ -11,7 +11,9 @@ import "../styles.css";
 const SEARCH_TTL = 2 * 60 * 1000;
 const TOP_TTL = 5 * 60 * 1000;
 const LATEST_TTL = 5 * 60 * 1000;
+const DEFAULT_TTL = 5 * 60 * 1000;
 const searchCache = new Map();
+const defaultCache = new Map();
 let topMangaCache = { data: null, ts: 0 };
 let latestMangaCache = { data: null, ts: 0 };
 
@@ -21,18 +23,31 @@ function MangaContent() {
   const [search, setSearch] = useState("");
   const [pageSize, setPageSize] = useState();
   const [currentPage, setCurrentPage] = useState(0);
+  const mangaRef = useRef([]);
+  const pageSizeRef = useRef(null);
   const [isPageLoading, setIsPageLoading] = useState(false);
+  const [isListLoading, setIsListLoading] = useState(false);
   const [viewMode, setViewMode] = useState("grid");
   const [selectedGenre, setSelectedGenre] = useState("All");
   const { user } = useAuth();
   const [favorites, setFavorites] = useState(new Set());
+  const favoritesRef = useRef(new Set());
+  const favoritesDebounceRef = useRef(null);
+  const favoritesOptimisticAtRef = useRef(0);
+  const [toast, setToast] = useState("");
+  const toastTimeoutRef = useRef(null);
   const [latestManga, setLatestManga] = useState([]);
   const [latestLoading, setLatestLoading] = useState(true);
   const [latestError, setLatestError] = useState("");
+  const [searchError, setSearchError] = useState("");
   const releasesRef = useRef(null);
   const searchTimeoutRef = useRef(null);
+  const searchAbortRef = useRef(null);
+  const searchRequestRef = useRef(0);
+  const favoritePulseTimeout = useRef(null);
   const showMiniStrip = search.trim().length === 0;
   const [mangaCovers, setMangaCovers] = useState({});
+  const [favoritePulseId, setFavoritePulseId] = useState(null);
 
   const obtainTopManga = async () => {
     const now = Date.now();
@@ -54,9 +69,53 @@ function MangaContent() {
     }
   };
 
+  const loadDefaultManga = useCallback(async (page = 1) => {
+    const cacheKey = `default|${page}`;
+    const cached = defaultCache.get(cacheKey);
+    const now = Date.now();
+    if (cached && now - cached.ts < DEFAULT_TTL) {
+      setManga(cached.data);
+      setPageSize(cached.pagination);
+      return;
+    }
+    try {
+      setIsListLoading(true);
+      const response = await fetch(`/api/jikan/top?type=manga&page=${encodeURIComponent(page)}`);
+      const apiAll = await response.json();
+      const data = apiAll?.data ?? [];
+      const pagination = apiAll?.pagination ?? null;
+      defaultCache.set(cacheKey, { data, pagination, ts: Date.now() });
+      setManga(data);
+      setPageSize(pagination);
+      setSearchError("");
+    } catch (error) {
+      if (!cached) {
+        if (mangaRef.current.length === 0) {
+          setManga([]);
+          setPageSize(null);
+        }
+        setSearchError("Trending is unavailable right now.");
+      }
+    } finally {
+      setIsListLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!search.trim()) {
+      loadDefaultManga(currentPage + 2);
+    }
+  }, [currentPage, loadDefaultManga, search]);
+
   const searchManga = useCallback(async (page) => {
     const currentPage = page ?? 1;
-    const cacheKey = `${search}|${currentPage}`;
+    const query = search.trim();
+    if (!query) {
+      setSearchError("");
+      loadDefaultManga(1);
+      return;
+    }
+    const cacheKey = `${query}|${currentPage}`;
     const cached = searchCache.get(cacheKey);
     const now = Date.now();
     if (cached && now - cached.ts < SEARCH_TTL) {
@@ -64,21 +123,68 @@ function MangaContent() {
       setPageSize(cached.pagination);
       return;
     }
+    if (searchAbortRef.current) {
+      searchAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    const requestId = ++searchRequestRef.current;
     try {
-      const response = await fetch(
-        `https://api.jikan.moe/v4/manga?q=${search}&page=${currentPage}`
-      );
+      setIsListLoading(true);
+      setSearchError("");
+      const fields = [
+        "mal_id",
+        "title",
+        "images",
+        "genres",
+        "type",
+        "chapters",
+        "volumes",
+        "score",
+        "status",
+        "synopsis"
+      ].join(",");
+      const url = `/api/jikan?type=manga&q=${encodeURIComponent(query)}&page=${encodeURIComponent(currentPage)}&fields=${fields}`;
+      let response;
+      let lastStatus = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        response = await fetch(url, { signal: controller.signal });
+        lastStatus = response.status;
+        if (response.ok) break;
+        const retryable = [429, 502, 503, 504].includes(response.status);
+        if (!retryable) break;
+        await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)));
+      }
+      if (!response?.ok) {
+        const status = lastStatus || response?.status || 0;
+        if (status === 504) {
+          throw new Error("Search timed out. Try again in a moment.");
+        }
+        throw new Error(`Search failed (${status || "network error"})`);
+      }
       const apiAll = await response.json();
       const data = apiAll?.data ?? [];
       const pagination = apiAll?.pagination ?? null;
+      if (requestId !== searchRequestRef.current) {
+        return;
+      }
       searchCache.set(cacheKey, { data, pagination, ts: Date.now() });
       setManga(data);
       setPageSize(pagination);
     } catch (error) {
+      if (error?.name === "AbortError") return;
       if (!cached) {
-        setManga([]);
-        setPageSize(null);
+        if (mangaRef.current.length === 0) {
+          setManga([]);
+          setPageSize(null);
+        }
+      } else {
+        setManga(cached.data);
+        setPageSize(cached.pagination);
       }
+      setSearchError(error?.message || "Search is unavailable right now.");
+    } finally {
+      setIsListLoading(false);
     }
   }, [search]);
 
@@ -88,33 +194,52 @@ function MangaContent() {
       return;
     }
     setCurrentPage(nextPage);
-    searchManga(nextPage + 1);
+    if (search.trim()) {
+      searchManga(nextPage + 1);
+    } else {
+      loadDefaultManga(nextPage + 1);
+    }
   };
 
   useEffect(() => {
     setCurrentPage(0);
-  }, [search]);
+    if (!search.trim()) {
+      loadDefaultManga(1);
+    }
+  }, [search, loadDefaultManga]);
 
   const triggerSearch = () => {
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
     setCurrentPage(0);
-    searchManga(1);
+    if (search.trim()) {
+      searchManga(1);
+    } else {
+      loadDefaultManga(1);
+    }
   };
 
   useEffect(() => {
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
+    if (!search.trim()) {
+      setSearchError("");
+      loadDefaultManga(1);
+      return;
+    }
     searchTimeoutRef.current = setTimeout(() => {
       setCurrentPage(0);
       searchManga(1);
-    }, 350);
+    }, 500);
 
     return () => {
       if (searchTimeoutRef.current) {
         clearTimeout(searchTimeoutRef.current);
+      }
+      if (searchAbortRef.current) {
+        searchAbortRef.current.abort();
       }
     };
   }, [search, searchManga]);
@@ -126,6 +251,22 @@ function MangaContent() {
     setIsPageLoading(true);
     return () => clearTimeout(timeout);
   }, [currentPage]);
+
+  useEffect(() => {
+    return () => {
+      if (favoritePulseTimeout.current) {
+        clearTimeout(favoritePulseTimeout.current);
+      }
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    mangaRef.current = manga;
+    pageSizeRef.current = pageSize;
+  }, [manga, pageSize]);
 
   useEffect(() => {
     obtainTopManga();
@@ -231,18 +372,44 @@ function MangaContent() {
   }, [manga, selectedGenre]);
 
   useEffect(() => {
+    if (selectedGenre !== "All" && !genreOptions.includes(selectedGenre)) {
+      setSelectedGenre("All");
+    }
+  }, [genreOptions, selectedGenre]);
+
+  useEffect(() => {
     if (!user) {
-      setFavorites(new Set());
+      const empty = new Set();
+      favoritesRef.current = empty;
+      setFavorites(empty);
       return;
     }
 
-    const favoritesRef = collection(db, "users", user.uid, "favorites");
-    const unsubscribe = onSnapshot(favoritesRef, (snapshot) => {
+    const favoritesCol = collection(db, "users", user.uid, "favorites");
+    const unsubscribe = onSnapshot(favoritesCol, (snapshot) => {
       const favoriteIds = new Set(snapshot.docs.map((docItem) => docItem.id));
-      setFavorites(favoriteIds);
+      const same =
+        favoriteIds.size === favoritesRef.current.size &&
+        Array.from(favoriteIds).every((id) => favoritesRef.current.has(id));
+      favoritesRef.current = favoriteIds;
+      if (same) {
+        return;
+      }
+      if (favoritesDebounceRef.current) {
+        clearTimeout(favoritesDebounceRef.current);
+      }
+      const delay = Date.now() - favoritesOptimisticAtRef.current < 350 ? 320 : 200;
+      favoritesDebounceRef.current = setTimeout(() => {
+        setFavorites(favoriteIds);
+      }, delay);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (favoritesDebounceRef.current) {
+        clearTimeout(favoritesDebounceRef.current);
+      }
+    };
   }, [user]);
 
   const toggleFavorite = async (item) => {
@@ -250,10 +417,35 @@ function MangaContent() {
       return;
     }
     const docId = `manga_${item.mal_id}`;
+    setFavoritePulseId(docId);
+    if (favoritePulseTimeout.current) {
+      clearTimeout(favoritePulseTimeout.current);
+    }
+    favoritePulseTimeout.current = setTimeout(() => {
+      setFavoritePulseId(null);
+    }, 320);
     const favoriteRef = doc(db, "users", user.uid, "favorites", docId);
-    const hasFavorite = favorites.has(docId);
+    const hasFavorite = favoritesRef.current.has(docId);
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (hasFavorite) {
+        next.delete(docId);
+      } else {
+        next.add(docId);
+      }
+      favoritesRef.current = next;
+      return next;
+    });
+    favoritesOptimisticAtRef.current = Date.now();
     if (hasFavorite) {
       await deleteDoc(favoriteRef);
+      setToast(`Removed "${item.title}" from Favorites`);
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+      toastTimeoutRef.current = setTimeout(() => {
+        setToast("");
+      }, 2000);
       return;
     }
 
@@ -277,6 +469,13 @@ function MangaContent() {
       currentChapter: 0,
       updatedAt: new Date().toISOString()
     });
+    setToast(`Added "${item.title}" to Favorites`);
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast("");
+    }, 2000);
   };
 
   return (
@@ -321,6 +520,7 @@ function MangaContent() {
       </div>
 
       <div className="layout">
+        {toast && <div className="toast">{toast}</div>}
         <section>
           <div className="hero">
             <h2>Discover manga that matches your mood</h2>
@@ -335,6 +535,7 @@ function MangaContent() {
             </h3>
             <div className="results-controls">
               <span className="pill">{filteredManga.length} titles</span>
+              {searchError && <span className="pill muted">{searchError}</span>}
               <label className="genre-filter">
                 <span className="genre-label">Genre</span>
                 <select
@@ -459,6 +660,15 @@ function MangaContent() {
             </div>
           )}
 
+          {isListLoading && !isPageLoading && (
+            <div className="loading-indicator">
+              <span className="loading-dot"></span>
+              <span className="loading-dot"></span>
+              <span className="loading-dot"></span>
+              <span className="loading-text">Loading titles...</span>
+            </div>
+          )}
+
           {isPageLoading ? (
             <div className={`anime-grid ${viewMode}`}>
               {Array.from({ length: 8 }).map((_, index) => (
@@ -493,49 +703,51 @@ function MangaContent() {
                     images?.webp?.image_url ||
                     "";
                   return (
-                  <article className="anime-card" key={mal_id}>
-                    <Link to={`/manga/${mal_id}`}>
-                      <div className="media-wrap">
-                        {cover ? (
-                          <img src={cover} alt={title} />
-                        ) : (
-                          <div className="media-placeholder" aria-label={`${title} cover unavailable`}></div>
-                        )}
-                      </div>
-                    </Link>
-                    <div className="card-body">
-                      <div className="tag-row">
-                        {type && <span className="tag">{type}</span>}
-                        {status && <span className="tag">{status}</span>}
-                      </div>
-                      <Link className="card-title-link" to={`/manga/${mal_id}`}>
-                        <h4 className="card-title">{title}</h4>
+                    <article className="anime-card" key={mal_id}>
+                      <Link to={`/manga/${mal_id}`}>
+                        <div className="media-wrap">
+                          {cover ? (
+                            <img src={cover} alt={title} />
+                          ) : (
+                            <div className="media-placeholder" aria-label={`${title} cover unavailable`}></div>
+                          )}
+                        </div>
                       </Link>
-                      <div className="card-meta">
-                      <span>Chapters: {chapters ?? "?"}</span>
-                      <span>Volumes: {volumes ?? "?"}</span>
-                    </div>
-                    <span className="score-badge">Score {score ?? "N/A"}</span>
-                    <p className="synopsis">{synopsis || "No synopsis available yet."}</p>
-                    <div className="card-actions">
-                      <Link className="detail-link" to={`/manga/${mal_id}`}>
-                        View details
-                      </Link>
-                      <button
-                        className={`favorite-button ${favorites.has(`manga_${mal_id}`) ? "active" : ""}`}
-                        type="button"
-                        onClick={() => toggleFavorite({ mal_id, title, images, chapters, cover })}
-                        disabled={!user}
-                        title={user ? "Save to favorites" : "Sign in to save favorites"}
-                      >
-                        {favorites.has(`manga_${mal_id}`) ? "Favorited" : "Add to favorites"}
-                      </button>
-                    </div>
-                  </div>
-                </article>
+                      <div className="card-body">
+                        <div className="tag-row">
+                          {type && <span className="tag">{type}</span>}
+                          {status && <span className="tag">{status}</span>}
+                        </div>
+                        <Link className="card-title-link" to={`/manga/${mal_id}`}>
+                          <h4 className="card-title">{title}</h4>
+                        </Link>
+                        <div className="card-meta">
+                          <span>Chapters: {chapters ?? "?"}</span>
+                          <span>Volumes: {volumes ?? "?"}</span>
+                        </div>
+                        <span className="score-badge">Score {score ?? "N/A"}</span>
+                        <p className="synopsis">{synopsis || "No synopsis available yet."}</p>
+                        <div className="card-actions">
+                          <Link className="detail-link" to={`/manga/${mal_id}`}>
+                            View details
+                          </Link>
+                          <button
+                            className={`favorite-button ${favorites.has(`manga_${mal_id}`) ? "active" : ""} ${favoritePulseId === `manga_${mal_id}` ? "pulse" : ""}`}
+                            type="button"
+                            onClick={() => toggleFavorite({ mal_id, title, images, chapters, cover })}
+                            disabled={!user}
+                            title={user ? "Save to favorites" : "Sign in to save favorites"}
+                          >
+                            {favorites.has(`manga_${mal_id}`) ? "Favorited" : "Add to favorites"}
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                }
               )}
-            )}
-          </div>
+            </div>
+          )}
 
           <div className="pagination">
             {pageSize && (

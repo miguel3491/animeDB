@@ -1,10 +1,21 @@
-const ANILIST_ENDPOINT = "/api/anilist";
+const DEFAULT_ENDPOINT = "/api/anilist";
+const LOCAL_ENDPOINT = "http://localhost:4000/api/anilist";
 const RESPONSE_CACHE_TTL = 5 * 60 * 1000;
 const coverCache = new Map();
 const mangaCoverCache = new Map();
 const responseCache = new Map();
+const inFlight = new Map();
+let lastRequestAt = 0;
+let requestChain = Promise.resolve();
+const MIN_INTERVAL = 400;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const scheduleRequest = (fn) => {
+  const task = requestChain.then(fn, fn);
+  requestChain = task.catch(() => {});
+  return task;
+};
 
 const makeCacheKey = (payload) => {
   const query = payload?.query || "";
@@ -32,24 +43,61 @@ const postAniList = async (payload) => {
   if (cached) {
     return { ok: true, status: 200, json: async () => cached, cached: true };
   }
-
-  const response = await fetch(ANILIST_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-
-  if (response.status === 429) {
-    const stale = getCached(cacheKey);
-    if (stale) {
-      return { ok: true, status: 200, json: async () => stale, cached: true };
-    }
+  if (inFlight.has(cacheKey)) {
+    return inFlight.get(cacheKey);
   }
 
-  return response;
+  const task = scheduleRequest(async () => {
+    const isLocalhost =
+      typeof window !== "undefined" &&
+      (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+    const endpoints = isLocalhost ? [DEFAULT_ENDPOINT, LOCAL_ENDPOINT] : [DEFAULT_ENDPOINT];
+    let response;
+    const now = Date.now();
+    const wait = Math.max(0, MIN_INTERVAL - (now - lastRequestAt));
+    if (wait > 0) {
+      await sleep(wait);
+    }
+    lastRequestAt = Date.now();
+
+    for (const endpoint of endpoints) {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+      if (response.status !== 404) {
+        break;
+      }
+    }
+
+    if (response.status === 429) {
+      const stale = getCached(cacheKey);
+      if (stale) {
+        return { ok: true, status: 200, json: async () => stale, cached: true };
+      }
+      await sleep(800);
+      response = await fetch(isLocalhost ? LOCAL_ENDPOINT : DEFAULT_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+    }
+
+    return response;
+  });
+
+  inFlight.set(cacheKey, task);
+  task.finally(() => {
+    inFlight.delete(cacheKey);
+  });
+  return task;
 };
 
 const chunk = (items, size) => {

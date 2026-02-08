@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { collection, doc, getDoc, onSnapshot, orderBy, query, setDoc, updateDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, onSnapshot, orderBy, query, setDoc, updateDoc } from "firebase/firestore";
 import { Link } from "react-router-dom";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
@@ -24,6 +24,8 @@ function Favorites() {
   const backfilledRef = useRef(new Set());
   const [aniCovers, setAniCovers] = useState({});
   const [publishStatus, setPublishStatus] = useState({});
+  const [toast, setToast] = useState("");
+  const toastTimeoutRef = useRef(null);
 
   useEffect(() => {
     orderDraftsRef.current = orderDrafts;
@@ -33,12 +35,33 @@ function Favorites() {
     statusDraftsRef.current = statusDrafts;
   }, [statusDrafts]);
 
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const updateFavorite = useCallback(async (docId, updates) => {
     const favoriteRef = doc(db, "users", user.uid, "favorites", String(docId));
     await updateDoc(favoriteRef, {
       ...updates,
       updatedAt: new Date().toISOString()
     });
+  }, [user]);
+
+  const removeFavorite = useCallback(async (docId) => {
+    if (!user) return;
+    const favoriteRef = doc(db, "users", user.uid, "favorites", String(docId));
+    await deleteDoc(favoriteRef);
+    setToast("Removed from Favorites");
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast("");
+    }, 2000);
   }, [user]);
 
   const publishReview = useCallback(async (item) => {
@@ -595,6 +618,13 @@ function Favorites() {
                     {publishStatus[item.docId]?.message}
                   </span>
                 )}
+                <button
+                  className="remove-favorite-button"
+                  type="button"
+                  onClick={() => removeFavorite(item.docId)}
+                >
+                  Remove favorite
+                </button>
               </div>
             </div>
           ))}
@@ -624,6 +654,7 @@ function Favorites() {
 
   return (
     <div className="layout">
+      {toast && <div className="toast">{toast}</div>}
       <section className="detail-panel">
         <div className="results-bar">
           <div className="favorites-header">

@@ -11,7 +11,9 @@ import "../styles.css"
 const SEARCH_TTL = 2 * 60 * 1000;
 const TOP_TTL = 5 * 60 * 1000;
 const LATEST_TTL = 5 * 60 * 1000;
+const DEFAULT_TTL = 5 * 60 * 1000;
 const searchCache = new Map();
+const defaultCache = new Map();
 let topAnimeCache = { data: null, ts: 0 };
 let latestEpisodesCache = { data: null, ts: 0 };
 
@@ -21,17 +23,30 @@ function MainContent() {
   const [search, setSearch] = useState("");
   const [pageSize, setPageSize] = useState();
   const [currentPage, setCurrentPage] = useState(0);
+  const animeRef = useRef([]);
+  const pageSizeRef = useRef(null);
   const [isPageLoading, setIsPageLoading] = useState(false);
+  const [isListLoading, setIsListLoading] = useState(false);
   const [viewMode, setViewMode] = useState("grid");
   const [selectedGenre, setSelectedGenre] = useState("All");
   const [latestEpisodes, setLatestEpisodes] = useState([]);
   const [episodesLoading, setEpisodesLoading] = useState(true);
   const [episodesError, setEpisodesError] = useState("");
+  const [searchError, setSearchError] = useState("");
   const [aniCovers, setAniCovers] = useState({});
   const episodesRef = useRef(null);
   const searchTimeoutRef = useRef(null);
+  const searchAbortRef = useRef(null);
+  const searchRequestRef = useRef(0);
+  const favoritePulseTimeout = useRef(null);
   const { user } = useAuth();
   const [favorites, setFavorites] = useState(new Set());
+  const favoritesRef = useRef(new Set());
+  const favoritesDebounceRef = useRef(null);
+  const favoritesOptimisticAtRef = useRef(0);
+  const [favoritePulseId, setFavoritePulseId] = useState(null);
+  const [toast, setToast] = useState("");
+  const toastTimeoutRef = useRef(null);
   const showMiniStrip = search.trim().length === 0;
   // const [seasonAnime, setseasonAnime] = useState([]);
   // const [filterAnime, setFilter] = useState([]);
@@ -63,9 +78,59 @@ function MainContent() {
   //   setseasonAnime(apiData.data);
   // };
 
+  const loadDefaultAnime = useCallback(async (page = 1) => {
+    const cacheKey = `default|${page}`;
+    const cached = defaultCache.get(cacheKey);
+    const now = Date.now();
+    if (cached && now - cached.ts < DEFAULT_TTL) {
+      setAnime(cached.data);
+      setPageSize(cached.pagination);
+      return;
+    }
+    try {
+      setIsListLoading(true);
+      const response = await fetch(`/api/jikan/top?type=anime&page=${encodeURIComponent(page)}`);
+      const apiAll = await response.json();
+      const data = apiAll?.data ?? [];
+      const pagination = apiAll?.pagination ?? null;
+      defaultCache.set(cacheKey, { data, pagination, ts: Date.now() });
+      setAnime(data);
+      setPageSize(pagination);
+      setSearchError("");
+    } catch (error) {
+      if (!cached) {
+        if (animeRef.current.length === 0) {
+          setAnime([]);
+          setPageSize(null);
+        }
+        setSearchError("Trending is unavailable right now.");
+      }
+    } finally {
+      setIsListLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!search.trim()) {
+      loadDefaultAnime(currentPage + 2);
+    }
+  }, [currentPage, loadDefaultAnime, search]);
+
+  useEffect(() => {
+    if (!search.trim()) {
+      loadDefaultAnime(currentPage + 2);
+    }
+  }, [currentPage, loadDefaultAnime, search]);
+
   const searchAnime = useCallback(async (page) => {
     const currentPage = page ?? 1; // default page is 1
-    const cacheKey = `${search}|${currentPage}`;
+    const query = search.trim();
+    if (!query) {
+      setSearchError("");
+      loadDefaultAnime(1);
+      return;
+    }
+    const cacheKey = `${query}|${currentPage}`;
     const cached = searchCache.get(cacheKey);
     const now = Date.now();
     if (cached && now - cached.ts < SEARCH_TTL) {
@@ -73,21 +138,70 @@ function MainContent() {
       setPageSize(cached.pagination);
       return;
     }
+    if (searchAbortRef.current) {
+      searchAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    const requestId = ++searchRequestRef.current;
     try {
-      const response = await fetch(
-        `https://api.jikan.moe/v4/anime?q=${search}&page=${currentPage}`
-      );
+      setIsListLoading(true);
+      setSearchError("");
+      const fields = [
+        "mal_id",
+        "title",
+        "images",
+        "genres",
+        "type",
+        "episodes",
+        "score",
+        "duration",
+        "source",
+        "status",
+        "synopsis",
+        "trailer"
+      ].join(",");
+      const url = `/api/jikan?type=anime&q=${encodeURIComponent(query)}&page=${encodeURIComponent(currentPage)}&fields=${fields}`;
+      let response;
+      let lastStatus = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        response = await fetch(url, { signal: controller.signal });
+        lastStatus = response.status;
+        if (response.ok) break;
+        const retryable = [429, 502, 503, 504].includes(response.status);
+        if (!retryable) break;
+        await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)));
+      }
+      if (!response?.ok) {
+        const status = lastStatus || response?.status || 0;
+        if (status === 504) {
+          throw new Error("Search timed out. Try again in a moment.");
+        }
+        throw new Error(`Search failed (${status || "network error"})`);
+      }
       const apiAll = await response.json();
       const data = apiAll?.data ?? [];
       const pagination = apiAll?.pagination ?? null;
+      if (requestId !== searchRequestRef.current) {
+        return;
+      }
       searchCache.set(cacheKey, { data, pagination, ts: Date.now() });
       setAnime(data);
       setPageSize(pagination);
     } catch (error) {
+      if (error?.name === "AbortError") return;
       if (!cached) {
-        setAnime([]);
-        setPageSize(null);
+        if (animeRef.current.length === 0) {
+          setAnime([]);
+          setPageSize(null);
+        }
+      } else {
+        setAnime(cached.data);
+        setPageSize(cached.pagination);
       }
+      setSearchError(error?.message || "Search is unavailable right now.");
+    } finally {
+      setIsListLoading(false);
     }
   }, [search]);
 
@@ -97,19 +211,30 @@ function MainContent() {
       return;
     }
     setCurrentPage(nextPage);
-    searchAnime(nextPage + 1); // change page
+    if (search.trim()) {
+      searchAnime(nextPage + 1); // change page
+    } else {
+      loadDefaultAnime(nextPage + 1);
+    }
   };
 
   useEffect(() => {
     setCurrentPage(0);
-  }, [search]);
+    if (!search.trim()) {
+      loadDefaultAnime(1);
+    }
+  }, [search, loadDefaultAnime]);
 
   const triggerSearch = () => {
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
     setCurrentPage(0);
-    searchAnime(1);
+    if (search.trim()) {
+      searchAnime(1);
+    } else {
+      loadDefaultAnime(1);
+    }
   };
 
   //  const searchItems = (searchValue) => {
@@ -124,14 +249,22 @@ function MainContent() {
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
+    if (!search.trim()) {
+      setSearchError("");
+      loadDefaultAnime(1);
+      return;
+    }
     searchTimeoutRef.current = setTimeout(() => {
       setCurrentPage(0);
       searchAnime(1);
-    }, 350);
+    }, 500);
 
     return () => {
       if (searchTimeoutRef.current) {
         clearTimeout(searchTimeoutRef.current);
+      }
+      if (searchAbortRef.current) {
+        searchAbortRef.current.abort();
       }
     };
   }, [search, searchAnime]);
@@ -145,14 +278,40 @@ function MainContent() {
   }, [currentPage]);
 
   useEffect(() => {
+    return () => {
+      if (favoritePulseTimeout.current) {
+        clearTimeout(favoritePulseTimeout.current);
+      }
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    animeRef.current = anime;
+    pageSizeRef.current = pageSize;
+  }, [anime, pageSize]);
+
+  useEffect(() => {
     obtainTopAnime();
   }, []);
 
   useEffect(() => {
-    const ids = [
-      ...anime.map((item) => item?.mal_id),
-      ...topAnime.map((item) => item?.mal_id)
-    ].filter(Boolean);
+    const itemMap = new Map();
+    [...anime, ...topAnime].forEach((item) => {
+      if (item?.mal_id) {
+        itemMap.set(item.mal_id, item);
+      }
+    });
+    const ids = Array.from(itemMap.keys()).filter((id) => {
+      const item = itemMap.get(id);
+      const hasImage =
+        item?.images?.jpg?.image_url ||
+        item?.images?.webp?.image_url ||
+        false;
+      return !hasImage && !getAniListCoverFromCache(id);
+    });
     if (ids.length === 0) return undefined;
 
     let active = true;
@@ -258,32 +417,77 @@ function MainContent() {
 
   useEffect(() => {
     if (!user) {
-      setFavorites(new Set());
+      const empty = new Set();
+      favoritesRef.current = empty;
+      setFavorites(empty);
       return;
     }
 
-    const favoritesRef = collection(db, "users", user.uid, "favorites");
-    const unsubscribe = onSnapshot(favoritesRef, (snapshot) => {
+    const favoritesCol = collection(db, "users", user.uid, "favorites");
+    const unsubscribe = onSnapshot(favoritesCol, (snapshot) => {
       const favoriteIds = new Set(snapshot.docs.map((docItem) => docItem.id));
-      setFavorites(favoriteIds);
+      const same =
+        favoriteIds.size === favoritesRef.current.size &&
+        Array.from(favoriteIds).every((id) => favoritesRef.current.has(id));
+      favoritesRef.current = favoriteIds;
+      if (same) {
+        return;
+      }
+      if (favoritesDebounceRef.current) {
+        clearTimeout(favoritesDebounceRef.current);
+      }
+      const delay = Date.now() - favoritesOptimisticAtRef.current < 350 ? 320 : 200;
+      favoritesDebounceRef.current = setTimeout(() => {
+        setFavorites(favoriteIds);
+      }, delay);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (favoritesDebounceRef.current) {
+        clearTimeout(favoritesDebounceRef.current);
+      }
+    };
   }, [user]);
 
   const toggleFavorite = async (item) => {
     if (!user) {
       return;
     }
+    setFavoritePulseId(String(item.mal_id));
+    if (favoritePulseTimeout.current) {
+      clearTimeout(favoritePulseTimeout.current);
+    }
+    favoritePulseTimeout.current = setTimeout(() => {
+      setFavoritePulseId(null);
+    }, 320);
     const scrollY = window.scrollY;
     const favoriteRef = doc(db, "users", user.uid, "favorites", String(item.mal_id));
-    const hasFavorite = favorites.has(String(item.mal_id));
+    const hasFavorite = favoritesRef.current.has(String(item.mal_id));
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (hasFavorite) {
+        next.delete(String(item.mal_id));
+      } else {
+        next.add(String(item.mal_id));
+      }
+      favoritesRef.current = next;
+      return next;
+    });
+    favoritesOptimisticAtRef.current = Date.now();
     const cover =
       aniCovers[item.mal_id] ||
       getAniListCoverFromCache(item.mal_id) ||
       "";
     if (hasFavorite) {
       await deleteDoc(favoriteRef);
+      setToast(`Removed "${item.title}" from Favorites`);
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+      toastTimeoutRef.current = setTimeout(() => {
+        setToast("");
+      }, 2000);
       requestAnimationFrame(() => window.scrollTo(0, scrollY));
       return;
     }
@@ -302,6 +506,13 @@ function MainContent() {
       currentEpisode: 0,
       updatedAt: new Date().toISOString()
     });
+    setToast(`Added "${item.title}" to Favorites`);
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast("");
+    }, 2000);
     requestAnimationFrame(() => window.scrollTo(0, scrollY));
   };
 
@@ -326,93 +537,11 @@ function MainContent() {
     );
   }, [anime, selectedGenre]);
 
-  const AnimeCardItem = ({ item }) => {
-    const [showTrailer, setShowTrailer] = useState(false);
-    const {
-      mal_id,
-      title,
-      trailer,
-      type,
-      synopsis,
-      episodes,
-      source,
-      score,
-      duration
-    } = item;
-    const hasTrailer = Boolean(trailer?.embed_url);
-    const isFavorite = favorites.has(String(mal_id));
-    const cover =
-      aniCovers[mal_id] ||
-      getAniListCoverFromCache(mal_id) ||
-      item?.images?.jpg?.image_url ||
-      item?.images?.webp?.image_url ||
-      "";
-
-    return (
-      <article className="anime-card" key={mal_id}>
-        <Link to={`/anime/${mal_id}`}>
-          <div
-            className="media-wrap"
-            onMouseEnter={() => setShowTrailer(true)}
-            onMouseLeave={() => setShowTrailer(false)}
-          >
-            {cover ? (
-              <img src={cover} alt={title} />
-            ) : (
-              <div className="media-placeholder" aria-label={`${title} cover unavailable`}></div>
-            )}
-            {hasTrailer && (
-              <span className="trailer-badge">Trailer Available</span>
-            )}
-            {hasTrailer && showTrailer && (
-              <iframe
-                className="trailer-frame"
-                src={trailer.embed_url}
-                title={`${title} trailer`}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                loading="lazy"
-              ></iframe>
-            )}
-          </div>
-        </Link>
-        <div className="card-body">
-          <div className="tag-row">
-            {type && <span className="tag">{type}</span>}
-            {source && <span className="tag">{source}</span>}
-          </div>
-          <Link className="card-title-link" to={`/anime/${mal_id}`}>
-            <h4 className="card-title">{title}</h4>
-          </Link>
-          <div className="card-meta">
-            <span>Episodes: {episodes ?? "?"}</span>
-            <span>Duration: {duration ? duration.replace("ep", "episodes") : "?"}</span>
-          </div>
-          {hasTrailer ? (
-            <span className="card-callout">Hover the image to preview the trailer.</span>
-          ) : (
-            <span className="card-callout muted">Trailer not available yet.</span>
-          )}
-          <span className="score-badge">Score {score ?? "N/A"}</span>
-          <p className="synopsis">{synopsis || "No synopsis available yet."}</p>
-          <div className="card-actions">
-            <Link className="detail-link" to={`/anime/${mal_id}`}>
-              View details
-            </Link>
-            <button
-              className={`favorite-button ${isFavorite ? "active" : ""}`}
-              type="button"
-              onClick={() => toggleFavorite(item)}
-              disabled={!user}
-              title={user ? "Save to favorites" : "Sign in to save favorites"}
-            >
-              {isFavorite ? "Favorited" : "Add to favorites"}
-            </button>
-          </div>
-        </div>
-      </article>
-    );
-  };
+  useEffect(() => {
+    if (selectedGenre !== "All" && !genreOptions.includes(selectedGenre)) {
+      setSelectedGenre("All");
+    }
+  }, [genreOptions, selectedGenre]);
 
   // useEffect(() => {
   //   obtainSeasonalAnime();
@@ -460,6 +589,7 @@ function MainContent() {
       </div>
 
       <div className="layout">
+        {toast && <div className="toast">{toast}</div>}
         <section>
           <div className="hero">
             <h2>Discover anime that matches your mood</h2>
@@ -475,6 +605,7 @@ function MainContent() {
             </h3>
             <div className="results-controls">
               <span className="pill">{filteredAnime.length} titles</span>
+              {searchError && <span className="pill muted">{searchError}</span>}
               <label className="genre-filter">
                 <span className="genre-label">Genre</span>
                 <select
@@ -599,6 +730,15 @@ function MainContent() {
             </div>
           )}
 
+          {isListLoading && !isPageLoading && (
+            <div className="loading-indicator">
+              <span className="loading-dot"></span>
+              <span className="loading-dot"></span>
+              <span className="loading-dot"></span>
+              <span className="loading-text">Loading titles...</span>
+            </div>
+          )}
+
           {isPageLoading ? (
             <div className={`anime-grid ${viewMode}`}>
               {Array.from({ length: 8 }).map((_, index) => (
@@ -614,9 +754,25 @@ function MainContent() {
             </div>
           ) : (
             <div className={`anime-grid ${viewMode}`}>
-              {filteredAnime.map((item) => (
-                <AnimeCardItem item={item} key={item.mal_id} />
-              ))}
+              {filteredAnime.map((item) => {
+                const cover =
+                  aniCovers[item.mal_id] ||
+                  getAniListCoverFromCache(item.mal_id) ||
+                  item?.images?.jpg?.image_url ||
+                  item?.images?.webp?.image_url ||
+                  "";
+                return (
+                  <AnimeCardItem
+                    key={item.mal_id}
+                    item={item}
+                    cover={cover}
+                    isFavorite={favorites.has(String(item.mal_id))}
+                    pulse={favoritePulseId === String(item.mal_id)}
+                    onToggle={toggleFavorite}
+                    disabled={!user}
+                  />
+                );
+              })}
             </div>
           )}
 
@@ -698,5 +854,93 @@ function MainContent() {
 }
 
 export default MainContent;
+
+const AnimeCardItem = React.memo(function AnimeCardItem({
+  item,
+  cover,
+  isFavorite,
+  pulse,
+  onToggle,
+  disabled
+}) {
+  const [showTrailer, setShowTrailer] = useState(false);
+  const {
+    mal_id,
+    title,
+    trailer,
+    type,
+    synopsis,
+    episodes,
+    source,
+    score,
+    duration
+  } = item;
+  const hasTrailer = Boolean(trailer?.embed_url);
+
+  return (
+    <article className="anime-card">
+      <Link to={`/anime/${mal_id}`}>
+        <div
+          className="media-wrap"
+          onMouseEnter={() => setShowTrailer(true)}
+          onMouseLeave={() => setShowTrailer(false)}
+        >
+          {cover ? (
+            <img src={cover} alt={title} />
+          ) : (
+            <div className="media-placeholder" aria-label={`${title} cover unavailable`}></div>
+          )}
+          {hasTrailer && (
+            <span className="trailer-badge">Trailer Available</span>
+          )}
+          {hasTrailer && showTrailer && (
+            <iframe
+              className="trailer-frame"
+              src={trailer.embed_url}
+              title={`${title} trailer`}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              loading="lazy"
+            ></iframe>
+          )}
+        </div>
+      </Link>
+      <div className="card-body">
+        <div className="tag-row">
+          {type && <span className="tag">{type}</span>}
+          {source && <span className="tag">{source}</span>}
+        </div>
+        <Link className="card-title-link" to={`/anime/${mal_id}`}>
+          <h4 className="card-title">{title}</h4>
+        </Link>
+        <div className="card-meta">
+          <span>Episodes: {episodes ?? "?"}</span>
+          <span>Duration: {duration ? duration.replace("ep", "episodes") : "?"}</span>
+        </div>
+        {hasTrailer ? (
+          <span className="card-callout">Hover the image to preview the trailer.</span>
+        ) : (
+          <span className="card-callout muted">Trailer not available yet.</span>
+        )}
+        <span className="score-badge">Score {score ?? "N/A"}</span>
+        <p className="synopsis">{synopsis || "No synopsis available yet."}</p>
+        <div className="card-actions">
+          <Link className="detail-link" to={`/anime/${mal_id}`}>
+            View details
+          </Link>
+          <button
+            className={`favorite-button ${isFavorite ? "active" : ""} ${pulse ? "pulse" : ""}`}
+            type="button"
+            onClick={() => onToggle(item)}
+            disabled={disabled}
+            title={disabled ? "Sign in to save favorites" : "Save to favorites"}
+          >
+            {isFavorite ? "Favorited" : "Add to favorites"}
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+});
 
 // source to make multiple fetch https://medium.com/@jdhawks/make-fetch-s-happen-5022fcc2ddae
