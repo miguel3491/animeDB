@@ -6,6 +6,7 @@ import { collection, deleteDoc, doc, onSnapshot, setDoc } from "firebase/firesto
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import { fetchAniList, fetchAniListCoversByMalIds, getAniListCoverFromCache } from "../utils/anilist";
+import { fetchJikanSuggestions } from "../utils/jikan";
 import "../styles.css"
 
 const SEARCH_TTL = 2 * 60 * 1000;
@@ -21,6 +22,11 @@ function MainContent() {
   const [anime, setAnime] = useState([]);
   const [topAnime, setTopAnime] = useState([]);
   const [search, setSearch] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const suggestionAbortRef = useRef(null);
+  const suggestionTimeoutRef = useRef(null);
   const [pageSize, setPageSize] = useState();
   const [currentPage, setCurrentPage] = useState(0);
   const animeRef = useRef([]);
@@ -58,9 +64,8 @@ function MainContent() {
       return;
     }
     try {
-      const api = await fetch(`https://api.jikan.moe/v4/top/anime`).then((res) =>
-        res.json()
-      );
+      const response = await fetch(`/api/jikan/season?limit=10`);
+      const api = await response.json();
       const data = Array.isArray(api?.data) ? api.data : [];
       topAnimeCache = { data, ts: Date.now() };
       setTopAnime(data);
@@ -236,6 +241,46 @@ function MainContent() {
       loadDefaultAnime(1);
     }
   };
+
+  useEffect(() => {
+    if (suggestionTimeoutRef.current) {
+      clearTimeout(suggestionTimeoutRef.current);
+    }
+    if (suggestionAbortRef.current) {
+      suggestionAbortRef.current.abort();
+    }
+    const q = search.trim();
+    if (q.length < 2) {
+      setSuggestions([]);
+      setSuggestionsOpen(false);
+      setSuggestionsLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    suggestionAbortRef.current = controller;
+    setSuggestionsLoading(true);
+    suggestionTimeoutRef.current = setTimeout(async () => {
+      try {
+        const items = await fetchJikanSuggestions({ type: "anime", query: q, signal: controller.signal });
+        setSuggestions(items);
+        setSuggestionsOpen(true);
+      } catch (err) {
+        if (err?.name !== "AbortError") {
+          setSuggestions([]);
+          setSuggestionsOpen(false);
+        }
+      } finally {
+        setSuggestionsLoading(false);
+      }
+    }, 220);
+
+    return () => {
+      if (suggestionTimeoutRef.current) {
+        clearTimeout(suggestionTimeoutRef.current);
+      }
+      controller.abort();
+    };
+  }, [search]);
 
   //  const searchItems = (searchValue) => {
   //   setSearch(searchValue)
@@ -574,9 +619,11 @@ function MainContent() {
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
+                setSuggestionsOpen(true);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
+                  setSuggestionsOpen(false);
                   triggerSearch();
                 }
               }}
@@ -584,6 +631,40 @@ function MainContent() {
             <button type="button" onClick={triggerSearch}>
               Search
             </button>
+            {suggestionsOpen && (suggestionsLoading || suggestions.length > 0) && (
+              <div className="search-suggestions" role="listbox">
+                {suggestionsLoading && (
+                  <div className="muted" style={{ padding: "8px 10px" }}>
+                    Loading suggestions...
+                  </div>
+                )}
+                {suggestions.map((item) => (
+                  <button
+                    key={`anime-suggest-${item.mal_id}`}
+                    type="button"
+                    className="search-suggestion-item"
+                    onClick={() => {
+                      setSearch(item.title);
+                      setSuggestionsOpen(false);
+                      triggerSearch();
+                    }}
+                  >
+                    {item.image ? (
+                      <img className="search-suggestion-thumb" src={item.image} alt={item.title} />
+                    ) : (
+                      <div className="search-suggestion-thumb" aria-hidden="true"></div>
+                    )}
+                    <div>
+                      <div className="search-suggestion-title">{item.title}</div>
+                      <div className="search-suggestion-meta">
+                        <span>Anime</span>
+                        <span>#{item.mal_id}</span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

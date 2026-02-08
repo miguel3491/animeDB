@@ -6,6 +6,7 @@ import { collection, deleteDoc, doc, onSnapshot, setDoc } from "firebase/firesto
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import { fetchAniList, fetchAniListMangaCoversByMalIds, getAniListMangaCoverFromCache } from "../utils/anilist";
+import { fetchJikanSuggestions } from "../utils/jikan";
 import "../styles.css";
 
 const SEARCH_TTL = 2 * 60 * 1000;
@@ -21,6 +22,11 @@ function MangaContent() {
   const [manga, setManga] = useState([]);
   const [topManga, setTopManga] = useState([]);
   const [search, setSearch] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const suggestionAbortRef = useRef(null);
+  const suggestionTimeoutRef = useRef(null);
   const [pageSize, setPageSize] = useState();
   const [currentPage, setCurrentPage] = useState(0);
   const mangaRef = useRef([]);
@@ -219,6 +225,46 @@ function MangaContent() {
       loadDefaultManga(1);
     }
   };
+
+  useEffect(() => {
+    if (suggestionTimeoutRef.current) {
+      clearTimeout(suggestionTimeoutRef.current);
+    }
+    if (suggestionAbortRef.current) {
+      suggestionAbortRef.current.abort();
+    }
+    const q = search.trim();
+    if (q.length < 2) {
+      setSuggestions([]);
+      setSuggestionsOpen(false);
+      setSuggestionsLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    suggestionAbortRef.current = controller;
+    setSuggestionsLoading(true);
+    suggestionTimeoutRef.current = setTimeout(async () => {
+      try {
+        const items = await fetchJikanSuggestions({ type: "manga", query: q, signal: controller.signal });
+        setSuggestions(items);
+        setSuggestionsOpen(true);
+      } catch (err) {
+        if (err?.name !== "AbortError") {
+          setSuggestions([]);
+          setSuggestionsOpen(false);
+        }
+      } finally {
+        setSuggestionsLoading(false);
+      }
+    }, 220);
+
+    return () => {
+      if (suggestionTimeoutRef.current) {
+        clearTimeout(suggestionTimeoutRef.current);
+      }
+      controller.abort();
+    };
+  }, [search]);
 
   useEffect(() => {
     if (searchTimeoutRef.current) {
@@ -505,9 +551,11 @@ function MangaContent() {
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
+                setSuggestionsOpen(true);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
+                  setSuggestionsOpen(false);
                   triggerSearch();
                 }
               }}
@@ -515,6 +563,40 @@ function MangaContent() {
             <button type="button" onClick={triggerSearch}>
               Search
             </button>
+            {suggestionsOpen && (suggestionsLoading || suggestions.length > 0) && (
+              <div className="search-suggestions" role="listbox">
+                {suggestionsLoading && (
+                  <div className="muted" style={{ padding: "8px 10px" }}>
+                    Loading suggestions...
+                  </div>
+                )}
+                {suggestions.map((item) => (
+                  <button
+                    key={`manga-suggest-${item.mal_id}`}
+                    type="button"
+                    className="search-suggestion-item"
+                    onClick={() => {
+                      setSearch(item.title);
+                      setSuggestionsOpen(false);
+                      triggerSearch();
+                    }}
+                  >
+                    {item.image ? (
+                      <img className="search-suggestion-thumb" src={item.image} alt={item.title} />
+                    ) : (
+                      <div className="search-suggestion-thumb" aria-hidden="true"></div>
+                    )}
+                    <div>
+                      <div className="search-suggestion-title">{item.title}</div>
+                      <div className="search-suggestion-meta">
+                        <span>Manga</span>
+                        <span>#{item.mal_id}</span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

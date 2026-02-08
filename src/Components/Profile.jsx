@@ -13,6 +13,7 @@ function Profile() {
   const bgRef = useRef(null);
   const [activity, setActivity] = useState([]);
   const [activityLoading, setActivityLoading] = useState(true);
+  const [showUid, setShowUid] = useState(false);
   const [reportTitle, setReportTitle] = useState("");
   const [reportDetails, setReportDetails] = useState("");
   const [reportSteps, setReportSteps] = useState("");
@@ -30,6 +31,10 @@ function Profile() {
   useEffect(() => {
     setDraftName(profile?.username || "");
   }, [profile?.username]);
+
+  useEffect(() => {
+    setShowUid(false);
+  }, [user?.uid]);
 
   useEffect(() => {
     let active = true;
@@ -331,7 +336,50 @@ function Profile() {
             </button>
           </div>
           {status && <p className="muted">{status}</p>}
-          <p className="muted">User ID: {user.uid}</p>
+          <div className="muted">
+            {!showUid ? (
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => {
+                  const ok = window.confirm(
+                    "Show your User ID? Anyone with it could identify your account in support requests."
+                  );
+                  if (ok) setShowUid(true);
+                }}
+              >
+                Show User ID
+              </button>
+            ) : (
+              <>
+                <span>User ID: </span>
+                <code>{user.uid}</code>
+                <span className="uid-actions">
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(user.uid);
+                        setStatus("User ID copied.");
+                      } catch (err) {
+                        setStatus("Unable to copy User ID.");
+                      }
+                    }}
+                  >
+                    Copy
+                  </button>
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => setShowUid(false)}
+                  >
+                    Hide
+                  </button>
+                </span>
+              </>
+            )}
+          </div>
           <input
             ref={fileRef}
             type="file"

@@ -7,6 +7,8 @@ function NewsDetail() {
   const location = useLocation();
   const decodedId = decodeURIComponent(id || "");
   const [item, setItem] = useState(location.state?.item || null);
+  const [article, setArticle] = useState(null);
+  const [articleLoading, setArticleLoading] = useState(false);
   const [summary, setSummary] = useState(null);
   const [, setSummaryError] = useState("");
 
@@ -78,6 +80,36 @@ function NewsDetail() {
     };
   }, [item]);
 
+  useEffect(() => {
+    if (!item?.link) return;
+    let cancelled = false;
+    const load = async () => {
+      setArticleLoading(true);
+      try {
+        const response = await fetch(`/api/ann/article?url=${encodeURIComponent(item.link)}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data?.error || "Article unavailable");
+        }
+        if (!cancelled) {
+          setArticle(data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setArticle(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setArticleLoading(false);
+        }
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [item?.link]);
+
   if (!item) {
     return (
       <div className="layout">
@@ -92,6 +124,7 @@ function NewsDetail() {
 
   const displayTitle = item.displayTitle || item.title;
   const displayBody = item.displayBody || item.content || item.summary || "No summary available.";
+  const bodyHtml = article?.contentHtml || "";
 
   return (
     <div className="layout detail-layout">
@@ -106,11 +139,17 @@ function NewsDetail() {
           </div>
           <Link className="detail-link" to="/news">Back to news</Link>
         </div>
-        {item.image && (
-          <img className="news-detail-image" src={item.image} alt={displayTitle} />
+        {(article?.image || item.image) && (
+          <img className="news-detail-image" src={article?.image || item.image} alt={displayTitle} />
         )}
         <div className="news-body">
-          <p>{displayBody}</p>
+          {articleLoading ? (
+            <p className="muted">Loading the full article...</p>
+          ) : bodyHtml ? (
+            <div dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+          ) : (
+            <p>{displayBody}</p>
+          )}
         </div>
         {summary && summary.summary && (
           <div className="news-summary">
