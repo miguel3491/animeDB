@@ -7,7 +7,8 @@ import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import { fetchAniList, fetchAniListCoversByMalIds, getAniListCoverFromCache } from "../utils/anilist";
 import { fetchJikanSuggestions } from "../utils/jikan";
-import "../styles.css"
+import { logFavoriteActivity } from "../utils/favoriteActivity";
+import "../styles.css";
 
 const SEARCH_TTL = 2 * 60 * 1000;
 const TOP_TTL = 5 * 60 * 1000;
@@ -606,6 +607,14 @@ function MainContent({ mode } = {}) {
       "";
     if (hasFavorite) {
       await deleteDoc(favoriteRef);
+      logFavoriteActivity(user.uid, {
+        action: "removed",
+        mediaType: "anime",
+        itemKey: String(item.mal_id),
+        mal_id: item.mal_id,
+        title: item.title,
+        image: cover
+      });
       setToast(`Removed "${item.title}" from Favorites`);
       if (toastTimeoutRef.current) {
         clearTimeout(toastTimeoutRef.current);
@@ -630,6 +639,15 @@ function MainContent({ mode } = {}) {
       order: Date.now(),
       currentEpisode: 0,
       updatedAt: new Date().toISOString()
+    });
+    logFavoriteActivity(user.uid, {
+      action: "added",
+      mediaType: "anime",
+      itemKey: String(item.mal_id),
+      mal_id: item.mal_id,
+      title: item.title,
+      image: cover,
+      status: "Plan to watch"
     });
     setToast(`Added "${item.title}" to Favorites`);
     if (toastTimeoutRef.current) {

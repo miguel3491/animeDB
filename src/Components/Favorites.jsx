@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import { fetchAniListCoversByMalIds, getAniListCoverFromCache } from "../utils/anilist";
+import { logFavoriteActivity } from "../utils/favoriteActivity";
 import "../styles.css";
 
 function Favorites() {
@@ -54,7 +55,18 @@ function Favorites() {
   const removeFavorite = useCallback(async (docId) => {
     if (!user) return;
     const favoriteRef = doc(db, "users", user.uid, "favorites", String(docId));
+    const removed = favorites.find((item) => String(item.docId) === String(docId));
     await deleteDoc(favoriteRef);
+    if (removed) {
+      logFavoriteActivity(user.uid, {
+        action: "removed",
+        mediaType: removed.mediaType ?? "anime",
+        itemKey: removed.mediaType === "manga" ? `manga_${removed.mal_id}` : String(removed.mal_id),
+        mal_id: removed.mal_id,
+        title: removed.title,
+        image: removed.image || ""
+      });
+    }
     setToast("Removed from Favorites");
     if (toastTimeoutRef.current) {
       clearTimeout(toastTimeoutRef.current);
@@ -62,7 +74,7 @@ function Favorites() {
     toastTimeoutRef.current = setTimeout(() => {
       setToast("");
     }, 2000);
-  }, [user]);
+  }, [favorites, user]);
 
   const publishReview = useCallback(async (item) => {
     if (!user) {
@@ -132,6 +144,16 @@ function Favorites() {
         ...prev,
         [item.docId]: { state: "success", message }
       }));
+      logFavoriteActivity(user.uid, {
+        action: "review_posted",
+        mediaType,
+        itemKey: mediaType === "manga" ? `manga_${item.mal_id}` : String(item.mal_id),
+        mal_id: item.mal_id,
+        title: item.title,
+        image: cover,
+        status: "Completed",
+        details: Boolean(item.spoiler) ? "Marked as spoiler" : ""
+      });
     } catch (error) {
       setPublishStatus((prev) => ({
         ...prev,
@@ -389,6 +411,15 @@ function Favorites() {
       )
     );
     await updateFavorite(item.docId, { status: newStatus });
+    logFavoriteActivity(user.uid, {
+      action: "status_changed",
+      mediaType: item.mediaType ?? "anime",
+      itemKey: (item.mediaType ?? "anime") === "manga" ? `manga_${item.mal_id}` : String(item.mal_id),
+      mal_id: item.mal_id,
+      title: item.title,
+      image: item.image || "",
+      status: newStatus
+    });
   };
 
   const confirmCompleted = async (item) => {
@@ -399,6 +430,16 @@ function Favorites() {
       status: "Completed",
       order: nextOrder,
       ...(maxCount ? { [progressField]: maxCount } : {})
+    });
+    logFavoriteActivity(user.uid, {
+      action: "completed",
+      mediaType: item.mediaType ?? "anime",
+      itemKey: (item.mediaType ?? "anime") === "manga" ? `manga_${item.mal_id}` : String(item.mal_id),
+      mal_id: item.mal_id,
+      title: item.title,
+      image: item.image || "",
+      status: "Completed",
+      details: maxCount ? `${progressField} set to ${maxCount}` : ""
     });
   };
 

@@ -1,17 +1,35 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { collection, doc, getDoc, getDocs, limit, orderBy, query, where } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  where,
+  writeBatch
+} from "firebase/firestore";
 import { db } from "../firebase";
+import { useAuth } from "../AuthContext";
 import "../styles.css";
 
 function PublicProfile() {
   const { uid } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activity, setActivity] = useState([]);
   const [activityLoading, setActivityLoading] = useState(true);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followBusy, setFollowBusy] = useState(false);
+  const [favoritesActivity, setFavoritesActivity] = useState([]);
+  const [favoritesActivityLoading, setFavoritesActivityLoading] = useState(false);
   const fromPath = `${location.pathname}${location.search || ""}`;
 
   const goBack = () => {
@@ -105,6 +123,62 @@ function PublicProfile() {
     };
   }, [uid]);
 
+  useEffect(() => {
+    if (!uid || !user || user.uid === uid) {
+      setIsFollowing(false);
+      return undefined;
+    }
+    const followerRef = doc(db, "users", uid, "followers", user.uid);
+    const unsubscribe = onSnapshot(
+      followerRef,
+      (snap) => {
+        setIsFollowing(snap.exists());
+      },
+      () => {
+        setIsFollowing(false);
+      }
+    );
+    return () => unsubscribe();
+  }, [uid, user]);
+
+  useEffect(() => {
+    const isSelf = Boolean(user && uid && user.uid === uid);
+    const canView = isSelf || isFollowing;
+    if (!uid || !canView) {
+      setFavoritesActivity([]);
+      setFavoritesActivityLoading(false);
+      return undefined;
+    }
+    setFavoritesActivityLoading(true);
+    const activityRef = collection(db, "users", uid, "favoriteActivity");
+    const q = query(activityRef, orderBy("clientAt", "desc"), limit(10));
+    const unsubscribe = onSnapshot(
+      q,
+      (snap) => {
+        const items = snap.docs.map((docItem) => {
+          const data = docItem.data() || {};
+          return {
+            id: docItem.id,
+            action: data.action || "updated",
+            mediaType: data.mediaType || "anime",
+            title: data.title || "Untitled",
+            image: data.image || "",
+            status: data.status || "",
+            details: data.details || "",
+            clientAt: data.clientAt || ""
+          };
+        });
+        setFavoritesActivity(items);
+        setFavoritesActivityLoading(false);
+      },
+      () => {
+        setFavoritesActivity([]);
+        setFavoritesActivityLoading(false);
+      }
+    );
+    return () => unsubscribe();
+  }, [isFollowing, uid, user]);
+
   const displayName = profile?.username || "Unknown user";
   const initials = useMemo(() => {
     return displayName
@@ -114,6 +188,32 @@ function PublicProfile() {
       .map((part) => part[0]?.toUpperCase())
       .join("");
   }, [displayName]);
+
+  const isSelf = Boolean(user && uid && user.uid === uid);
+  const canViewFavoritesActivity = isSelf || isFollowing;
+
+  const toggleFollow = async () => {
+    if (!user || !uid || isSelf) return;
+    setFollowBusy(true);
+    try {
+      const batch = writeBatch(db);
+      const targetFollowerRef = doc(db, "users", uid, "followers", user.uid);
+      const myFollowingRef = doc(db, "users", user.uid, "following", uid);
+      if (isFollowing) {
+        batch.delete(targetFollowerRef);
+        batch.delete(myFollowingRef);
+      } else {
+        const payload = { createdAt: serverTimestamp(), clientAt: new Date().toISOString() };
+        batch.set(targetFollowerRef, payload, { merge: true });
+        batch.set(myFollowingRef, payload, { merge: true });
+      }
+      await batch.commit();
+    } catch (err) {
+      // ignore
+    } finally {
+      setFollowBusy(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -160,6 +260,19 @@ function PublicProfile() {
               <h2>{displayName}</h2>
               <p className="muted">Community member</p>
             </div>
+            {!isSelf && (
+              <div className="public-actions">
+                <button
+                  type="button"
+                  className={`follow-button ${isFollowing ? "active" : ""}`}
+                  onClick={toggleFollow}
+                  disabled={!user || followBusy}
+                  title={!user ? "Sign in to follow users" : isFollowing ? "Unfollow" : "Follow"}
+                >
+                  {user ? (isFollowing ? "Following" : "Follow") : "Sign in to follow"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -193,6 +306,64 @@ function PublicProfile() {
                     </p>
                   </div>
                 </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="public-section">
+          <div className="results-bar">
+            <h3>Favorites activity</h3>
+            <span className="pill">Latest 10 updates</span>
+          </div>
+          {!canViewFavoritesActivity ? (
+            <div className="locked-panel">
+              <div className="locked-overlay">
+                <span className="locked-pill">Locked</span>
+                <p className="muted">
+                  Follow this user to unlock their latest Favorites updates.
+                </p>
+              </div>
+              <div className="locked-preview">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <div className="activity-row blurred" key={`locked-${index}`}>
+                    <div className="activity-thumb placeholder"></div>
+                    <div className="activity-text">
+                      <div className="skeleton-line"></div>
+                      <div className="skeleton-line short"></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : favoritesActivityLoading ? (
+            <p>Loading favorites activity...</p>
+          ) : favoritesActivity.length === 0 ? (
+            <p className="muted">No recent Favorites updates yet.</p>
+          ) : (
+            <div className="favorites-activity">
+              {favoritesActivity.map((evt) => (
+                <div className="activity-row" key={evt.id}>
+                  {evt.image ? (
+                    <img className="activity-thumb" src={evt.image} alt={evt.title} />
+                  ) : (
+                    <div className="activity-thumb placeholder" aria-hidden="true"></div>
+                  )}
+                  <div className="activity-text">
+                    <div className="activity-title">
+                      <span className={`activity-badge ${evt.action}`}>{evt.action.replace(/_/g, " ")}</span>
+                      <span>{evt.title}</span>
+                    </div>
+                    <div className="activity-meta muted">
+                      <span>{evt.mediaType}</span>
+                      {evt.status && <span>Status: {evt.status}</span>}
+                      <span>
+                        {evt.clientAt ? new Date(evt.clientAt).toLocaleString() : ""}
+                      </span>
+                    </div>
+                    {evt.details && <div className="activity-details muted">{evt.details}</div>}
+                  </div>
+                </div>
               ))}
             </div>
           )}

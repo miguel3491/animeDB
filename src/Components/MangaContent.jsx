@@ -7,6 +7,7 @@ import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import { fetchAniList, fetchAniListMangaCoversByMalIds, getAniListMangaCoverFromCache } from "../utils/anilist";
 import { fetchJikanSuggestions } from "../utils/jikan";
+import { logFavoriteActivity } from "../utils/favoriteActivity";
 import "../styles.css";
 
 const SEARCH_TTL = 2 * 60 * 1000;
@@ -600,8 +601,22 @@ function MangaContent({ mode } = {}) {
       return next;
     });
     favoritesOptimisticAtRef.current = Date.now();
+    const cover =
+      item.cover ||
+      item.image ||
+      item.images?.jpg?.image_url ||
+      item.images?.webp?.image_url ||
+      "";
     if (hasFavorite) {
       await deleteDoc(favoriteRef);
+      logFavoriteActivity(user.uid, {
+        action: "removed",
+        mediaType: "manga",
+        itemKey: docId,
+        mal_id: item.mal_id,
+        title: item.title,
+        image: cover
+      });
       setToast(`Removed "${item.title}" from Favorites`);
       if (toastTimeoutRef.current) {
         clearTimeout(toastTimeoutRef.current);
@@ -611,13 +626,6 @@ function MangaContent({ mode } = {}) {
       }, 2000);
       return;
     }
-
-    const cover =
-      item.cover ||
-      item.image ||
-      item.images?.jpg?.image_url ||
-      item.images?.webp?.image_url ||
-      "";
 
     await setDoc(favoriteRef, {
       mal_id: item.mal_id,
@@ -631,6 +639,15 @@ function MangaContent({ mode } = {}) {
       order: Date.now(),
       currentChapter: 0,
       updatedAt: new Date().toISOString()
+    });
+    logFavoriteActivity(user.uid, {
+      action: "added",
+      mediaType: "manga",
+      itemKey: docId,
+      mal_id: item.mal_id,
+      title: item.title,
+      image: cover,
+      status: "Plan to watch"
     });
     setToast(`Added "${item.title}" to Favorites`);
     if (toastTimeoutRef.current) {
