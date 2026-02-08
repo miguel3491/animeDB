@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import "../styles.css";
 
@@ -13,6 +13,8 @@ function NewsDetail() {
   const [summary, setSummary] = useState(null);
   const [, setSummaryError] = useState("");
   const [brokenImages, setBrokenImages] = useState(() => new Set());
+  const [summaryNotice, setSummaryNotice] = useState("");
+  const summaryRequestedRef = useRef(false);
 
   useEffect(() => {
     if (item || !decodedId) return;
@@ -35,15 +37,37 @@ function NewsDetail() {
       return undefined;
     }
 
-    const cached = sessionStorage.getItem(`news-summary-${item.id}`);
-    if (cached) {
+    // Use cached summary if available.
+    const localCached = localStorage.getItem(`news-summary-${item.id}`);
+    if (localCached) {
       try {
-        setSummary(JSON.parse(cached));
-        return;
+        setSummary(JSON.parse(localCached));
+        return undefined;
       } catch (err) {
         // ignore cache errors
       }
     }
+    const cached = sessionStorage.getItem(`news-summary-${item.id}`);
+    if (cached) {
+      try {
+        setSummary(JSON.parse(cached));
+        return undefined;
+      } catch (err) {
+        // ignore cache errors
+      }
+    }
+
+    // Only generate once per article (per browser) to control API usage.
+    const used = localStorage.getItem(`news-summary-used-${item.id}`) === "1";
+    if (used) {
+      setSummaryNotice("AI summary already generated for this article.");
+      return undefined;
+    }
+
+    if (summaryRequestedRef.current) {
+      return undefined;
+    }
+    summaryRequestedRef.current = true;
 
     const loadSummary = async () => {
       try {
@@ -67,6 +91,12 @@ function NewsDetail() {
         if (!cancelled) {
           setSummary(data);
           sessionStorage.setItem(`news-summary-${item.id}`, JSON.stringify(data));
+          try {
+            localStorage.setItem(`news-summary-${item.id}`, JSON.stringify(data));
+            localStorage.setItem(`news-summary-used-${item.id}`, "1");
+          } catch (err) {
+            // ignore storage errors
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -232,11 +262,15 @@ function NewsDetail() {
             <p>{displayBody}</p>
           )}
         </div>
-        {summary && summary.summary && (
+        {(summaryNotice || (summary && summary.summary)) && (
           <div className="news-summary">
             <h4>AI Summary</h4>
-            <p>{summary.summary}</p>
-            {summary.keyPoints?.length > 0 && (
+            {summaryNotice && !summary?.summary ? (
+              <p className="muted">{summaryNotice}</p>
+            ) : (
+              <p>{summary?.summary}</p>
+            )}
+            {summary?.keyPoints?.length > 0 && (
               <ul className="news-points">
                 {summary.keyPoints.map((point, index) => (
                   <li key={`${item.id}-point-${index}`}>{point}</li>
