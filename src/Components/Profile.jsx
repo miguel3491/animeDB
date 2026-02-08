@@ -530,7 +530,12 @@ function Profile() {
           ) : (
             <div className="public-activity-grid">
               {activity.map((item) => (
-                <Link className="public-activity-card" key={item.id} to={`/discussion/${item.id}`}>
+                <Link
+                  className="public-activity-card"
+                  key={item.id}
+                  to={`/discussion/${item.id}`}
+                  state={{ from: "/profile" }}
+                >
                   {item.image ? (
                     <img src={item.image} alt={item.title} />
                   ) : (

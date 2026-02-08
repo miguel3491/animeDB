@@ -67,11 +67,36 @@ const seasonFromMonth = (month1to12) => {
   return "FALL";
 };
 
+const normalizeSeason = (value) => {
+  const v = String(value || "").trim().toLowerCase();
+  if (["winter", "spring", "summer", "fall"].includes(v)) return v;
+  return "";
+};
+
+const startEndForSeason = (year, season) => {
+  const y = Number(year);
+  const s = normalizeSeason(season);
+  if (!y || !s) return null;
+  const ranges = {
+    winter: { start: `${y}-01-01`, end: `${y}-03-31` },
+    spring: { start: `${y}-04-01`, end: `${y}-06-30` },
+    summer: { start: `${y}-07-01`, end: `${y}-09-30` },
+    fall: { start: `${y}-10-01`, end: `${y}-12-31` }
+  };
+  return ranges[s] || null;
+};
+
 const toIsoDate = (y, m, d) => {
   if (!y || !m || !d) return "";
   const mm = String(m).padStart(2, "0");
   const dd = String(d).padStart(2, "0");
   return `${y}-${mm}-${dd}`;
+};
+
+const isoToYear = (value) => {
+  if (!value) return 0;
+  const match = String(value).match(/^(\d{4})-/);
+  return match ? Number(match[1]) : 0;
 };
 
 app.post("/api/summary", async (req, res) => {
@@ -458,6 +483,9 @@ app.get("/api/jikan/season", async (req, res) => {
       lastStatus = response.status;
       if (response.ok) {
         const data = await response.json();
+        if (Array.isArray(data?.data)) {
+          data.data = data.data.filter((item) => isoToYear(item?.aired?.from) >= 2025);
+        }
         jikanCache.set(url, { data, ts: Date.now() });
         clearTimeout(timeout);
         if (!res.headersSent) {
@@ -531,7 +559,10 @@ app.get("/api/jikan/season", async (req, res) => {
         aired: from ? { from } : { from: null }
       };
     });
-    const payload = { data: mapped, fromAniList: true };
+    const payload = {
+      data: mapped.filter((item) => isoToYear(item?.aired?.from) >= 2025),
+      fromAniList: true
+    };
     jikanCache.set(url, { data: payload, ts: Date.now() });
     if (!res.headersSent) {
       return res.json(payload);
@@ -547,14 +578,25 @@ app.get("/api/jikan/season", async (req, res) => {
   return;
 });
 
-app.get("/api/jikan/manga/seasonal", async (req, res) => {
-  const limit = Math.max(1, Math.min(20, Number(req.query?.limit) || 20));
+app.get("/api/jikan/anime/seasonal", async (req, res) => {
+  const year = Number(req.query?.year || 0);
+  const season = normalizeSeason(req.query?.season);
+  const limit = Math.max(1, Math.min(25, Number(req.query?.limit) || 20));
   const page = Math.max(1, Number(req.query?.page) || 1);
-  const fields = "mal_id,title,images,published,status";
-  const url =
-    `https://api.jikan.moe/v4/manga?status=publishing&order_by=start_date&sort=desc` +
-    `&page=${encodeURIComponent(page)}&limit=${encodeURIComponent(limit)}` +
-    `&fields=${encodeURIComponent(fields)}`;
+
+  if (!year || year < 2025) {
+    return res.status(400).json({ error: "year must be 2025 or later" });
+  }
+  if (!season) {
+    return res.status(400).json({ error: "season must be winter|spring|summer|fall" });
+  }
+
+  const fields = "mal_id,title,images,aired";
+  const url = `https://api.jikan.moe/v4/seasons/${encodeURIComponent(
+    year
+  )}/${encodeURIComponent(season)}?filter=tv&limit=${encodeURIComponent(
+    limit
+  )}&page=${encodeURIComponent(page)}&fields=${encodeURIComponent(fields)}`;
 
   const cached = jikanCache.get(url);
   const now = Date.now();
@@ -575,6 +617,9 @@ app.get("/api/jikan/manga/seasonal", async (req, res) => {
       lastStatus = response.status;
       if (response.ok) {
         const data = await response.json();
+        if (Array.isArray(data?.data)) {
+          data.data = data.data.filter((item) => isoToYear(item?.aired?.from) >= 2025);
+        }
         jikanCache.set(url, { data, ts: Date.now() });
         clearTimeout(timeout);
         if (!res.headersSent) {
@@ -589,7 +634,7 @@ app.get("/api/jikan/manga/seasonal", async (req, res) => {
       }
     } catch (err) {
       if (err?.name !== "AbortError") {
-        console.error("Jikan manga seasonal proxy error:", err?.message || err);
+        console.error("Jikan seasonal proxy error:", err?.message || err);
       }
     } finally {
       clearTimeout(timeout);
@@ -599,6 +644,226 @@ app.get("/api/jikan/manga/seasonal", async (req, res) => {
 
   if (cached && !res.headersSent) {
     return res.json(cached.data);
+  }
+
+  // Fallback to AniList seasonal when Jikan is unavailable.
+  try {
+    const aniQuery = `
+      query ($page: Int, $perPage: Int, $season: MediaSeason, $seasonYear: Int) {
+        Page(page: $page, perPage: $perPage) {
+          pageInfo { currentPage lastPage hasNextPage }
+          media(type: ANIME, season: $season, seasonYear: $seasonYear, sort: POPULARITY_DESC) {
+            idMal
+            title { userPreferred english romaji }
+            coverImage { extraLarge large }
+            startDate { year month day }
+          }
+        }
+      }
+    `;
+    const variables = {
+      page,
+      perPage: limit,
+      season: season.toUpperCase(),
+      seasonYear: year
+    };
+    const response = await fetch("https://graphql.anilist.co", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ query: aniQuery, variables })
+    });
+    const json = await response.json();
+    const media = json?.data?.Page?.media || [];
+    const pageInfo = json?.data?.Page?.pageInfo || {};
+    const mapped = media
+      .map((item) => {
+        const title =
+          item?.title?.userPreferred ||
+          item?.title?.english ||
+          item?.title?.romaji ||
+          "Unknown title";
+        const image = item?.coverImage?.extraLarge || item?.coverImage?.large || "";
+        const start = item?.startDate || {};
+        const from = toIsoDate(start.year, start.month, start.day);
+        return {
+          mal_id: item?.idMal || null,
+          title,
+          images: image
+            ? { jpg: { image_url: image }, webp: { image_url: image } }
+            : { jpg: { image_url: "" }, webp: { image_url: "" } },
+          aired: from ? { from } : { from: null }
+        };
+      })
+      .filter((item) => isoToYear(item?.aired?.from) >= 2025);
+    const payload = {
+      data: mapped,
+      pagination: {
+        current_page: pageInfo.currentPage || page,
+        last_visible_page: pageInfo.lastPage || page,
+        has_next_page: Boolean(pageInfo.hasNextPage)
+      },
+      fromAniList: true
+    };
+    jikanCache.set(url, { data: payload, ts: Date.now() });
+    if (!res.headersSent) {
+      return res.json(payload);
+    }
+    return;
+  } catch (err) {
+    console.error("AniList seasonal fallback failed:", err?.message || err);
+  }
+
+  if (!res.headersSent) {
+    return res.status(lastStatus || 502).json({ error: "Seasonal feed unavailable" });
+  }
+  return;
+});
+
+app.get("/api/jikan/manga/seasonal", async (req, res) => {
+  const year = Number(req.query?.year || 0);
+  const season = normalizeSeason(req.query?.season);
+  const limit = Math.max(1, Math.min(25, Number(req.query?.limit) || 20));
+  const page = Math.max(1, Number(req.query?.page) || 1);
+
+  if (year && year < 2025) {
+    return res.status(400).json({ error: "year must be 2025 or later" });
+  }
+
+  const range = year && season ? startEndForSeason(year, season) : null;
+  const url = range
+    ? `anilist-manga-seasonal|${year}|${season}|${page}|${limit}`
+    : `https://api.jikan.moe/v4/manga?status=publishing&order_by=start_date&sort=desc&page=${encodeURIComponent(
+        page
+      )}&limit=${encodeURIComponent(limit)}&fields=${encodeURIComponent("mal_id,title,images,published,status")}`;
+
+  const cached = jikanCache.get(url);
+  const now = Date.now();
+  if (cached && now - cached.ts < JIKAN_SEASON_TTL) {
+    return res.json(cached.data);
+  }
+  if (shouldServeStale(cached, JIKAN_SEASON_TTL)) {
+    res.set("X-Cache", "STALE");
+    res.json(cached.data);
+  }
+
+  let lastStatus = 0;
+  if (!range) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        lastStatus = response.status;
+        if (response.ok) {
+          const data = await response.json();
+          if (Array.isArray(data?.data)) {
+            data.data = data.data.filter((item) => isoToYear(item?.published?.from) >= 2025);
+          }
+          jikanCache.set(url, { data, ts: Date.now() });
+          clearTimeout(timeout);
+          if (!res.headersSent) {
+            return res.json(data);
+          }
+          return;
+        }
+        const retryable = [429, 502, 503, 504].includes(response.status);
+        if (!retryable) {
+          clearTimeout(timeout);
+          break;
+        }
+      } catch (err) {
+        if (err?.name !== "AbortError") {
+          console.error("Jikan manga seasonal proxy error:", err?.message || err);
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)));
+    }
+  }
+
+  if (cached && !res.headersSent) {
+    return res.json(cached.data);
+  }
+
+  if (range) {
+    // Fallback to AniList seasonal-style range for manga.
+    try {
+      const toInt = (iso) => Number(String(iso).replace(/-/g, ""));
+      const startInt = toInt(range.start) - 1;
+      const endInt = toInt(range.end) + 1;
+      const aniQuery = `
+        query ($page: Int, $perPage: Int, $start: Int, $end: Int) {
+          Page(page: $page, perPage: $perPage) {
+            pageInfo { currentPage lastPage hasNextPage }
+            media(type: MANGA, startDate_greater: $start, startDate_lesser: $end, sort: POPULARITY_DESC) {
+              idMal
+              title { userPreferred english romaji }
+              coverImage { extraLarge large }
+              startDate { year month day }
+              format
+              chapters
+              volumes
+              description(asHtml: false)
+              averageScore
+              status
+            }
+          }
+        }
+      `;
+      const variables = { page, perPage: limit, start: startInt, end: endInt };
+      const response = await fetch("https://graphql.anilist.co", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ query: aniQuery, variables })
+      });
+      const json = await response.json();
+      const media = json?.data?.Page?.media || [];
+      const pageInfo = json?.data?.Page?.pageInfo || {};
+      const mapped = media
+        .map((item) => {
+          const title =
+            item?.title?.userPreferred ||
+            item?.title?.english ||
+            item?.title?.romaji ||
+            "Unknown title";
+          const image = item?.coverImage?.extraLarge || item?.coverImage?.large || "";
+          const start = item?.startDate || {};
+          const from = toIsoDate(start.year, start.month, start.day);
+          return {
+            mal_id: item?.idMal || null,
+            title,
+            images: image
+              ? { jpg: { image_url: image }, webp: { image_url: image } }
+              : { jpg: { image_url: "" }, webp: { image_url: "" } },
+            type: item?.format || null,
+            synopsis: item?.description || "",
+            chapters: item?.chapters ?? null,
+            volumes: item?.volumes ?? null,
+            status: item?.status || null,
+            score: item?.averageScore ? Number(item.averageScore) / 10 : null,
+            published: from ? { from } : { from: null }
+          };
+        })
+        .filter((item) => isoToYear(item?.published?.from) >= 2025);
+
+      const payload = {
+        data: mapped.filter((item) => item.mal_id),
+        pagination: {
+          current_page: pageInfo.currentPage || page,
+          last_visible_page: pageInfo.lastPage || page,
+          has_next_page: Boolean(pageInfo.hasNextPage)
+        },
+        fromAniList: true
+      };
+      jikanCache.set(url, { data: payload, ts: Date.now() });
+      if (!res.headersSent) {
+        return res.json(payload);
+      }
+      return;
+    } catch (err) {
+      console.error("AniList manga seasonal fallback failed:", err?.message || err);
+    }
   }
 
   if (!res.headersSent) {

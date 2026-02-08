@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { Link, useLocation, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import "../styles.css";
 
 function NewsDetail() {
   const { id } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const decodedId = decodeURIComponent(id || "");
   const [item, setItem] = useState(location.state?.item || null);
   const [article, setArticle] = useState(null);
@@ -110,13 +111,28 @@ function NewsDetail() {
     };
   }, [item?.link]);
 
+  const goBack = () => {
+    const from = location.state?.from;
+    if (typeof from === "string" && from.length > 0) {
+      navigate(from);
+      return;
+    }
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate("/news");
+  };
+
   if (!item) {
     return (
       <div className="layout">
         <section className="detail-panel">
           <h2>Story unavailable</h2>
           <p>We couldn't load that story. Please return to the news list.</p>
-          <Link className="detail-link" to="/news">Back to news</Link>
+          <button type="button" className="detail-link" onClick={goBack}>
+            &#8592; Back to results
+          </button>
         </section>
       </div>
     );
@@ -137,7 +153,9 @@ function NewsDetail() {
               <p className="news-date">{new Date(item.pubDate).toLocaleString()}</p>
             )}
           </div>
-          <Link className="detail-link" to="/news">Back to news</Link>
+          <button type="button" className="detail-link" onClick={goBack}>
+            &#8592; Back to results
+          </button>
         </div>
         {(article?.image || item.image) && (
           <img className="news-detail-image" src={article?.image || item.image} alt={displayTitle} />

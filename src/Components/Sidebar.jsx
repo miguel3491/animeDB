@@ -2,13 +2,22 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { getAniListCoverFromCache } from "../utils/anilist";
 
-function Sidebar({topAnime, imageMap}){
+function Sidebar({topAnime, imageMap, fromPath}){
     const safeTop = Array.isArray(topAnime) ? topAnime : [];
     const sortedTop = [...safeTop].filter(Boolean).slice(0, 10);
-    const formatRelease = (value) => {
+    const seasonLabelFromIso = (value) => {
       if (!value) return "TBA";
       const iso = String(value).slice(0, 10);
-      return iso && iso !== "null" ? iso : "TBA";
+      const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!match) return "TBA";
+      const year = Number(match[1]);
+      const month = Number(match[2]);
+      const season =
+        [12, 1, 2].includes(month) ? "Winter" :
+        [3, 4, 5].includes(month) ? "Spring" :
+        [6, 7, 8].includes(month) ? "Summer" :
+        "Fall";
+      return `${season} ${year}`;
     };
     return(
         <aside>
@@ -29,7 +38,7 @@ function Sidebar({topAnime, imageMap}){
                     )}
                     <div className="side-text">
                       {anime?.mal_id ? (
-                        <Link className="anime-title" to={`/anime/${anime.mal_id}`}>
+                        <Link className="anime-title" to={`/anime/${anime.mal_id}`} state={{ from: fromPath || "/" }}>
                             {anime.title}
                         </Link>
                       ) : (
@@ -37,7 +46,7 @@ function Sidebar({topAnime, imageMap}){
                           {anime.title}
                         </span>
                       )}
-                      <div className="side-meta">Release: {formatRelease(anime?.aired?.from)}</div>
+                      <div className="side-meta">Season: {seasonLabelFromIso(anime?.aired?.from)}</div>
                     </div>
                     </div>
                 ))}  

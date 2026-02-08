@@ -23,6 +23,7 @@ let latestEpisodesCache = { data: null, ts: 0 };
 function MainContent({ mode } = {}) {
   const location = useLocation();
   const isSeasonalMode = mode === "seasonal";
+  const fromPath = `${location.pathname}${location.search || ""}`;
   const isAnimeActive = location.pathname === "/" || location.pathname.startsWith("/seasonal/anime");
   const isMangaActive = location.pathname === "/manga" || location.pathname.startsWith("/seasonal/manga");
   const isNewsActive = location.pathname.startsWith("/news");
@@ -62,6 +63,19 @@ function MainContent({ mode } = {}) {
   const [toast, setToast] = useState("");
   const toastTimeoutRef = useRef(null);
   const showMiniStrip = search.trim().length === 0 && location.pathname === "/";
+  const defaultSeason = useMemo(() => {
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const year = Math.max(2025, now.getFullYear());
+    const season =
+      [12, 1, 2].includes(month) ? "winter" :
+      [3, 4, 5].includes(month) ? "spring" :
+      [6, 7, 8].includes(month) ? "summer" :
+      "fall";
+    return { year, season };
+  }, []);
+  const [seasonYear, setSeasonYear] = useState(defaultSeason.year);
+  const [seasonName, setSeasonName] = useState(defaultSeason.season);
   // const [seasonAnime, setseasonAnime] = useState([]);
   // const [filterAnime, setFilter] = useState([]);
 
@@ -123,8 +137,10 @@ function MainContent({ mode } = {}) {
     }
   }, []);
 
-  const loadSeasonalAnime = useCallback(async (page = 1) => {
-    const cacheKey = `seasonal|${page}`;
+  const loadSeasonalAnime = useCallback(async (page = 1, opts = {}) => {
+    const year = Number(opts.year ?? seasonYear);
+    const season = String(opts.season ?? seasonName);
+    const cacheKey = `seasonal|${year}|${season}|${page}`;
     const cached = seasonCache.get(cacheKey);
     const now = Date.now();
     if (cached && now - cached.ts < SEASON_TTL) {
@@ -135,7 +151,7 @@ function MainContent({ mode } = {}) {
     try {
       setIsListLoading(true);
       const response = await fetch(
-        `/api/jikan/season?page=${encodeURIComponent(page)}&limit=20`
+        `/api/jikan/anime/seasonal?year=${encodeURIComponent(year)}&season=${encodeURIComponent(season)}&page=${encodeURIComponent(page)}&limit=20`
       );
       const apiAll = await response.json();
       const data = apiAll?.data ?? [];
@@ -155,7 +171,7 @@ function MainContent({ mode } = {}) {
     } finally {
       setIsListLoading(false);
     }
-  }, []);
+  }, [seasonName, seasonYear]);
 
   useEffect(() => {
     if (!search.trim()) {
@@ -282,6 +298,13 @@ function MainContent({ mode } = {}) {
       }
     }
   }, [search, isSeasonalMode, loadDefaultAnime, loadSeasonalAnime]);
+
+  useEffect(() => {
+    if (!isSeasonalMode) return;
+    if (search.trim()) return;
+    setCurrentPage(0);
+    loadSeasonalAnime(1, { year: seasonYear, season: seasonName });
+  }, [isSeasonalMode, loadSeasonalAnime, seasonName, seasonYear, search]);
 
   const triggerSearch = () => {
     if (searchTimeoutRef.current) {
@@ -645,6 +668,36 @@ function MainContent({ mode } = {}) {
     }
   }, [genreOptions, selectedGenre]);
 
+  const seasonLabelFromIso = useCallback((value) => {
+    const iso = value ? String(value).slice(0, 10) : "";
+    const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return "";
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    if (!year || !month) return "";
+    const season =
+      [12, 1, 2].includes(month) ? "Winter" :
+      [3, 4, 5].includes(month) ? "Spring" :
+      [6, 7, 8].includes(month) ? "Summer" :
+      "Fall";
+    return `${season} ${year}`;
+  }, []);
+
+  const seasonOptions = useMemo(() => ([
+    { value: "winter", label: "Winter" },
+    { value: "spring", label: "Spring" },
+    { value: "summer", label: "Summer" },
+    { value: "fall", label: "Fall" }
+  ]), []);
+
+  const yearOptions = useMemo(() => {
+    const nowYear = new Date().getFullYear();
+    const maxYear = Math.max(2025, nowYear + 1);
+    const list = [];
+    for (let y = 2025; y <= maxYear; y += 1) list.push(y);
+    return list;
+  }, []);
+
   // useEffect(() => {
   //   obtainSeasonalAnime();
   // }, []);
@@ -751,11 +804,35 @@ function MainContent({ mode } = {}) {
 
           <div className="results-bar">
             <h3>
-              {search ? `Results for “${search}”` : isSeasonalMode ? "Seasonal anime" : "Trending & top matches"}
+              {search
+                ? `Results for “${search}”`
+                : isSeasonalMode
+                ? `${seasonOptions.find((s) => s.value === seasonName)?.label || "Season"} ${seasonYear}`
+                : "Trending & top matches"}
             </h3>
             <div className="results-controls">
               <span className="pill">{filteredAnime.length} titles</span>
               {searchError && <span className="pill muted">{searchError}</span>}
+              {isSeasonalMode && !search.trim() && (
+                <>
+                  <label className="genre-filter">
+                    <span className="genre-label">Year</span>
+                    <select value={seasonYear} onChange={(e) => setSeasonYear(Number(e.target.value))}>
+                      {yearOptions.map((y) => (
+                        <option key={`season-year-${y}`} value={y}>{y}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="genre-filter">
+                    <span className="genre-label">Season</span>
+                    <select value={seasonName} onChange={(e) => setSeasonName(e.target.value)}>
+                      {seasonOptions.map((s) => (
+                        <option key={`season-name-${s.value}`} value={s.value}>{s.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              )}
               <label className="genre-filter">
                 <span className="genre-label">Genre</span>
                 <select
@@ -911,11 +988,17 @@ function MainContent({ mode } = {}) {
                   item?.images?.jpg?.image_url ||
                   item?.images?.webp?.image_url ||
                   "";
+                const seasonLabel = isSeasonalMode
+                  ? seasonLabelFromIso(item?.aired?.from) ||
+                    `${seasonOptions.find((s) => s.value === seasonName)?.label || "Season"} ${seasonYear}`
+                  : "";
                 return (
                   <AnimeCardItem
                     key={item.mal_id}
                     item={item}
                     cover={cover}
+                    seasonLabel={seasonLabel}
+                    fromPath={fromPath}
                     isFavorite={favorites.has(String(item.mal_id))}
                     pulse={favoritePulseId === String(item.mal_id)}
                     onToggle={toggleFavorite}
@@ -996,6 +1079,7 @@ function MainContent({ mode } = {}) {
           <Sidebar
             topAnime={(Array.isArray(topAnime) ? topAnime : []).slice(0, 10)}
             imageMap={aniCovers}
+            fromPath={fromPath}
           ></Sidebar>
         </div>
       </div>
@@ -1008,6 +1092,8 @@ export default MainContent;
 const AnimeCardItem = React.memo(function AnimeCardItem({
   item,
   cover,
+  seasonLabel,
+  fromPath,
   isFavorite,
   pulse,
   onToggle,
@@ -1029,7 +1115,7 @@ const AnimeCardItem = React.memo(function AnimeCardItem({
 
   return (
     <article className="anime-card">
-      <Link to={`/anime/${mal_id}`}>
+      <Link to={`/anime/${mal_id}`} state={{ from: fromPath }}>
         <div
           className="media-wrap"
           onMouseEnter={() => setShowTrailer(true)}
@@ -1057,10 +1143,11 @@ const AnimeCardItem = React.memo(function AnimeCardItem({
       </Link>
       <div className="card-body">
         <div className="tag-row">
+          {seasonLabel && <span className="tag seasonal">{seasonLabel}</span>}
           {type && <span className="tag">{type}</span>}
           {source && <span className="tag">{source}</span>}
         </div>
-        <Link className="card-title-link" to={`/anime/${mal_id}`}>
+        <Link className="card-title-link" to={`/anime/${mal_id}`} state={{ from: fromPath }}>
           <h4 className="card-title">{title}</h4>
         </Link>
         <div className="card-meta">
@@ -1075,7 +1162,7 @@ const AnimeCardItem = React.memo(function AnimeCardItem({
         <span className="score-badge">Score {score ?? "N/A"}</span>
         <p className="synopsis">{synopsis || "No synopsis available yet."}</p>
         <div className="card-actions">
-          <Link className="detail-link" to={`/anime/${mal_id}`}>
+          <Link className="detail-link" to={`/anime/${mal_id}`} state={{ from: fromPath }}>
             View details
           </Link>
           <button

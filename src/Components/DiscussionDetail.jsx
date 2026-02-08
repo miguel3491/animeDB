@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { collection, doc, getDocs, onSnapshot, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
@@ -10,9 +10,23 @@ function DiscussionDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [post, setPost] = useState(null);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState(null);
+
+  const goBack = () => {
+    const from = location.state?.from;
+    if (typeof from === "string" && from.length > 0) {
+      navigate(from);
+      return;
+    }
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate("/discussion");
+  };
 
   useEffect(() => {
     const ref = doc(db, "discussions", id);
@@ -50,7 +64,9 @@ function DiscussionDetail() {
       <div className="layout">
         <section className="detail-panel">
           <p>We could not find that discussion.</p>
-          <Link className="detail-link" to="/discussion">Back to discussion</Link>
+          <button type="button" className="detail-link" onClick={goBack}>
+            &#8592; Back to results
+          </button>
         </section>
       </div>
     );
@@ -81,7 +97,9 @@ function DiscussionDetail() {
       <section>
         <div className="results-bar">
           <h3>{post.mediaTitle || post.animeTitle}</h3>
-          <Link className="detail-link" to="/discussion">Back to discussion</Link>
+          <button type="button" className="detail-link" onClick={goBack}>
+            &#8592; Back to results
+          </button>
         </div>
         <div className="discussion-grid">
           <DiscussionPost

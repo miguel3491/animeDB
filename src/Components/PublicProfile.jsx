@@ -1,15 +1,31 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { collection, doc, getDoc, getDocs, limit, orderBy, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 import "../styles.css";
 
 function PublicProfile() {
   const { uid } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activity, setActivity] = useState([]);
   const [activityLoading, setActivityLoading] = useState(true);
+  const fromPath = `${location.pathname}${location.search || ""}`;
+
+  const goBack = () => {
+    const from = location.state?.from;
+    if (typeof from === "string" && from.length > 0) {
+      navigate(from);
+      return;
+    }
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate("/discussion");
+  };
 
   useEffect(() => {
     let active = true;
@@ -114,7 +130,9 @@ function PublicProfile() {
       <div className="layout">
         <section className="detail-panel">
           <p>This profile is unavailable.</p>
-          <Link className="detail-link" to="/discussion">Back to discussion</Link>
+          <button type="button" className="detail-link" onClick={goBack}>
+            &#8592; Back to results
+          </button>
         </section>
       </div>
     );
@@ -157,7 +175,12 @@ function PublicProfile() {
           ) : (
             <div className="public-activity-grid">
               {activity.map((item) => (
-                <Link className="public-activity-card" key={item.id} to={`/discussion/${item.id}`}>
+                <Link
+                  className="public-activity-card"
+                  key={item.id}
+                  to={`/discussion/${item.id}`}
+                  state={{ from: fromPath }}
+                >
                   {item.image ? (
                     <img src={item.image} alt={item.title} />
                   ) : (

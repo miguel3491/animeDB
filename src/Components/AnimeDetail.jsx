@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { deleteDoc, doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
@@ -8,6 +8,8 @@ import "../styles.css";
 
 function AnimeDetail() {
   const { id } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [anime, setAnime] = useState(null);
   const [loading, setLoading] = useState(true);
   const [characters, setCharacters] = useState([]);
@@ -115,6 +117,19 @@ function AnimeDetail() {
     };
   }, [anime?.mal_id]);
 
+  const goBack = () => {
+    const from = location.state?.from;
+    if (typeof from === "string" && from.length > 0) {
+      navigate(from);
+      return;
+    }
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate("/");
+  };
+
   if (loading) {
     return (
       <div className="layout">
@@ -130,7 +145,9 @@ function AnimeDetail() {
       <div className="layout">
         <section className="detail-panel">
           <p>We could not load this anime. Please try another title.</p>
-          <Link className="detail-link" to="/">Back to search</Link>
+          <button type="button" className="detail-link" onClick={goBack}>
+            &#8592; Back to results
+          </button>
         </section>
       </div>
     );
@@ -173,7 +190,9 @@ function AnimeDetail() {
     <div className="layout detail-layout">
       <section className="detail-panel">
         <div className="detail-header">
-          <Link className="detail-link" to="/">&#8592; Back to results</Link>
+          <button type="button" className="detail-link" onClick={goBack}>
+            &#8592; Back to results
+          </button>
           <div className="detail-actions">
             {hasTrailer && <span className="pill">Trailer available</span>}
             <button

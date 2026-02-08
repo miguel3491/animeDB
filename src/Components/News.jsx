@@ -4,6 +4,7 @@ import "../styles.css";
 
 function News() {
   const location = useLocation();
+  const fromPath = `${location.pathname}${location.search || ""}`;
   const isAnimeActive = location.pathname === "/" || location.pathname.startsWith("/seasonal/anime");
   const isMangaActive = location.pathname === "/manga" || location.pathname.startsWith("/seasonal/manga");
   const isNewsActive = location.pathname.startsWith("/news");
@@ -171,6 +172,7 @@ function News() {
                   className="detail-link"
                   to={`/news/${encodeURIComponent(highlight.id)}`}
                   state={{
+                    from: fromPath,
                     item: {
                       ...highlight,
                       displayTitle: highlight.title,
@@ -227,6 +229,7 @@ function News() {
                   className="detail-link"
                   to={`/news/${encodeURIComponent(item.id)}`}
                   state={{
+                    from: fromPath,
                     item: {
                       ...item,
                       displayTitle: item.title,

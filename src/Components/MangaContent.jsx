@@ -23,6 +23,7 @@ let latestMangaCache = { data: null, ts: 0 };
 function MangaContent({ mode } = {}) {
   const location = useLocation();
   const isSeasonalMode = mode === "seasonal";
+  const fromPath = `${location.pathname}${location.search || ""}`;
   const isAnimeActive = location.pathname === "/" || location.pathname.startsWith("/seasonal/anime");
   const isMangaActive = location.pathname === "/manga" || location.pathname.startsWith("/seasonal/manga");
   const isNewsActive = location.pathname.startsWith("/news");
@@ -60,6 +61,19 @@ function MangaContent({ mode } = {}) {
   const searchRequestRef = useRef(0);
   const favoritePulseTimeout = useRef(null);
   const showMiniStrip = search.trim().length === 0 && location.pathname === "/manga";
+  const defaultSeason = useMemo(() => {
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const year = Math.max(2025, now.getFullYear());
+    const season =
+      [12, 1, 2].includes(month) ? "winter" :
+      [3, 4, 5].includes(month) ? "spring" :
+      [6, 7, 8].includes(month) ? "summer" :
+      "fall";
+    return { year, season };
+  }, []);
+  const [seasonYear, setSeasonYear] = useState(defaultSeason.year);
+  const [seasonName, setSeasonName] = useState(defaultSeason.season);
   const [mangaCovers, setMangaCovers] = useState({});
   const [favoritePulseId, setFavoritePulseId] = useState(null);
 
@@ -115,8 +129,10 @@ function MangaContent({ mode } = {}) {
     }
   }, []);
 
-  const loadSeasonalManga = useCallback(async (page = 1) => {
-    const cacheKey = `seasonal|${page}`;
+  const loadSeasonalManga = useCallback(async (page = 1, opts = {}) => {
+    const year = Number(opts.year ?? seasonYear);
+    const season = String(opts.season ?? seasonName);
+    const cacheKey = `seasonal|${year}|${season}|${page}`;
     const cached = seasonCache.get(cacheKey);
     const now = Date.now();
     if (cached && now - cached.ts < SEASON_TTL) {
@@ -127,7 +143,7 @@ function MangaContent({ mode } = {}) {
     try {
       setIsListLoading(true);
       const response = await fetch(
-        `/api/jikan/manga/seasonal?page=${encodeURIComponent(page)}&limit=20`
+        `/api/jikan/manga/seasonal?year=${encodeURIComponent(year)}&season=${encodeURIComponent(season)}&page=${encodeURIComponent(page)}&limit=20`
       );
       const apiAll = await response.json();
       const data = apiAll?.data ?? [];
@@ -147,7 +163,7 @@ function MangaContent({ mode } = {}) {
     } finally {
       setIsListLoading(false);
     }
-  }, []);
+  }, [seasonName, seasonYear]);
 
   useEffect(() => {
     if (!search.trim()) {
@@ -272,6 +288,13 @@ function MangaContent({ mode } = {}) {
       }
     }
   }, [search, isSeasonalMode, loadDefaultManga, loadSeasonalManga]);
+
+  useEffect(() => {
+    if (!isSeasonalMode) return;
+    if (search.trim()) return;
+    setCurrentPage(0);
+    loadSeasonalManga(1, { year: seasonYear, season: seasonName });
+  }, [isSeasonalMode, loadSeasonalManga, seasonName, seasonYear, search]);
 
   const triggerSearch = () => {
     if (searchTimeoutRef.current) {
@@ -486,6 +509,36 @@ function MangaContent({ mode } = {}) {
     }
   }, [genreOptions, selectedGenre]);
 
+  const seasonLabelFromIso = useCallback((value) => {
+    const iso = value ? String(value).slice(0, 10) : "";
+    const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return "";
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    if (!year || !month) return "";
+    const season =
+      [12, 1, 2].includes(month) ? "Winter" :
+      [3, 4, 5].includes(month) ? "Spring" :
+      [6, 7, 8].includes(month) ? "Summer" :
+      "Fall";
+    return `${season} ${year}`;
+  }, []);
+
+  const seasonOptions = useMemo(() => ([
+    { value: "winter", label: "Winter" },
+    { value: "spring", label: "Spring" },
+    { value: "summer", label: "Summer" },
+    { value: "fall", label: "Fall" }
+  ]), []);
+
+  const yearOptions = useMemo(() => {
+    const nowYear = new Date().getFullYear();
+    const maxYear = Math.max(2025, nowYear + 1);
+    const list = [];
+    for (let y = 2025; y <= maxYear; y += 1) list.push(y);
+    return list;
+  }, []);
+
   useEffect(() => {
     if (!user) {
       const empty = new Set();
@@ -688,11 +741,35 @@ function MangaContent({ mode } = {}) {
 
           <div className="results-bar">
             <h3>
-              {search ? `Results for “${search}”` : isSeasonalMode ? "Seasonal manga" : "Trending & top matches"}
+              {search
+                ? `Results for “${search}”`
+                : isSeasonalMode
+                ? `${seasonOptions.find((s) => s.value === seasonName)?.label || "Season"} ${seasonYear}`
+                : "Trending & top matches"}
             </h3>
             <div className="results-controls">
               <span className="pill">{filteredManga.length} titles</span>
               {searchError && <span className="pill muted">{searchError}</span>}
+              {isSeasonalMode && !search.trim() && (
+                <>
+                  <label className="genre-filter">
+                    <span className="genre-label">Year</span>
+                    <select value={seasonYear} onChange={(e) => setSeasonYear(Number(e.target.value))}>
+                      {yearOptions.map((y) => (
+                        <option key={`season-year-${y}`} value={y}>{y}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="genre-filter">
+                    <span className="genre-label">Season</span>
+                    <select value={seasonName} onChange={(e) => setSeasonName(e.target.value)}>
+                      {seasonOptions.map((s) => (
+                        <option key={`season-name-${s.value}`} value={s.value}>{s.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              )}
               <label className="genre-filter">
                 <span className="genre-label">Genre</span>
                 <select
@@ -851,7 +928,8 @@ function MangaContent({ mode } = {}) {
                   chapters,
                   volumes,
                   status,
-                  score
+                  score,
+                  published
                 }) => {
                   const cover =
                     mangaCovers[mal_id] ||
@@ -859,9 +937,13 @@ function MangaContent({ mode } = {}) {
                     images?.jpg?.image_url ||
                     images?.webp?.image_url ||
                     "";
+                  const seasonLabel = isSeasonalMode
+                    ? seasonLabelFromIso(published?.from) ||
+                      `${seasonOptions.find((s) => s.value === seasonName)?.label || "Season"} ${seasonYear}`
+                    : "";
                   return (
                     <article className="anime-card" key={mal_id}>
-                      <Link to={`/manga/${mal_id}`}>
+                      <Link to={`/manga/${mal_id}`} state={{ from: fromPath }}>
                         <div className="media-wrap">
                           {cover ? (
                             <img src={cover} alt={title} />
@@ -872,10 +954,11 @@ function MangaContent({ mode } = {}) {
                       </Link>
                       <div className="card-body">
                         <div className="tag-row">
+                          {seasonLabel && <span className="tag seasonal">{seasonLabel}</span>}
                           {type && <span className="tag">{type}</span>}
                           {status && <span className="tag">{status}</span>}
                         </div>
-                        <Link className="card-title-link" to={`/manga/${mal_id}`}>
+                        <Link className="card-title-link" to={`/manga/${mal_id}`} state={{ from: fromPath }}>
                           <h4 className="card-title">{title}</h4>
                         </Link>
                         <div className="card-meta">
@@ -885,7 +968,7 @@ function MangaContent({ mode } = {}) {
                         <span className="score-badge">Score {score ?? "N/A"}</span>
                         <p className="synopsis">{synopsis || "No synopsis available yet."}</p>
                         <div className="card-actions">
-                          <Link className="detail-link" to={`/manga/${mal_id}`}>
+                          <Link className="detail-link" to={`/manga/${mal_id}`} state={{ from: fromPath }}>
                             View details
                           </Link>
                           <button
@@ -968,7 +1051,7 @@ function MangaContent({ mode } = {}) {
         </section>
 
         <div className="Sidebar">
-          <MangaSidebar topManga={topManga} imageMap={mangaCovers}></MangaSidebar>
+          <MangaSidebar topManga={topManga} imageMap={mangaCovers} fromPath={fromPath}></MangaSidebar>
         </div>
       </div>
     </div>

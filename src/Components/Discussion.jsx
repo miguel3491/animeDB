@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { addDoc, collection, doc, getDocs, onSnapshot, orderBy, query, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
@@ -13,6 +13,8 @@ export function DiscussionPost({
   draft,
   onDraftChange
 }) {
+  const location = useLocation();
+  const fromPath = `${location.pathname}${location.search || ""}`;
   const { profile } = useAuth();
   const mediaType = post.mediaType || "anime";
   const mediaId = post.mediaId || post.animeId || post.mal_id;
@@ -214,15 +216,20 @@ export function DiscussionPost({
         )}
         <div className="discussion-title">
           {detailLink ? (
-            <Link to={`/discussion/${post.id}`} onClick={markSeen}>{mediaTitle}</Link>
+            <Link to={`/discussion/${post.id}`} state={{ from: fromPath }} onClick={markSeen}>{mediaTitle}</Link>
           ) : (
-            <Link to={mediaType === "manga" ? `/manga/${mediaId}` : `/anime/${mediaId}`}>{mediaTitle}</Link>
+            <Link
+              to={mediaType === "manga" ? `/manga/${mediaId}` : `/anime/${mediaId}`}
+              state={{ from: fromPath }}
+            >
+              {mediaTitle}
+            </Link>
           )}
           <div className="discussion-meta">
             <span>
               Posted by{" "}
               {post.userId ? (
-                <Link className="discussion-user-link" to={`/profile/${post.userId}`}>
+                <Link className="discussion-user-link" to={`/profile/${post.userId}`} state={{ from: fromPath }}>
                   {post.userName || "Anonymous"}
                 </Link>
               ) : (
@@ -302,11 +309,12 @@ export function DiscussionPost({
       <div className="discussion-footer">
         <span>{post.createdAt ? new Date(post.createdAt).toLocaleString() : ""}</span>
         {detailLink ? (
-          <Link className="detail-link" to={`/discussion/${post.id}`}>View thread</Link>
+          <Link className="detail-link" to={`/discussion/${post.id}`} state={{ from: fromPath }}>View thread</Link>
         ) : (
           <Link
             className="detail-link"
             to={mediaType === "manga" ? `/manga/${mediaId}` : `/anime/${mediaId}`}
+            state={{ from: fromPath }}
           >
             View details
           </Link>
@@ -330,7 +338,7 @@ export function DiscussionPost({
                   <div className="comment-meta">
                     <span>
                       {comment.userId ? (
-                        <Link className="discussion-user-link" to={`/profile/${comment.userId}`}>
+                        <Link className="discussion-user-link" to={`/profile/${comment.userId}`} state={{ from: fromPath }}>
                           {comment.userName || "Anonymous"}
                         </Link>
                       ) : (

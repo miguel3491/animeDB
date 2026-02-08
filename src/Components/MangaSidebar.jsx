@@ -2,7 +2,7 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { getAniListMangaCoverFromCache } from "../utils/anilist";
 
-function MangaSidebar({ topManga, imageMap }) {
+function MangaSidebar({ topManga, imageMap, fromPath }) {
   const safeTop = Array.isArray(topManga) ? topManga : [];
   const sortedTop = [...safeTop]
     .filter((manga) => manga && manga.mal_id)
@@ -31,7 +31,7 @@ function MangaSidebar({ topManga, imageMap }) {
               ) : (
                 <div className="side-image placeholder" aria-label={`${manga.title} cover unavailable`}></div>
               )}
-              <Link className="anime-title" to={`/manga/${manga.mal_id}`}>
+              <Link className="anime-title" to={`/manga/${manga.mal_id}`} state={{ from: fromPath || "/manga" }}>
                 {manga.title}
               </Link>
             </div>

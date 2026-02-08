@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { deleteDoc, doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
@@ -7,6 +7,8 @@ import "../styles.css";
 
 function MangaDetail() {
   const { id } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [manga, setManga] = useState(null);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
@@ -57,6 +59,19 @@ function MangaDetail() {
     };
   }, [id, user]);
 
+  const goBack = () => {
+    const from = location.state?.from;
+    if (typeof from === "string" && from.length > 0) {
+      navigate(from);
+      return;
+    }
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate("/manga");
+  };
+
   if (loading) {
     return (
       <div className="layout">
@@ -72,7 +87,9 @@ function MangaDetail() {
       <div className="layout">
         <section className="detail-panel">
           <p>We could not load this manga. Please try another title.</p>
-          <Link className="detail-link" to="/manga">Back to manga</Link>
+          <button type="button" className="detail-link" onClick={goBack}>
+            &#8592; Back to results
+          </button>
         </section>
       </div>
     );
@@ -112,7 +129,9 @@ function MangaDetail() {
     <div className="layout detail-layout">
       <section className="detail-panel">
         <div className="detail-header">
-          <Link className="detail-link" to="/manga">&#8592; Back to manga</Link>
+          <button type="button" className="detail-link" onClick={goBack}>
+            &#8592; Back to results
+          </button>
           <div className="detail-actions">
             <span className="pill">Manga details</span>
             <button

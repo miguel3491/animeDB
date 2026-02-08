@@ -1069,6 +1069,10 @@ a{
     gap: 8px;
     flex-wrap: wrap;
 }
+.tag.seasonal {
+    background: linear-gradient(120deg, rgba(122, 252, 255, 0.22), rgba(255, 107, 156, 0.18));
+    border-color: rgba(255, 255, 255, 0.14);
+}
 .tag {
     font-size: 11px;
     letter-spacing: 1px;
