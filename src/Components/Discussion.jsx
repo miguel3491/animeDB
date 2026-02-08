@@ -118,14 +118,10 @@ export function DiscussionPost({
     const lastPage = Math.max(0, totalCommentPages - 1);
     if (!threadInitRef.current) {
       threadInitRef.current = true;
-      setCommentPage(lastPage);
+      setCommentPage(0);
       return;
     }
-    const prevLen = prevCommentsLenRef.current;
-    const prevLastPage = Math.max(0, Math.ceil(prevLen / COMMENTS_PER_PAGE) - 1);
-    if (commentPage === prevLastPage && prevLen !== comments.length) {
-      setCommentPage(lastPage);
-    } else if (commentPage > lastPage) {
+    if (commentPage > lastPage) {
       setCommentPage(lastPage);
     }
   }, [COMMENTS_PER_PAGE, commentPage, comments.length, isThread, totalCommentPages]);
@@ -246,9 +242,8 @@ export function DiscussionPost({
     }, 320);
 
     if (isThread) {
-      const nextTotal = comments.length + 1;
-      const nextLastPage = Math.max(0, Math.ceil(nextTotal / COMMENTS_PER_PAGE) - 1);
-      setCommentPage(nextLastPage);
+      // Keep the thread anchored to page 1 for consistency.
+      setCommentPage(0);
     }
   };
 
