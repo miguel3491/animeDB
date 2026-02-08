@@ -12,6 +12,7 @@ import Discussion from "./Discussion";
 import DiscussionDetail from "./DiscussionDetail";
 import Profile from "./Profile";
 import PublicProfile from "./PublicProfile";
+import Inbox from "./Inbox";
 
 function App(){
     return(
@@ -35,6 +36,7 @@ function App(){
                         <Route path="/discussion/:id" element={<DiscussionDetail></DiscussionDetail>} />
                         <Route path="/profile" element={<Profile></Profile>} />
                         <Route path="/profile/:uid" element={<PublicProfile></PublicProfile>} />
+                        <Route path="/inbox" element={<Inbox></Inbox>} />
                     </Routes>
                 </main>
                 <footer>

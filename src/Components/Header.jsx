@@ -11,10 +11,13 @@ function Header(){
     const [status, setStatus] = useState("");
     const [inboxCount, setInboxCount] = useState(0);
     const [inboxPop, setInboxPop] = useState(false);
+    const [inboxHelpOpen, setInboxHelpOpen] = useState(false);
     const fileRef = useRef(null);
     const bgRef = useRef(null);
     const commentUnsubsRef = useRef(new Map());
     const commentCacheRef = useRef(new Map());
+    const followerUnsubRef = useRef(null);
+    const followerCountRef = useRef(0);
     const lastInboxRef = useRef(0);
     const inboxTimeoutRef = useRef(null);
 
@@ -23,11 +26,22 @@ function Header(){
     }, [profile?.username]);
 
     useEffect(() => {
+        if (!open) {
+            setInboxHelpOpen(false);
+        }
+    }, [open]);
+
+    useEffect(() => {
         if (!user?.uid) {
             setInboxCount(0);
             commentUnsubsRef.current.forEach((unsub) => unsub());
             commentUnsubsRef.current.clear();
             commentCacheRef.current.clear();
+            followerCountRef.current = 0;
+            if (followerUnsubRef.current) {
+                followerUnsubRef.current();
+                followerUnsubRef.current = null;
+            }
             return;
         }
 
@@ -66,7 +80,7 @@ function Header(){
                     const total = Array.from(commentCacheRef.current.entries())
                         .filter(([key]) => key.endsWith("-count"))
                         .reduce((sum, [, count]) => sum + count, 0);
-                    setInboxCount(total);
+                    setInboxCount(total + (followerCountRef.current || 0));
                 });
                 commentUnsubsRef.current.set(postId, unsubComments);
             });
@@ -80,6 +94,38 @@ function Header(){
                 }
             });
         });
+
+        const followersRef = collection(db, "users", user.uid, "followers");
+        const followersQuery = query(followersRef, orderBy("clientAt", "desc"));
+        followerUnsubRef.current = onSnapshot(
+            followersQuery,
+            (snap) => {
+                let lastSeen = 0;
+                try {
+                    lastSeen = Number(localStorage.getItem("followers-seen")) || 0;
+                } catch (err) {
+                    lastSeen = 0;
+                }
+                const unread = snap.docs
+                    .slice(0, 50)
+                    .map((docItem) => docItem.data() || {})
+                    .map((row) => Date.parse(row.clientAt || ""))
+                    .filter((time) => time && !Number.isNaN(time) && time > lastSeen).length;
+                followerCountRef.current = unread;
+
+                const total = Array.from(commentCacheRef.current.entries())
+                    .filter(([key]) => key.endsWith("-count"))
+                    .reduce((sum, [, count]) => sum + count, 0);
+                setInboxCount(total + unread);
+            },
+            () => {
+                followerCountRef.current = 0;
+                const total = Array.from(commentCacheRef.current.entries())
+                    .filter(([key]) => key.endsWith("-count"))
+                    .reduce((sum, [, count]) => sum + count, 0);
+                setInboxCount(total);
+            }
+        );
 
         const handleSeen = (event) => {
             const postId = event?.detail?.postId;
@@ -96,7 +142,7 @@ function Header(){
             const total = Array.from(commentCacheRef.current.entries())
                 .filter(([key]) => key.endsWith("-count"))
                 .reduce((sum, [, count]) => sum + count, 0);
-            setInboxCount(total);
+            setInboxCount(total + (followerCountRef.current || 0));
         };
 
         window.addEventListener("discussion-seen", handleSeen);
@@ -107,6 +153,11 @@ function Header(){
             commentUnsubsRef.current.forEach((unsub) => unsub());
             commentUnsubsRef.current.clear();
             commentCacheRef.current.clear();
+            followerCountRef.current = 0;
+            if (followerUnsubRef.current) {
+                followerUnsubRef.current();
+                followerUnsubRef.current = null;
+            }
         };
     }, [user?.uid]);
 
@@ -217,6 +268,9 @@ function Header(){
                                             Close
                                         </button>
                                     </div>
+                                    <Link className="detail-link" to="/inbox" onClick={() => setOpen(false)}>
+                                        Open inbox
+                                    </Link>
                                     <Link className="detail-link" to="/profile" onClick={() => setOpen(false)}>
                                         Open profile page
                                     </Link>
@@ -272,7 +326,7 @@ function Header(){
                                             Clear images
                                         </button>
                                     </div>
-                                    <div className="profile-inbox">
+                                    <Link className="profile-inbox" to="/inbox" onClick={() => setOpen(false)}>
                                         <span>Inbox</span>
                                         <div className="profile-inbox-meta">
                                             <span className="profile-inbox-count">
@@ -281,13 +335,34 @@ function Header(){
                                             <button
                                                 type="button"
                                                 className="profile-inbox-help"
-                                                title="Shows new comments on your discussion posts. The badge updates when you open the thread."
-                                                aria-label="Inbox info"
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    setInboxHelpOpen((prev) => !prev);
+                                                }}
+                                                aria-label="Inbox FAQ"
+                                                title="Inbox FAQ"
                                             >
                                                 ?
                                             </button>
                                         </div>
-                                    </div>
+                                    </Link>
+                                    {inboxHelpOpen && (
+                                        <div className="profile-inbox-popover">
+                                            <p className="muted">
+                                                Inbox includes:
+                                            </p>
+                                            <p className="muted">
+                                                1. New comments on your discussion posts (clears when you open the thread).
+                                            </p>
+                                            <p className="muted">
+                                                2. New followers (clears when you mark followers as seen).
+                                            </p>
+                                            <p className="muted">
+                                                3. Bug report updates (if the owner resolves your report).
+                                            </p>
+                                        </div>
+                                    )}
                                     {status && <p className="muted">{status}</p>}
                                     <button className="auth-button" type="button" onClick={signOutUser}>
                                         Sign out

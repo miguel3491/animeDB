@@ -207,6 +207,127 @@ a{
 .profile-inbox-help:hover {
     border-color: rgba(255, 255, 255, 0.4);
 }
+.profile-inbox-popover {
+    margin-top: -4px;
+    padding: 12px 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(16, 26, 48, 0.78);
+    display: grid;
+    gap: 6px;
+}
+.profile-inbox-popover p {
+    margin: 0;
+    font-size: 12px;
+}
+.inbox-panel {
+    animation: sectionIn 0.35s ease both;
+}
+.inbox-intro {
+    margin-top: 8px;
+}
+.inbox-grid {
+    margin-top: 18px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+}
+.inbox-section {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(16, 26, 48, 0.55);
+    border-radius: 18px;
+    padding: 16px;
+    display: grid;
+    gap: 12px;
+}
+.inbox-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+.inbox-section-head h3 {
+    margin: 0;
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+.inbox-section-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+.pill-hot {
+    background: rgba(255, 107, 156, 0.85);
+    color: #0c1324;
+    border-color: transparent;
+}
+.inbox-list {
+    display: grid;
+    gap: 10px;
+}
+.inbox-row {
+    display: grid;
+    grid-template-columns: 46px 1fr;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(16, 26, 48, 0.72);
+    color: inherit;
+    text-decoration: none;
+}
+.inbox-row:hover {
+    border-color: rgba(255, 255, 255, 0.2);
+}
+.inbox-avatar {
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+}
+.inbox-avatar.placeholder {
+    background: linear-gradient(135deg, rgba(255, 107, 156, 0.2), rgba(122, 252, 255, 0.12));
+}
+.inbox-thumb {
+    width: 46px;
+    height: 64px;
+    border-radius: 12px;
+    object-fit: cover;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+}
+.inbox-thumb.placeholder {
+    background: linear-gradient(135deg, rgba(255, 107, 156, 0.18), rgba(122, 252, 255, 0.1));
+}
+.inbox-row-text {
+    min-width: 0;
+}
+.inbox-row-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 13px;
+}
+.inbox-row-title span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.inbox-row p {
+    margin: 6px 0 0;
+    font-size: 12px;
+}
+
+@media (max-width: 980px) {
+    .inbox-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
 /* Public profile */
 .public-profile {
     padding: 0;
