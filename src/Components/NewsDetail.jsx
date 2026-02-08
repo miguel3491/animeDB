@@ -16,6 +16,9 @@ function NewsDetail() {
   const [brokenImages, setBrokenImages] = useState(() => new Set());
   const [summaryNotice, setSummaryNotice] = useState("");
   const [summaryUsed, setSummaryUsed] = useState(false);
+  const [summarySessionDisabled, setSummarySessionDisabled] = useState(
+    () => sessionStorage.getItem("summary-disabled") === "1"
+  );
   const summaryRequestedRef = useRef(false);
   const itemId = item?.id || "";
 
@@ -40,11 +43,8 @@ function NewsDetail() {
     setSummaryNotice("");
     setSummary(null);
 
-    const disabled = sessionStorage.getItem("summary-disabled") === "1";
-    if (disabled) {
-      setSummaryNotice("AI summary is currently disabled for this session.");
-      return;
-    }
+    setSummarySessionDisabled(sessionStorage.getItem("summary-disabled") === "1");
+    if (sessionStorage.getItem("summary-disabled") === "1") return;
 
     // Load cached summary if available.
     const localKey = `news-summary-${itemId}`;
@@ -84,11 +84,7 @@ function NewsDetail() {
     if (!item) return;
     if (summaryLoading) return;
 
-    const disabled = sessionStorage.getItem("summary-disabled") === "1";
-    if (disabled) {
-      setSummaryNotice("AI summary is currently disabled for this session.");
-      return;
-    }
+    if (summarySessionDisabled) return;
 
     const localKey = `news-summary-${item.id}`;
     const usedKey = `news-summary-used-${item.id}`;
@@ -130,6 +126,7 @@ function NewsDetail() {
         const detail = String(data?.detail || data?.error || "Summary unavailable.");
         if (detail.toLowerCase().includes("quota") || detail.toLowerCase().includes("missing")) {
           sessionStorage.setItem("summary-disabled", "1");
+          setSummarySessionDisabled(true);
         }
         throw new Error(detail);
       }
@@ -149,6 +146,17 @@ function NewsDetail() {
       setSummaryLoading(false);
       summaryRequestedRef.current = false;
     }
+  };
+
+  const reenableSummary = () => {
+    try {
+      sessionStorage.removeItem("summary-disabled");
+    } catch (err) {
+      // ignore storage errors
+    }
+    setSummarySessionDisabled(false);
+    setSummaryError("");
+    setSummaryNotice("");
   };
 
   useEffect(() => {
@@ -329,8 +337,14 @@ function NewsDetail() {
                   type="button"
                   className="favorite-button news-ai-button"
                   onClick={generateSummary}
-                  disabled={summaryLoading || summaryUsed}
-                  title={summaryUsed ? "Summary already generated for this article" : "Generate one summary per article"}
+                  disabled={summaryLoading || summaryUsed || summarySessionDisabled}
+                  title={
+                    summarySessionDisabled
+                      ? "AI summary disabled for this session"
+                      : summaryUsed
+                        ? "Summary already generated for this article"
+                        : "Generate one summary per article"
+                  }
                 >
                   {summaryUsed ? "Used" : summaryLoading ? "Generating..." : "Generate"}
                 </button>
@@ -345,7 +359,20 @@ function NewsDetail() {
               </div>
             )}
 
-            {summaryError && !summary?.summary && <p className="publish-status error">{summaryError}</p>}
+            {summarySessionDisabled && !summary?.summary && (
+              <div className="news-ai-disabled">
+                <p className="muted" style={{ marginTop: 0 }}>
+                  AI summary is currently disabled for this session.
+                </p>
+                <button type="button" className="detail-link" onClick={reenableSummary}>
+                  Re-enable
+                </button>
+              </div>
+            )}
+
+            {!summarySessionDisabled && summaryError && !summary?.summary && (
+              <p className="publish-status error">{summaryError}</p>
+            )}
 
             {!summary?.summary && !summaryLoading && !summaryError && summaryNotice && (
               <p className="muted">{summaryNotice}</p>

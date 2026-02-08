@@ -2266,6 +2266,15 @@ a{
 .news-ai-skeleton .skeleton-line {
     margin: 10px 0;
 }
+.news-ai-disabled {
+    display: grid;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 12px;
+    border-radius: 14px;
+    border: 1px dashed rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+}
 .news-summary {
     background: rgba(16, 26, 48, 0.7);
     border: 1px solid rgba(255, 255, 255, 0.08);
