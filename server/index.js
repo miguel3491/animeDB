@@ -48,6 +48,18 @@ const absAnn = (value) => {
   return value;
 };
 
+const absFromBase = (value, baseUrl) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (raw.toLowerCase().startsWith("javascript:")) return "";
+  if (raw.startsWith("data:") || raw.startsWith("blob:")) return raw;
+  try {
+    return new URL(raw, baseUrl).href;
+  } catch (err) {
+    return absAnn(raw);
+  }
+};
+
 const stripTags = (value = "") => String(value).replace(/<[^>]+>/g, "").trim();
 
 const dedupeByKey = (items, getKey) => {
@@ -283,32 +295,85 @@ app.get("/api/ann/article", async (req, res) => {
       "";
     const meat = $(".meat").first();
     meat.find("script, style, iframe, noscript").remove();
+
+    const inlineImages = [];
+    const isAnnHost = (value) => {
+      try {
+        const u = new URL(value);
+        return u.hostname.endsWith("animenewsnetwork.com");
+      } catch (err) {
+        return false;
+      }
+    };
+
     meat.find("img").each((_, el) => {
       const $img = $(el);
-      const dataSrc = $img.attr("data-src");
-      if (dataSrc && !$img.attr("src")) {
-        $img.attr("src", dataSrc);
+      const srcAttr = String($img.attr("src") || "").trim();
+      const dataSrc =
+        String(
+          $img.attr("data-src") ||
+            $img.attr("data-lazy-src") ||
+            $img.attr("data-original") ||
+            $img.attr("data-url") ||
+            ""
+        ).trim();
+      const dataSrcset = String($img.attr("data-srcset") || "").trim();
+      const srcset = String($img.attr("srcset") || "").trim();
+
+      let chosen = srcAttr;
+      if (!chosen || chosen.startsWith("data:")) {
+        chosen = dataSrc || chosen;
       }
-      $img.attr("src", absAnn($img.attr("src")));
+      if (!chosen) {
+        const pickFromSet = (value) => {
+          if (!value) return "";
+          const first = value.split(",")[0] || "";
+          return (first.trim().split(/\s+/)[0] || "").trim();
+        };
+        chosen = pickFromSet(dataSrcset) || pickFromSet(srcset) || "";
+      }
+
+      const normalized = absFromBase(chosen, url);
+      $img.attr("src", normalized);
       $img.removeAttr("srcset");
-      $img.removeAttr("loading");
+      // Some third-party hosts block embeds. We don't proxy images here (copyright/ToS risk),
+      // but we do improve the chance of loading and provide metadata for the UI.
+      $img.attr("loading", "lazy");
+      $img.attr("decoding", "async");
+      $img.attr("referrerpolicy", "no-referrer");
+
+      if (normalized) {
+        const external = !isAnnHost(normalized);
+        if (external) {
+          $img.attr("data-external", "1");
+        }
+        inlineImages.push({ url: normalized, external });
+      }
     });
     meat.find("a").each((_, el) => {
       const $a = $(el);
-      $a.attr("href", absAnn($a.attr("href")));
+      const nextHref = absFromBase($a.attr("href"), url);
+      if (nextHref) {
+        $a.attr("href", nextHref);
+      } else {
+        $a.removeAttr("href");
+      }
       $a.attr("target", "_blank");
       $a.attr("rel", "noreferrer");
     });
     const contentHtml = meat.html() || "";
     const contentText = meat.text().replace(/\s+\n/g, "\n").trim();
 
+    const dedupedImages = dedupeByKey(inlineImages, (img) => img?.url || "");
     const payload = {
       url,
       title,
-      image: absAnn(image),
+      image: absFromBase(image, url),
       description,
       contentHtml,
       contentText,
+      inlineImages: dedupedImages,
+      externalImageCount: dedupedImages.filter((img) => img.external).length,
       sourceName: "Anime News Network"
     };
     annCache.set(cacheKey, { data: payload, ts: Date.now() });

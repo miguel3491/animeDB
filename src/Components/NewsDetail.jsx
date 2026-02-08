@@ -12,6 +12,7 @@ function NewsDetail() {
   const [articleLoading, setArticleLoading] = useState(false);
   const [summary, setSummary] = useState(null);
   const [, setSummaryError] = useState("");
+  const [brokenImages, setBrokenImages] = useState(() => new Set());
 
   useEffect(() => {
     if (item || !decodedId) return;
@@ -142,6 +143,14 @@ function NewsDetail() {
   const displayBody = item.displayBody || item.content || item.summary || "No summary available.";
   const bodyHtml = article?.contentHtml || "";
 
+  const heroImage = article?.image || item.image || "";
+  const inlineImages = Array.isArray(article?.inlineImages) ? article.inlineImages : [];
+  const galleryImages = [heroImage, ...inlineImages.map((img) => img.url)]
+    .filter(Boolean)
+    .filter((value, index, arr) => arr.indexOf(value) === index)
+    .slice(0, 8);
+  const externalCount = Number(article?.externalImageCount || 0);
+
   return (
     <div className="layout detail-layout">
       <section className="detail-panel news-detail">
@@ -157,8 +166,62 @@ function NewsDetail() {
             &#8592; Back to results
           </button>
         </div>
-        {(article?.image || item.image) && (
-          <img className="news-detail-image" src={article?.image || item.image} alt={displayTitle} />
+        {galleryImages.length > 0 && (
+          <div className="news-media">
+            {!brokenImages.has(heroImage) && heroImage && (
+              <img
+                className="news-detail-image"
+                src={heroImage}
+                alt={displayTitle}
+                loading="lazy"
+                referrerPolicy="no-referrer"
+                onError={() => {
+                  setBrokenImages((prev) => new Set(prev).add(heroImage));
+                }}
+              />
+            )}
+            {brokenImages.has(heroImage) && heroImage && (
+              <a className="detail-link" href={heroImage} target="_blank" rel="noreferrer">
+                Open image
+              </a>
+            )}
+            {galleryImages.length > 1 && (
+              <div className="news-media-grid">
+                {galleryImages.slice(1).map((src) => {
+                  const broken = brokenImages.has(src);
+                  return (
+                    <a
+                      key={`news-media-${src}`}
+                      className="news-media-thumb"
+                      href={src}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Open image"
+                    >
+                      {broken ? (
+                        <span className="news-media-broken">Open image</span>
+                      ) : (
+                        <img
+                          src={src}
+                          alt=""
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                          onError={() => {
+                            setBrokenImages((prev) => new Set(prev).add(src));
+                          }}
+                        />
+                      )}
+                    </a>
+                  );
+                })}
+              </div>
+            )}
+            {externalCount > 0 && (
+              <p className="muted news-media-note">
+                Some images are hosted by third-party sites and may block embedding. Click a thumbnail to open it directly.
+              </p>
+            )}
+          </div>
         )}
         <div className="news-body">
           {articleLoading ? (

@@ -360,7 +360,6 @@ function MangaContent({ mode } = {}) {
     }
     if (!search.trim()) {
       setSearchError("");
-      loadDefaultManga(1);
       return;
     }
     searchTimeoutRef.current = setTimeout(() => {

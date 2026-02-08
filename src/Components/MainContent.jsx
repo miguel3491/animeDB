@@ -981,7 +981,7 @@ function MainContent({ mode } = {}) {
             </div>
           ) : (
             <div className={`anime-grid ${viewMode}`}>
-              {filteredAnime.map((item) => {
+              {filteredAnime.map((item, index) => {
                 const cover =
                   aniCovers[item.mal_id] ||
                   getAniListCoverFromCache(item.mal_id) ||
@@ -992,9 +992,14 @@ function MainContent({ mode } = {}) {
                   ? seasonLabelFromIso(item?.aired?.from) ||
                     `${seasonOptions.find((s) => s.value === seasonName)?.label || "Season"} ${seasonYear}`
                   : "";
+                const key = item?.mal_id
+                  ? (isSeasonalMode
+                      ? `anime-${item.mal_id}-${String(item?.aired?.from || "")}-${index}`
+                      : String(item.mal_id))
+                  : `anime-${item?.title || "unknown"}-${index}`;
                 return (
                   <AnimeCardItem
-                    key={item.mal_id}
+                    key={key}
                     item={item}
                     cover={cover}
                     seasonLabel={seasonLabel}
