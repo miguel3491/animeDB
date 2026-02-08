@@ -291,6 +291,7 @@ function MainContent({ mode } = {}) {
 
   useEffect(() => {
     setCurrentPage(0);
+    setPageSize(null);
     if (!search.trim()) {
       if (isSeasonalMode) {
         loadSeasonalAnime(1);
@@ -304,6 +305,7 @@ function MainContent({ mode } = {}) {
     if (!isSeasonalMode) return;
     if (search.trim()) return;
     setCurrentPage(0);
+    setPageSize(null);
     loadSeasonalAnime(1, { year: seasonYear, season: seasonName });
   }, [isSeasonalMode, loadSeasonalAnime, seasonName, seasonYear, search]);
 
@@ -377,7 +379,6 @@ function MainContent({ mode } = {}) {
     }
     if (!search.trim()) {
       setSearchError("");
-      loadDefaultAnime(1);
       return;
     }
     searchTimeoutRef.current = setTimeout(() => {
