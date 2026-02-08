@@ -64,6 +64,12 @@ const absFromBase = (value, baseUrl) => {
 
 const stripTags = (value = "") => String(value).replace(/<[^>]+>/g, "").trim();
 
+const looksLikeSpacerGif = (value) => {
+  const v = String(value || "").toLowerCase();
+  // ANN and many CMS templates use a 1x1/spacer placeholder for lazy-loaded images.
+  return v.includes("/img/spacer.gif") || v.endsWith("spacer.gif") || v.includes("1x1");
+};
+
 const dedupeByKey = (items, getKey) => {
   const seen = new Set();
   const out = [];
@@ -417,6 +423,9 @@ app.get("/api/ann/article", async (req, res) => {
           $img.attr("data-src") ||
             $img.attr("data-lazy-src") ||
             $img.attr("data-original") ||
+            $img.attr("data-orig") ||
+            $img.attr("data-echo") ||
+            $img.attr("data-src-large") ||
             $img.attr("data-url") ||
             ""
         ).trim();
@@ -424,7 +433,7 @@ app.get("/api/ann/article", async (req, res) => {
       const srcset = String($img.attr("srcset") || "").trim();
 
       let chosen = srcAttr;
-      if (!chosen || chosen.startsWith("data:")) {
+      if (!chosen || chosen.startsWith("data:") || looksLikeSpacerGif(chosen)) {
         chosen = dataSrc || chosen;
       }
       if (!chosen) {
@@ -439,6 +448,14 @@ app.get("/api/ann/article", async (req, res) => {
       const normalized = absFromBase(chosen, url);
       $img.attr("src", normalized);
       $img.removeAttr("srcset");
+      $img.removeAttr("data-src");
+      $img.removeAttr("data-lazy-src");
+      $img.removeAttr("data-original");
+      $img.removeAttr("data-orig");
+      $img.removeAttr("data-echo");
+      $img.removeAttr("data-src-large");
+      $img.removeAttr("data-url");
+      $img.removeAttr("data-srcset");
       // Some third-party hosts block embeds. We don't proxy images here (copyright/ToS risk),
       // but we do improve the chance of loading and provide metadata for the UI.
       $img.attr("loading", "lazy");
@@ -446,6 +463,11 @@ app.get("/api/ann/article", async (req, res) => {
       $img.attr("referrerpolicy", "no-referrer");
 
       if (normalized) {
+        if (looksLikeSpacerGif(normalized)) {
+          // Drop placeholder images that didn't have a real URL available.
+          $img.remove();
+          return;
+        }
         const external = !isAnnHost(normalized);
         if (external) {
           $img.attr("data-external", "1");
