@@ -428,9 +428,6 @@ export function DiscussionPost({
             <span className="muted">
               Showing {previewLimit} of {comments.length} comments.
             </span>
-            <Link className="detail-link" to={`/discussion/${post.id}`} state={{ from: fromPath }}>
-              View thread
-            </Link>
           </div>
         )}
 
