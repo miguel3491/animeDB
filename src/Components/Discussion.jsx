@@ -10,6 +10,7 @@ export function DiscussionPost({
   user,
   onDelete,
   detailLink = true,
+  spoilerBlurEnabled = true,
   draft,
   onDraftChange
 }) {
@@ -30,6 +31,7 @@ export function DiscussionPost({
   const [draftRating, setDraftRating] = useState(draft?.rating ?? post.rating ?? "");
   const onDraftChangeRef = useRef(onDraftChange);
   const isOwner = user?.uid === post.userId;
+  const spoilerHidden = Boolean(post?.spoiler) && Boolean(spoilerBlurEnabled) && !isEditing;
   const storageKey = `discussion-seen-${post.id}`;
   const lastUnreadRef = useRef(0);
   const bounceTimeoutRef = useRef(null);
@@ -207,13 +209,20 @@ export function DiscussionPost({
   };
 
   return (
-    <article className="discussion-card">
+    <article className={`discussion-card ${spoilerHidden ? "spoiler-hidden" : ""}`}>
       <div className="discussion-header">
-        {mediaImage ? (
-          <img className="discussion-cover" src={mediaImage} alt={mediaTitle} />
-        ) : (
-          <div className="discussion-cover placeholder" aria-label="Cover unavailable"></div>
-        )}
+        <div className="discussion-cover-wrap">
+          {mediaImage ? (
+            <img className="discussion-cover" src={mediaImage} alt={mediaTitle} />
+          ) : (
+            <div className="discussion-cover placeholder" aria-label="Cover unavailable"></div>
+          )}
+          {spoilerHidden && (
+            <div className="spoiler-overlay" aria-label="Spoiler hidden">
+              <span className="spoiler-pill">Spoiler</span>
+            </div>
+          )}
+        </div>
         <div className="discussion-title">
           {detailLink ? (
             <Link to={`/discussion/${post.id}`} state={{ from: fromPath }} onClick={markSeen}>{mediaTitle}</Link>
@@ -238,6 +247,7 @@ export function DiscussionPost({
             </span>
             {post.rating ? <span>Rating: {post.rating}/10</span> : <span>Rating: N/A</span>}
             <span>{mediaType === "manga" ? "Manga" : "Anime"}</span>
+            {post?.spoiler && <span className="spoiler-badge">Spoiler</span>}
             {unreadCount > 0 && (
               <span className={`comment-badge ${badgePop ? "pop" : ""}`}>{unreadCount} new</span>
             )}
@@ -304,7 +314,14 @@ export function DiscussionPost({
           </button>
         </div>
       ) : (
-        <p className="discussion-body">{post.review || "No review text provided."}</p>
+        <div className="discussion-body-wrap">
+          <p className="discussion-body">{post.review || "No review text provided."}</p>
+          {spoilerHidden && (
+            <div className="spoiler-message">
+              Spoiler content hidden. Toggle Spoiler Alert off to reveal.
+            </div>
+          )}
+        </div>
       )}
       <div className="discussion-footer">
         <span>{post.createdAt ? new Date(post.createdAt).toLocaleString() : ""}</span>
@@ -385,6 +402,23 @@ function Discussion() {
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState("anime");
   const [showGuide, setShowGuide] = useState(false);
+  const [spoilerBlurEnabled, setSpoilerBlurEnabled] = useState(() => {
+    try {
+      const stored = localStorage.getItem("spoiler-blur-enabled");
+      if (stored === null) return true;
+      return stored === "1";
+    } catch (err) {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("spoiler-blur-enabled", spoilerBlurEnabled ? "1" : "0");
+    } catch (err) {
+      // ignore
+    }
+  }, [spoilerBlurEnabled]);
 
   useEffect(() => {
     const discussionsRef = collection(db, "discussions");
@@ -472,6 +506,14 @@ function Discussion() {
             />
             <button
               type="button"
+              className={`spoiler-toggle ${spoilerBlurEnabled ? "active" : ""}`}
+              onClick={() => setSpoilerBlurEnabled((prev) => !prev)}
+              title={spoilerBlurEnabled ? "Spoiler Alert is ON (spoiler posts are blurred)" : "Spoiler Alert is OFF (spoiler posts are visible)"}
+            >
+              Spoiler Alert: {spoilerBlurEnabled ? "ON" : "OFF"}
+            </button>
+            <button
+              type="button"
               className={filter === "all" ? "active" : ""}
               onClick={() => setFilter("all")}
             >
@@ -523,6 +565,7 @@ function Discussion() {
                 post={post}
                 user={user}
                 onDelete={handleDelete}
+                spoilerBlurEnabled={spoilerBlurEnabled}
                 draft={drafts[post.id]}
                 onDraftChange={(next) =>
                   setDrafts((prev) => ({ ...prev, [post.id]: next }))

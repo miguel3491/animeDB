@@ -14,6 +14,23 @@ function DiscussionDetail() {
   const [post, setPost] = useState(null);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState(null);
+  const [spoilerBlurEnabled, setSpoilerBlurEnabled] = useState(() => {
+    try {
+      const stored = localStorage.getItem("spoiler-blur-enabled");
+      if (stored === null) return true;
+      return stored === "1";
+    } catch (err) {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("spoiler-blur-enabled", spoilerBlurEnabled ? "1" : "0");
+    } catch (err) {
+      // ignore
+    }
+  }, [spoilerBlurEnabled]);
 
   const goBack = () => {
     const from = location.state?.from;
@@ -97,9 +114,19 @@ function DiscussionDetail() {
       <section>
         <div className="results-bar">
           <h3>{post.mediaTitle || post.animeTitle}</h3>
-          <button type="button" className="detail-link" onClick={goBack}>
-            &#8592; Back to results
-          </button>
+          <div className="discussion-detail-actions">
+            <button
+              type="button"
+              className={`spoiler-toggle ${spoilerBlurEnabled ? "active" : ""}`}
+              onClick={() => setSpoilerBlurEnabled((prev) => !prev)}
+              title={spoilerBlurEnabled ? "Spoiler Alert is ON (spoiler posts are blurred)" : "Spoiler Alert is OFF (spoiler posts are visible)"}
+            >
+              Spoiler Alert: {spoilerBlurEnabled ? "ON" : "OFF"}
+            </button>
+            <button type="button" className="detail-link" onClick={goBack}>
+              &#8592; Back to results
+            </button>
+          </div>
         </div>
         <div className="discussion-grid">
           <DiscussionPost
@@ -109,6 +136,7 @@ function DiscussionDetail() {
             detailLink={false}
             draft={draft}
             onDraftChange={setDraft}
+            spoilerBlurEnabled={spoilerBlurEnabled}
           />
         </div>
       </section>

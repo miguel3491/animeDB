@@ -109,6 +109,7 @@ function Favorites() {
           animeImage: cover,
           review: reviewText,
           rating: item.rating || "",
+          spoiler: Boolean(item.spoiler),
           userId: user.uid,
           userName: profile?.username || user.displayName || user.email || "Anonymous",
           userPhoto: profile?.avatar || user.photoURL || "",
@@ -601,6 +602,16 @@ function Favorites() {
                   >
                     Save to Completed
                   </button>
+                )}
+                {getListStatus(item) === "Completed" && (
+                  <label className="spoiler-pick">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(item.spoiler)}
+                      onChange={(e) => updateFavorite(item.docId, { spoiler: e.target.checked })}
+                    />
+                    Contains spoilers
+                  </label>
                 )}
                 {getListStatus(item) === "Completed" && (
                   <button
