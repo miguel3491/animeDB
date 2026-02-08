@@ -17,7 +17,7 @@ const SEASON_TTL = 5 * 60 * 1000;
 const searchCache = new Map();
 const defaultCache = new Map();
 const seasonCache = new Map();
-let topMangaCache = { data: null, ts: 0 };
+let topMangaCache = { data: null, ts: 0, key: "" };
 let latestMangaCache = { data: null, ts: 0 };
 
 function MangaContent({ mode } = {}) {
@@ -79,19 +79,21 @@ function MangaContent({ mode } = {}) {
 
   const obtainTopManga = async () => {
     const now = Date.now();
-    if (topMangaCache.data && now - topMangaCache.ts < TOP_TTL) {
+    const cacheKey = `${seasonYear}|${seasonName}`;
+    if (topMangaCache.data && topMangaCache.key === cacheKey && now - topMangaCache.ts < TOP_TTL) {
       setTopManga(topMangaCache.data);
       return;
     }
     try {
-      const api = await fetch(`https://api.jikan.moe/v4/top/manga`).then((res) =>
-        res.json()
+      const response = await fetch(
+        `/api/jikan/manga/seasonal?year=${encodeURIComponent(seasonYear)}&season=${encodeURIComponent(seasonName)}&page=1&limit=10`
       );
+      const api = await response.json();
       const data = Array.isArray(api?.data) ? api.data : [];
-      topMangaCache = { data, ts: Date.now() };
+      topMangaCache = { data, ts: Date.now(), key: cacheKey };
       setTopManga(data);
     } catch (error) {
-      if (!topMangaCache.data) {
+      if (!topMangaCache.data || topMangaCache.key !== cacheKey) {
         setTopManga([]);
       }
     }
@@ -402,7 +404,7 @@ function MangaContent({ mode } = {}) {
 
   useEffect(() => {
     obtainTopManga();
-  }, []);
+  }, [seasonName, seasonYear]);
 
   useEffect(() => {
     const fetchLatestManga = async () => {
@@ -918,31 +920,34 @@ function MangaContent({ mode } = {}) {
             </div>
           ) : (
             <div className={`anime-grid ${viewMode}`}>
-              {filteredManga.map(
-                ({
-                  mal_id,
-                  title,
-                  images,
-                  type,
-                  synopsis,
-                  chapters,
-                  volumes,
-                  status,
-                  score,
-                  published
-                }) => {
-                  const cover =
-                    mangaCovers[mal_id] ||
-                    getAniListMangaCoverFromCache(mal_id) ||
-                    images?.jpg?.image_url ||
-                    images?.webp?.image_url ||
-                    "";
-                  const seasonLabel = isSeasonalMode
-                    ? seasonLabelFromIso(published?.from) ||
-                      `${seasonOptions.find((s) => s.value === seasonName)?.label || "Season"} ${seasonYear}`
-                    : "";
-                  return (
-                    <article className="anime-card" key={mal_id}>
+              {filteredManga.map((item, index) => {
+                const mal_id = item?.mal_id ?? null;
+                const title = item?.title || "Untitled";
+                const images = item?.images;
+                const type = item?.type;
+                const synopsis = item?.synopsis;
+                const chapters = item?.chapters;
+                const volumes = item?.volumes;
+                const status = item?.status;
+                const score = item?.score;
+                const published = item?.published;
+                const hasMal = Boolean(mal_id);
+
+                const cover =
+                  (hasMal && mangaCovers[mal_id]) ||
+                  (hasMal && getAniListMangaCoverFromCache(mal_id)) ||
+                  images?.jpg?.image_url ||
+                  images?.webp?.image_url ||
+                  "";
+                const seasonLabel = isSeasonalMode
+                  ? seasonLabelFromIso(published?.from) ||
+                    `${seasonOptions.find((s) => s.value === seasonName)?.label || "Season"} ${seasonYear}`
+                  : "";
+                const key = hasMal ? String(mal_id) : `manga-seasonal-${title}-${index}`;
+
+                return (
+                  <article className="anime-card" key={key}>
+                    {hasMal ? (
                       <Link to={`/manga/${mal_id}`} state={{ from: fromPath }}>
                         <div className="media-wrap">
                           {cover ? (
@@ -952,40 +957,61 @@ function MangaContent({ mode } = {}) {
                           )}
                         </div>
                       </Link>
-                      <div className="card-body">
-                        <div className="tag-row">
-                          {seasonLabel && <span className="tag seasonal">{seasonLabel}</span>}
-                          {type && <span className="tag">{type}</span>}
-                          {status && <span className="tag">{status}</span>}
-                        </div>
+                    ) : (
+                      <div className="media-wrap" title="Details unavailable (missing MAL id).">
+                        {cover ? (
+                          <img src={cover} alt={title} />
+                        ) : (
+                          <div className="media-placeholder" aria-label={`${title} cover unavailable`}></div>
+                        )}
+                      </div>
+                    )}
+                    <div className="card-body">
+                      <div className="tag-row">
+                        {seasonLabel && <span className="tag seasonal">{seasonLabel}</span>}
+                        {type && <span className="tag">{type}</span>}
+                        {status && <span className="tag">{status}</span>}
+                      </div>
+                      {hasMal ? (
                         <Link className="card-title-link" to={`/manga/${mal_id}`} state={{ from: fromPath }}>
                           <h4 className="card-title">{title}</h4>
                         </Link>
-                        <div className="card-meta">
-                          <span>Chapters: {chapters ?? "?"}</span>
-                          <span>Volumes: {volumes ?? "?"}</span>
-                        </div>
-                        <span className="score-badge">Score {score ?? "N/A"}</span>
-                        <p className="synopsis">{synopsis || "No synopsis available yet."}</p>
-                        <div className="card-actions">
+                      ) : (
+                        <h4 className="card-title muted" title="Details unavailable (missing MAL id).">
+                          {title}
+                        </h4>
+                      )}
+                      <div className="card-meta">
+                        <span>Chapters: {chapters ?? "?"}</span>
+                        <span>Volumes: {volumes ?? "?"}</span>
+                      </div>
+                      <span className="score-badge">Score {score ?? "N/A"}</span>
+                      <p className="synopsis">{synopsis || "No synopsis available yet."}</p>
+                      <div className="card-actions">
+                        {hasMal ? (
                           <Link className="detail-link" to={`/manga/${mal_id}`} state={{ from: fromPath }}>
                             View details
                           </Link>
-                          <button
-                            className={`favorite-button ${favorites.has(`manga_${mal_id}`) ? "active" : ""} ${favoritePulseId === `manga_${mal_id}` ? "pulse" : ""}`}
-                            type="button"
-                            onClick={() => toggleFavorite({ mal_id, title, images, chapters, cover })}
-                            disabled={!user}
-                            title={user ? "Save to favorites" : "Sign in to save favorites"}
-                          >
-                            {favorites.has(`manga_${mal_id}`) ? "Favorited" : "Add to favorites"}
-                          </button>
-                        </div>
+                        ) : (
+                          <span className="muted">Details unavailable</span>
+                        )}
+                        <button
+                          className={`favorite-button ${hasMal && favorites.has(`manga_${mal_id}`) ? "active" : ""} ${hasMal && favoritePulseId === `manga_${mal_id}` ? "pulse" : ""}`}
+                          type="button"
+                          onClick={() => {
+                            if (!hasMal) return;
+                            toggleFavorite({ mal_id, title, images, chapters, cover });
+                          }}
+                          disabled={!user || !hasMal}
+                          title={!hasMal ? "MAL id unavailable for this title" : user ? "Save to favorites" : "Sign in to save favorites"}
+                        >
+                          {hasMal && favorites.has(`manga_${mal_id}`) ? "Favorited" : "Add to favorites"}
+                        </button>
                       </div>
-                    </article>
-                  );
-                }
-              )}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           )}
 
