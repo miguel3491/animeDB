@@ -2232,20 +2232,16 @@ a{
     border-radius: 14px;
     border: 1px solid rgba(255, 255, 255, 0.08);
 }
-.news-detail-grid {
+.news-detail-shell {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 320px;
     gap: 18px;
     align-items: start;
 }
-.news-main {
-    min-width: 0;
-}
-.news-side {
+.news-ai-rail {
     position: sticky;
     top: 18px;
-    display: grid;
-    gap: 14px;
+    align-self: start;
 }
 .news-summary--side {
     margin-bottom: 0;
@@ -2295,10 +2291,10 @@ a{
 }
 
 @media (max-width: 980px) {
-    .news-detail-grid {
+    .news-detail-shell {
         grid-template-columns: minmax(0, 1fr);
     }
-    .news-side {
+    .news-ai-rail {
         position: static;
     }
 }
