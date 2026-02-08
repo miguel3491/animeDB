@@ -284,6 +284,7 @@ function MangaContent({ mode } = {}) {
 
   useEffect(() => {
     setCurrentPage(0);
+    setPageSize(null);
     if (!search.trim()) {
       if (isSeasonalMode) {
         loadSeasonalManga(1);
@@ -297,6 +298,7 @@ function MangaContent({ mode } = {}) {
     if (!isSeasonalMode) return;
     if (search.trim()) return;
     setCurrentPage(0);
+    setPageSize(null);
     loadSeasonalManga(1, { year: seasonYear, season: seasonName });
   }, [isSeasonalMode, loadSeasonalManga, seasonName, seasonYear, search]);
 
