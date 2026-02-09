@@ -97,3 +97,42 @@ exports.syncGroupCountOnMemberDelete = onDocumentDeleted("groups/{groupId}/membe
     tx.set(ref, { groupCount: next }, { merge: true });
   });
 });
+
+// Maintain a public (privacy-safe) index of groups a user belongs to:
+// users/{uid}/publicGroups/{groupId}
+// This lets PublicProfile show public groups without needing to read groups/*/members (which leaks rosters).
+exports.syncPublicGroupsIndexOnMemberCreate = onDocumentCreated("groups/{groupId}/members/{uid}", async (event) => {
+  const uid = event.params.uid;
+  const groupId = event.params.groupId;
+  if (!uid || !groupId) return;
+
+  try {
+    const groupSnap = await db.doc(`groups/${groupId}`).get();
+    if (!groupSnap.exists) return;
+    const isPublic = groupSnap.data()?.isPublic === true;
+    if (!isPublic) return;
+
+    const memberData = event.data?.data?.() || {};
+    const joinedAt = typeof memberData.joinedAt === "string" ? memberData.joinedAt : new Date().toISOString();
+    await db.doc(`users/${uid}/publicGroups/${groupId}`).set(
+      {
+        groupId,
+        joinedAt
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.log("syncPublicGroupsIndexOnMemberCreate failed", { uid, groupId, message: err?.message });
+  }
+});
+
+exports.syncPublicGroupsIndexOnMemberDelete = onDocumentDeleted("groups/{groupId}/members/{uid}", async (event) => {
+  const uid = event.params.uid;
+  const groupId = event.params.groupId;
+  if (!uid || !groupId) return;
+  try {
+    await db.doc(`users/${uid}/publicGroups/${groupId}`).delete();
+  } catch (err) {
+    console.log("syncPublicGroupsIndexOnMemberDelete failed", { uid, groupId, message: err?.message });
+  }
+});

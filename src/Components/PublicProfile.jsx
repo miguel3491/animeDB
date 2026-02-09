@@ -45,6 +45,7 @@ function PublicProfile() {
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [groupCountLive, setGroupCountLive] = useState(null);
   const [followerCountLive, setFollowerCountLive] = useState(null);
+  const [groupError, setGroupError] = useState("");
   const fromPath = `${location.pathname}${location.search || ""}`;
 
   const goBack = () => {
@@ -98,53 +99,159 @@ function PublicProfile() {
       setGroupBadges([]);
       setGroupsLoading(false);
       setGroupCountLive(null);
+      setGroupError("");
       return;
     }
 
     let active = true;
     const loadGroups = async () => {
       setGroupsLoading(true);
+      setGroupError("");
       try {
-        // Use an aggregate count for an accurate group count without reading user-private mirrors.
-        try {
-          const cntSnap = await getCountFromServer(
-            query(collectionGroup(db, "members"), where("uid", "==", uid))
-          );
-          if (active) {
-            setGroupCountLive(cntSnap.data().count || 0);
+        const isSelfView = Boolean(user?.uid && user.uid === uid);
+
+        const normalizeGroup = (id, data) => {
+          const d = data || {};
+          return {
+            id: String(id || "").trim(),
+            name: String(d.name || d.groupName || "Group"),
+            accent: String(d.accent || d.groupAccent || "#7afcff"),
+            avatar: String(d.avatar || d.groupAvatar || "")
+          };
+        };
+
+        const uniqById = (rows) => {
+          const seen = new Set();
+          const out = [];
+          for (const r of rows) {
+            const key = String(r?.id || "").trim();
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            out.push(r);
           }
+          return out;
+        };
+
+        // 1) Always attempt to show public groups the user owns.
+        // This is queryable without exposing membership rosters.
+        let ownedRows = [];
+        try {
+          const ownedSnap = await getDocs(query(collection(db, "groups"), where("ownerId", "==", uid), limit(8)));
+          ownedRows = ownedSnap.docs
+            .map((d) => normalizeGroup(d.id, d.data()))
+            .filter((g) => g.id);
         } catch (err) {
-          if (active) setGroupCountLive(null);
+          // Ignore: if group reads are restricted by rules, the rest of the loaders will handle it.
         }
 
-        // We avoid reading users/{uid}/groups because our rules keep that private.
-        // Instead we read memberships via collectionGroup (groups/{groupId}/members/{uid} is public-read).
-        const q = query(collectionGroup(db, "members"), where("uid", "==", uid), limit(8));
-        const snap = await getDocs(q);
-        const groupIds = Array.from(
-          new Set(
-            snap.docs
-              .map((d) => d.ref?.parent?.parent?.id || "")
-              .filter(Boolean)
-          )
-        ).slice(0, 8);
-        const groupSnaps = await Promise.all(groupIds.map((gid) => getDoc(doc(db, "groups", gid))));
-        const rows = groupSnaps
-          .filter((s) => s.exists())
-          .map((s) => {
-            const data = s.data() || {};
-            return {
-              id: s.id,
-              name: data.name || "Group",
-              accent: data.accent || "#7afcff",
-              avatar: data.avatar || ""
-            };
-          });
+        // 2) Public membership index: users/{uid}/publicGroups (populated by Cloud Functions and/or client backfill).
+        // This avoids the privacy leak of collectionGroup(members) queries for strangers.
+        let memberGroupIds = [];
+        try {
+          const pubSnap = await getDocs(
+            query(collection(db, "users", uid, "publicGroups"), orderBy("joinedAt", "desc"), limit(8))
+          );
+          memberGroupIds = uniqById(
+            pubSnap.docs.map((d) => {
+              const data = d.data() || {};
+              const gid = String(data.groupId || d.id || "").trim();
+              return { id: gid };
+            })
+          ).map((r) => r.id);
+        } catch (err) {
+          // If rules don't allow it yet, we still show owned groups.
+        }
+
+        let memberRows = [];
+        if (memberGroupIds.length > 0) {
+          try {
+            const snaps = await Promise.all(memberGroupIds.map((gid) => getDoc(doc(db, "groups", gid))));
+            memberRows = snaps
+              .filter((s) => s.exists())
+              .map((s) => normalizeGroup(s.id, s.data()))
+              .filter((g) => g.id);
+          } catch (err) {
+            // Ignore; owned groups are still usable.
+          }
+        }
+
+        // 3) Self-only fallback: users/{uid}/groups mirror (private).
+        // Also backfill publicGroups so other people can see your public groups on your profile.
+        let mirrorRows = [];
+        if (isSelfView && memberRows.length === 0) {
+          try {
+            const mirrorSnap = await getDocs(
+              query(collection(db, "users", uid, "groups"), orderBy("joinedAt", "desc"), limit(12))
+            );
+            mirrorRows = mirrorSnap.docs
+              .map((d) => {
+                const data = d.data() || {};
+                return normalizeGroup(data.groupId || d.id, {
+                  groupName: data.groupName,
+                  groupAccent: data.groupAccent,
+                  groupAvatar: data.groupAvatar
+                });
+              })
+              .filter((g) => g.id);
+
+            // Lightweight backfill (best-effort, no UI impact if it fails).
+            const batch = writeBatch(db);
+            let wrote = 0;
+            mirrorSnap.docs.forEach((d) => {
+              const data = d.data() || {};
+              const gid = String(data.groupId || d.id || "").trim();
+              const joinedAt = String(data.joinedAt || new Date().toISOString());
+              if (!gid) return;
+              batch.set(
+                doc(db, "users", uid, "publicGroups", gid),
+                { groupId: gid, joinedAt },
+                { merge: true }
+              );
+              wrote += 1;
+            });
+            if (wrote > 0) {
+              await batch.commit();
+            }
+          } catch (err) {
+            // If even your private mirror can't be read, do nothing.
+          }
+        }
+
+        // 4) Last-resort fallback (self-only): collectionGroup(members).
+        // We keep this limited to self to avoid leaking membership relationships.
+        let cgRows = [];
+        if (isSelfView && memberRows.length === 0 && mirrorRows.length === 0) {
+          try {
+            const snap = await getDocs(query(collectionGroup(db, "members"), where("uid", "==", uid), limit(8)));
+            const groupIds = Array.from(
+              new Set(
+                snap.docs
+                  .map((d) => d.ref?.parent?.parent?.id || "")
+                  .filter(Boolean)
+              )
+            ).slice(0, 8);
+            const groupSnaps = await Promise.all(groupIds.map((gid) => getDoc(doc(db, "groups", gid))));
+            cgRows = groupSnaps
+              .filter((s) => s.exists())
+              .map((s) => normalizeGroup(s.id, s.data()))
+              .filter((g) => g.id);
+          } catch (err) {
+            // Ignore.
+          }
+        }
+
+        const merged = uniqById([...memberRows, ...mirrorRows, ...cgRows, ...ownedRows]).slice(0, 12);
         if (!active) return;
-        setGroupBadges(rows);
+        setGroupBadges(merged);
       } catch (err) {
         if (!active) return;
         setGroupBadges([]);
+        const code = String(err?.code || "").toLowerCase();
+        if (code.includes("permission")) {
+          setGroupError("Groups are not visible (permission denied).");
+        } else {
+          setGroupError(err?.message || "Groups unavailable.");
+        }
       } finally {
         if (active) setGroupsLoading(false);
       }
@@ -460,7 +567,7 @@ function PublicProfile() {
               )}
               {groupBadges.length === 0 && (
                 <p className="muted" style={{ marginTop: 6 }}>
-                  {groupsLoading ? "Loading groups..." : "No groups found (or not visible)."}
+                  {groupsLoading ? "Loading groups..." : groupError ? groupError : "No groups found (or not visible)."}
                 </p>
               )}
             </div>

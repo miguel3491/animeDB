@@ -177,6 +177,7 @@ function GroupDetail() {
       setStatus("");
       const memberRef = doc(db, "groups", groupId, "members", user.uid);
       const userGroupRef = doc(db, "users", user.uid, "groups", groupId);
+      const publicGroupRef = doc(db, "users", user.uid, "publicGroups", groupId);
       const groupRef = doc(db, "groups", groupId);
       const batch = writeBatch(db);
       batch.set(memberRef, {
@@ -200,6 +201,9 @@ function GroupDetail() {
         },
         { merge: true }
       );
+      if (group?.isPublic === true) {
+        batch.set(publicGroupRef, { groupId, joinedAt: nowIso }, { merge: true });
+      }
       batch.update(groupRef, { memberCount: increment(1), updatedAt: nowIso, updatedAtTs: serverTimestamp() });
       await batch.commit();
       setStatus("Joined.");
@@ -218,10 +222,12 @@ function GroupDetail() {
       setStatus("");
       const memberRef = doc(db, "groups", groupId, "members", user.uid);
       const userGroupRef = doc(db, "users", user.uid, "groups", groupId);
+      const publicGroupRef = doc(db, "users", user.uid, "publicGroups", groupId);
       const groupRef = doc(db, "groups", groupId);
       const batch = writeBatch(db);
       batch.delete(memberRef);
       batch.delete(userGroupRef);
+      batch.delete(publicGroupRef);
       batch.update(groupRef, { memberCount: increment(-1), updatedAt: nowIso, updatedAtTs: serverTimestamp() });
       await batch.commit();
       setStatus("Left group.");

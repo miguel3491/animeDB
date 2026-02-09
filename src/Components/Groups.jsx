@@ -46,6 +46,7 @@ function Groups() {
   const [background, setBackground] = useState("");
   const [status, setStatus] = useState("");
   const creatingRef = useRef(false);
+  const myGroupsBackfilledRef = useRef(false);
 
   const canCreate = Boolean(user?.uid);
 
@@ -79,6 +80,29 @@ function Groups() {
       (snap) => {
         const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         setMyGroups(rows);
+
+        // Best-effort backfill so public profiles can show your group memberships
+        // without reading group rosters. (Cloud Functions also maintain this, but
+        // this helps existing data converge faster.)
+        if (!myGroupsBackfilledRef.current && rows.length > 0) {
+          myGroupsBackfilledRef.current = true;
+          try {
+            const batch = writeBatch(db);
+            let wrote = 0;
+            rows.forEach((r) => {
+              const gid = String(r.groupId || r.id || "").trim();
+              const joinedAt = String(r.joinedAt || new Date().toISOString());
+              if (!gid) return;
+              batch.set(doc(db, "users", user.uid, "publicGroups", gid), { groupId: gid, joinedAt }, { merge: true });
+              wrote += 1;
+            });
+            if (wrote > 0) {
+              batch.commit().catch(() => {});
+            }
+          } catch (err) {
+            // ignore
+          }
+        }
       },
       () => setMyGroups([])
     );
@@ -134,6 +158,7 @@ function Groups() {
       const groupRef = doc(collection(db, "groups"));
       const memberRef = doc(db, "groups", groupRef.id, "members", user.uid);
       const userGroupRef = doc(db, "users", user.uid, "groups", groupRef.id);
+      const publicGroupRef = doc(db, "users", user.uid, "publicGroups", groupRef.id);
 
       const payload = {
         name: nextName,
@@ -174,6 +199,7 @@ function Groups() {
       batch.set(groupRef, payload);
       batch.set(memberRef, memberPayload);
       batch.set(userGroupRef, userGroupPayload);
+      batch.set(publicGroupRef, { groupId: groupRef.id, joinedAt: nowIso }, { merge: true });
       await batch.commit();
 
       setCreateOpen(false);
