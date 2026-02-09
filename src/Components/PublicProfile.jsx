@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   collection,
+  collectionGroup,
   doc,
   getDoc,
   getDocs,
@@ -39,6 +40,8 @@ function PublicProfile() {
   const [activityAnimeCovers, setActivityAnimeCovers] = useState({});
   const [activityMangaCovers, setActivityMangaCovers] = useState({});
   const [brokenThumbs, setBrokenThumbs] = useState(() => new Set());
+  const [groupBadges, setGroupBadges] = useState([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
   const fromPath = `${location.pathname}${location.search || ""}`;
 
   const goBack = () => {
@@ -82,6 +85,56 @@ function PublicProfile() {
       loadProfile();
     }
 
+    return () => {
+      active = false;
+    };
+  }, [uid]);
+
+  useEffect(() => {
+    if (!uid) {
+      setGroupBadges([]);
+      setGroupsLoading(false);
+      return;
+    }
+
+    let active = true;
+    const loadGroups = async () => {
+      setGroupsLoading(true);
+      try {
+        // We avoid reading users/{uid}/groups because our rules keep that private.
+        // Instead we read memberships via collectionGroup (groups/{groupId}/members/{uid} is public-read).
+        const q = query(collectionGroup(db, "members"), where("uid", "==", uid), limit(8));
+        const snap = await getDocs(q);
+        const groupIds = Array.from(
+          new Set(
+            snap.docs
+              .map((d) => d.ref?.parent?.parent?.id || "")
+              .filter(Boolean)
+          )
+        ).slice(0, 8);
+        const groupSnaps = await Promise.all(groupIds.map((gid) => getDoc(doc(db, "groups", gid))));
+        const rows = groupSnaps
+          .filter((s) => s.exists())
+          .map((s) => {
+            const data = s.data() || {};
+            return {
+              id: s.id,
+              name: data.name || "Group",
+              accent: data.accent || "#7afcff",
+              avatar: data.avatar || ""
+            };
+          });
+        if (!active) return;
+        setGroupBadges(rows);
+      } catch (err) {
+        if (!active) return;
+        setGroupBadges([]);
+      } finally {
+        if (active) setGroupsLoading(false);
+      }
+    };
+
+    loadGroups();
     return () => {
       active = false;
     };
@@ -238,6 +291,8 @@ function PublicProfile() {
 
   const isSelf = Boolean(user && uid && user.uid === uid);
   const canViewFavoritesActivity = isSelf || isFollowing;
+  const followerCount = Number.isFinite(Number(profile?.followerCount)) ? Number(profile.followerCount) : null;
+  const groupCount = Number.isFinite(Number(profile?.groupCount)) ? Number(profile.groupCount) : null;
 
   const toggleFollow = async () => {
     if (!user || !uid || isSelf) return;
@@ -324,7 +379,45 @@ function PublicProfile() {
             )}
             <div>
               <h2>{displayName}</h2>
-              <p className="muted">Community member</p>
+              <div className="public-stats">
+                <span className="pill muted">
+                  Followers: {followerCount === null ? "—" : followerCount > 99 ? "+99" : followerCount}
+                </span>
+                <span className="pill muted">
+                  Groups: {groupCount === null ? (groupsLoading ? "…" : String(groupBadges.length)) : groupCount}
+                </span>
+              </div>
+              {groupBadges.length > 0 && (
+                <div className="public-groups">
+                  {groupBadges.slice(0, 4).map((g) => (
+                    <Link
+                      key={`pub-group-${uid}-${g.id}`}
+                      className="public-group-chip"
+                      to={`/groups/${g.id}`}
+                      state={{ from: fromPath }}
+                      style={{ "--group-accent": g.accent }}
+                      title={g.name}
+                    >
+                      {g.avatar ? (
+                        <img src={g.avatar} alt={g.name} loading="lazy" />
+                      ) : (
+                        <span className="public-group-dot" aria-hidden="true"></span>
+                      )}
+                      <span>{g.name}</span>
+                    </Link>
+                  ))}
+                  {groupBadges.length > 4 && (
+                    <Link className="public-group-more" to="/groups" state={{ from: fromPath }}>
+                      +{groupBadges.length - 4} more
+                    </Link>
+                  )}
+                </div>
+              )}
+              {groupBadges.length === 0 && (
+                <p className="muted" style={{ marginTop: 6 }}>
+                  {groupsLoading ? "Loading groups..." : "No public groups yet."}
+                </p>
+              )}
             </div>
             {!isSelf && (
               <div className="public-actions">

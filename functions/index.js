@@ -1,9 +1,11 @@
 const admin = require("firebase-admin");
 const functions = require("firebase-functions/v2");
+const { onDocumentCreated, onDocumentDeleted } = require("firebase-functions/v2/firestore");
 
 admin.initializeApp();
 
 const db = admin.firestore();
+const { FieldValue } = require("firebase-admin/firestore");
 
 const isoDaysAgo = (days) => {
   const ms = days * 24 * 60 * 60 * 1000;
@@ -58,3 +60,40 @@ exports.cleanupInboxEvents = functions.scheduler.onSchedule(
   }
 );
 
+// Maintain public counters on users/{uid} without weakening Firestore rules.
+// These are used by PublicProfile to display follower count and group count.
+exports.syncFollowerCountOnCreate = onDocumentCreated("users/{uid}/followers/{followerId}", async (event) => {
+  const uid = event.params.uid;
+  if (!uid) return;
+  await db.doc(`users/${uid}`).set({ followerCount: FieldValue.increment(1) }, { merge: true });
+});
+
+exports.syncFollowerCountOnDelete = onDocumentDeleted("users/{uid}/followers/{followerId}", async (event) => {
+  const uid = event.params.uid;
+  if (!uid) return;
+  const ref = db.doc(`users/${uid}`);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const cur = snap.exists ? Number(snap.data()?.followerCount || 0) : 0;
+    const next = Math.max(0, (Number.isFinite(cur) ? cur : 0) - 1);
+    tx.set(ref, { followerCount: next }, { merge: true });
+  });
+});
+
+exports.syncGroupCountOnMemberCreate = onDocumentCreated("groups/{groupId}/members/{uid}", async (event) => {
+  const uid = event.params.uid;
+  if (!uid) return;
+  await db.doc(`users/${uid}`).set({ groupCount: FieldValue.increment(1) }, { merge: true });
+});
+
+exports.syncGroupCountOnMemberDelete = onDocumentDeleted("groups/{groupId}/members/{uid}", async (event) => {
+  const uid = event.params.uid;
+  if (!uid) return;
+  const ref = db.doc(`users/${uid}`);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const cur = snap.exists ? Number(snap.data()?.groupCount || 0) : 0;
+    const next = Math.max(0, (Number.isFinite(cur) ? cur : 0) - 1);
+    tx.set(ref, { groupCount: next }, { merge: true });
+  });
+});
