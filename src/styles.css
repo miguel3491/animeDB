@@ -2497,9 +2497,23 @@ a{
     flex-wrap: wrap;
     gap: 6px;
 }
-.news-card .detail-link {
+.news-card-bottom {
     margin-top: auto;
-    align-self: flex-start;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    gap: 12px;
+    min-width: 0;
+}
+.news-card-bottom .news-tags {
+    min-width: 0;
+    align-items: center;
+}
+.news-card-bottom .tag {
+    max-width: 100%;
+}
+.news-readmore {
+    white-space: nowrap;
 }
 .news-detail-image {
     width: 100%;

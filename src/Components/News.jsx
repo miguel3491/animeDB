@@ -568,34 +568,36 @@ function News() {
                         item.summary || "No summary available."
                       )}
                     </p>
-                    <div className="news-tags">
-                      {item.categories.slice(0, 3).map((cat) => (
-                        <span key={`${item.id}-${cat}`} className="tag">
-                          {cat}
-                        </span>
-                      ))}
-                    </div>
-                    <Link
-                      className="detail-link"
-                      to={`/news/${encodeURIComponent(item.id)}`}
-                      state={{
-                        from: fromPath,
-                        item: {
-                          ...item,
-                          displayTitle: item.title,
-                          displayBody: item.summary
+                    <div className="news-card-bottom">
+                      <div className="news-tags">
+                        {item.categories.slice(0, 3).map((cat) => (
+                          <span key={`${item.id}-${cat}`} className="tag">
+                            {cat}
+                          </span>
+                        ))}
+                      </div>
+                      <Link
+                        className="detail-link news-readmore"
+                        to={`/news/${encodeURIComponent(item.id)}`}
+                        state={{
+                          from: fromPath,
+                          item: {
+                            ...item,
+                            displayTitle: item.title,
+                            displayBody: item.summary
+                          }
+                        }}
+                        onClick={() =>
+                          persistItem({
+                            ...item,
+                            displayTitle: item.title,
+                            displayBody: item.summary
+                          })
                         }
-                      }}
-                      onClick={() =>
-                        persistItem({
-                          ...item,
-                          displayTitle: item.title,
-                          displayBody: item.summary
-                        })
-                      }
-                    >
-                      Read more
-                    </Link>
+                      >
+                        Read more
+                      </Link>
+                    </div>
                   </div>
 	              </article>
 	            ))}
