@@ -2943,6 +2943,10 @@ a{
     align-items: center;
     flex-wrap: wrap;
 }
+.discussion-results-bar {
+    position: relative;
+    z-index: 120;
+}
 .discussion-tabs {
     display: flex;
     gap: 10px;

@@ -745,7 +745,7 @@ function Discussion() {
             </div>
           )}
         </div>
-        <div className="results-bar">
+        <div className="results-bar discussion-results-bar">
           <h3>Community reviews</h3>
           <div className="discussion-filter">
             <div className="search-wrap discussion-search">
