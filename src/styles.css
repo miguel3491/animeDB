@@ -2899,6 +2899,67 @@ a{
     text-transform: uppercase;
     letter-spacing: 1px;
 }
+.mention-preview {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(16, 26, 48, 0.55);
+}
+.mention-preview-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+.mention-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.mention-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(8, 12, 22, 0.35);
+    max-width: 100%;
+}
+.mention-chip.valid {
+    border-color: rgba(122, 252, 255, 0.28);
+}
+.mention-chip.invalid {
+    border-color: rgba(255, 107, 156, 0.28);
+    opacity: 0.92;
+}
+.mention-chip-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    flex: 0 0 auto;
+}
+.mention-chip-avatar.placeholder {
+    background: linear-gradient(135deg, rgba(255, 107, 156, 0.18), rgba(122, 252, 255, 0.1));
+}
+.mention-chip-text {
+    font-weight: 800;
+    font-size: 12px;
+    letter-spacing: 0.6px;
+}
+.mention-chip-name {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.72);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 220px;
+}
 .delete-button {
     border: 1px solid rgba(255, 255, 255, 0.2);
     background: rgba(255, 107, 156, 0.2);

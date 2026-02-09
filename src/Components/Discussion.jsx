@@ -11,6 +11,10 @@ import "../styles.css";
 const discussionProfileCache = new Map(); // uid -> { username, avatar }
 const discussionProfileInflight = new Map(); // uid -> Promise
 
+// Cache @handle resolution (usernames/{handle} -> uid -> users/{uid} profile).
+const mentionHandleCache = new Map(); // handle -> { handle, uid, username, avatar } | null
+const mentionHandleInflight = new Map(); // handle -> Promise
+
 const fetchDiscussionProfile = async (uid) => {
   const key = String(uid || "").trim();
   if (!key) return null;
@@ -37,6 +41,41 @@ const fetchDiscussionProfile = async (uid) => {
     }
   })();
   discussionProfileInflight.set(key, task);
+  return task;
+};
+
+const resolveMentionHandle = async (handle) => {
+  const key = String(handle || "").trim().toLowerCase();
+  if (!key) return null;
+  if (mentionHandleCache.has(key)) return mentionHandleCache.get(key);
+  if (mentionHandleInflight.has(key)) return mentionHandleInflight.get(key);
+
+  const task = (async () => {
+    try {
+      const snap = await getDoc(doc(db, "usernames", key));
+      const uid = snap.exists() ? String(snap.data()?.uid || "").trim() : "";
+      if (!uid) {
+        mentionHandleCache.set(key, { handle: key, uid: "", username: "", avatar: "" });
+        return mentionHandleCache.get(key);
+      }
+      const prof = await fetchDiscussionProfile(uid);
+      const payload = {
+        handle: key,
+        uid,
+        username: String(prof?.username || "").trim(),
+        avatar: String(prof?.avatar || "").trim()
+      };
+      mentionHandleCache.set(key, payload);
+      return payload;
+    } catch (err) {
+      mentionHandleCache.set(key, { handle: key, uid: "", username: "", avatar: "" });
+      return mentionHandleCache.get(key);
+    } finally {
+      mentionHandleInflight.delete(key);
+    }
+  })();
+
+  mentionHandleInflight.set(key, task);
   return task;
 };
 
@@ -100,6 +139,8 @@ export function DiscussionPost({
   const [commentError, setCommentError] = useState("");
   const [commentBounce, setCommentBounce] = useState(false);
   const [badgePop, setBadgePop] = useState(false);
+  const [mentionPreview, setMentionPreview] = useState([]);
+  const [mentionLoading, setMentionLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [draftReview, setDraftReview] = useState(draft?.review ?? post.review ?? "");
   const [draftRating, setDraftRating] = useState(draft?.rating ?? post.rating ?? "");
@@ -111,6 +152,8 @@ export function DiscussionPost({
   const lastUnreadRef = useRef(0);
   const bounceTimeoutRef = useRef(null);
   const badgeTimeoutRef = useRef(null);
+  const mentionTimeoutRef = useRef(null);
+  const mentionSeqRef = useRef(0);
 
   useEffect(() => {
     onDraftChangeRef.current = onDraftChange;
@@ -234,8 +277,52 @@ export function DiscussionPost({
       if (badgeTimeoutRef.current) {
         clearTimeout(badgeTimeoutRef.current);
       }
+      if (mentionTimeoutRef.current) {
+        clearTimeout(mentionTimeoutRef.current);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (mentionTimeoutRef.current) {
+      clearTimeout(mentionTimeoutRef.current);
+    }
+    const handles = extractMentionHandles(commentText);
+    if (handles.length === 0) {
+      setMentionPreview([]);
+      setMentionLoading(false);
+      return;
+    }
+
+    const seq = (mentionSeqRef.current += 1);
+    setMentionLoading(true);
+    mentionTimeoutRef.current = setTimeout(async () => {
+      try {
+        const resolved = await Promise.all(handles.map((h) => resolveMentionHandle(h)));
+        if (mentionSeqRef.current !== seq) return;
+        const list = resolved
+          .filter(Boolean)
+          .map((item) => ({
+            handle: item.handle,
+            uid: item.uid,
+            username: item.username,
+            avatar: item.avatar
+          }));
+        setMentionPreview(list);
+      } catch (err) {
+        if (mentionSeqRef.current !== seq) return;
+        setMentionPreview(handles.map((h) => ({ handle: h, uid: "", username: "", avatar: "" })));
+      } finally {
+        if (mentionSeqRef.current === seq) setMentionLoading(false);
+      }
+    }, 260);
+
+    return () => {
+      if (mentionTimeoutRef.current) {
+        clearTimeout(mentionTimeoutRef.current);
+      }
+    };
+  }, [commentText]);
 
   const latestCommentAt = comments.reduce((max, comment) => {
     const time = comment?.createdAt ? Date.parse(comment.createdAt) : 0;
@@ -344,7 +431,13 @@ export function DiscussionPost({
     try {
       const handles = extractMentionHandles(trimmed);
       if (handles.length > 0) {
-        const uids = await resolveHandlesToUids(handles);
+        const fromPreview = new Map(
+          (Array.isArray(mentionPreview) ? mentionPreview : []).map((m) => [m.handle, m.uid])
+        );
+        const previewUids = handles.map((h) => fromPreview.get(String(h).toLowerCase()) || "").filter(Boolean);
+        const missing = handles.filter((h) => !(fromPreview.get(String(h).toLowerCase()) || ""));
+        const resolvedUids = missing.length > 0 ? await resolveHandlesToUids(missing) : [];
+        const uids = Array.from(new Set([...previewUids, ...resolvedUids]));
         const targets = uids.filter((uid) => uid && uid !== user.uid).slice(0, 5);
         if (targets.length > 0) {
           const batch = writeBatch(db);
@@ -631,6 +724,35 @@ export function DiscussionPost({
             Post
           </button>
         </div>
+        {user && (mentionLoading || mentionPreview.length > 0) && (
+          <div className="mention-preview" aria-live="polite">
+            <div className="mention-preview-head">
+              <span className="muted">Mentions</span>
+              {mentionLoading && <span className="pill">Checking...</span>}
+            </div>
+            <div className="mention-chips">
+              {mentionPreview.map((m) => {
+                const valid = Boolean(m.uid);
+                const label = valid ? (m.username || `@${m.handle}`) : "Not found";
+                return (
+                  <span
+                    key={`mention-chip-${post.id}-${m.handle}`}
+                    className={`mention-chip ${valid ? "valid" : "invalid"}`}
+                    title={valid ? `Will notify @${m.handle}` : `Unknown handle: @${m.handle}`}
+                  >
+                    {m.avatar ? (
+                      <img className="mention-chip-avatar" src={m.avatar} alt={label} loading="lazy" />
+                    ) : (
+                      <span className="mention-chip-avatar placeholder" aria-hidden="true"></span>
+                    )}
+                    <span className="mention-chip-text">@{m.handle}</span>
+                    <span className="mention-chip-name">{label}</span>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {commentError && <p className="muted">{commentError}</p>}
       </div>
     </article>

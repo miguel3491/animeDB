@@ -527,11 +527,21 @@ function Inbox() {
           <div className="inbox-section">
             <div className="inbox-section-head">
               <h3>New comments</h3>
-              <span className={`pill ${unseenCommentThreads.length > 0 ? "pill-hot" : ""}`}>
-                {unseenCommentThreads.reduce((sum, t) => sum + t.count, 0) > 99
-                  ? "+99"
-                  : unseenCommentThreads.reduce((sum, t) => sum + t.count, 0)}
-              </span>
+              <div className="inbox-section-actions">
+                <span className={`pill ${unseenCommentThreads.length > 0 ? "pill-hot" : ""}`}>
+                  {unseenCommentThreads.reduce((sum, t) => sum + t.count, 0) > 99
+                    ? "+99"
+                    : unseenCommentThreads.reduce((sum, t) => sum + t.count, 0)}
+                </span>
+                <button
+                  type="button"
+                  className="detail-link"
+                  onClick={() => markEventsSeen(unseenCommentThreads.flatMap((t) => t.ids))}
+                  disabled={unseenCommentThreads.length === 0}
+                >
+                  Mark seen
+                </button>
+              </div>
             </div>
 
             {unseenCommentThreads.length === 0 ? (
