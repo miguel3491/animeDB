@@ -22,6 +22,7 @@ function Inbox() {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [profiles, setProfiles] = useState({});
+  const [snapshotError, setSnapshotError] = useState("");
 
   useEffect(() => {
     if (!user?.uid) {
@@ -35,6 +36,7 @@ function Inbox() {
     const unsub = onSnapshot(
       q,
       (snap) => {
+        setSnapshotError("");
         const rows = snap.docs.map((docItem) => {
           const data = docItem.data() || {};
           return {
@@ -56,7 +58,11 @@ function Inbox() {
         setEvents(rows);
         setLoading(false);
       },
-      () => {
+      (err) => {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("Inbox snapshot failed:", err);
+        }
+        setSnapshotError(err?.message || "Inbox unavailable.");
         setEvents([]);
         setLoading(false);
       }
@@ -105,6 +111,31 @@ function Inbox() {
     () => events.filter((e) => e.type === "bugReportUpdate" && !e.seen),
     [events]
   );
+
+  const recentCommentThreads = useMemo(() => {
+    const map = new Map();
+    events.forEach((e) => {
+      if (e.type !== "comment") return;
+      if (!e.discussionId) return;
+      const existing = map.get(e.discussionId) || {
+        discussionId: e.discussionId,
+        title: e.mediaTitle || "Untitled",
+        image: e.mediaImage || "",
+        latestAt: e.clientAt || "",
+        unseen: 0,
+        ids: []
+      };
+      existing.ids.push(e.id);
+      if (!e.seen) existing.unseen += 1;
+      if (e.clientAt && (!existing.latestAt || e.clientAt > existing.latestAt)) {
+        existing.latestAt = e.clientAt;
+      }
+      if (!existing.title && e.mediaTitle) existing.title = e.mediaTitle;
+      if (!existing.image && e.mediaImage) existing.image = e.mediaImage;
+      map.set(e.discussionId, existing);
+    });
+    return Array.from(map.values()).sort((a, b) => (b.latestAt || "").localeCompare(a.latestAt || "")).slice(0, 10);
+  }, [events]);
 
   useEffect(() => {
     const missing = new Set();
@@ -188,6 +219,7 @@ function Inbox() {
         </p>
 
         {loading && <p className="muted">Loading inbox...</p>}
+        {snapshotError && <p className="publish-status error">{snapshotError}</p>}
 
         <div className="inbox-grid">
           <div className="inbox-section">
@@ -289,6 +321,54 @@ function Inbox() {
 
         <div className="inbox-section" style={{ marginTop: 18 }}>
           <div className="inbox-section-head">
+            <h3>Recent comment threads</h3>
+            <span className="pill">Last 10</span>
+          </div>
+          {recentCommentThreads.length === 0 ? (
+            <p className="muted">No comment notifications yet.</p>
+          ) : (
+            <div className="inbox-list">
+              {recentCommentThreads.map((t) => (
+                <Link
+                  key={`recent-thread-${t.discussionId}`}
+                  className="inbox-row"
+                  to={`/discussion/${t.discussionId}`}
+                  state={{ from: fromPath }}
+                  onClick={() => {
+                    const unseenIds = events
+                      .filter((e) => e.type === "comment" && e.discussionId === t.discussionId && !e.seen)
+                      .map((e) => e.id);
+                    if (unseenIds.length > 0) {
+                      markEventsSeen(unseenIds);
+                    }
+                  }}
+                >
+                  {t.image ? (
+                    <img className="inbox-thumb" src={t.image} alt={t.title} loading="lazy" />
+                  ) : (
+                    <div className="inbox-thumb placeholder"></div>
+                  )}
+                  <div className="inbox-row-text">
+                    <div className="inbox-row-title">
+                      <span>{t.title}</span>
+                      {t.unseen > 0 ? (
+                        <span className="pill pill-hot">{t.unseen > 99 ? "+99" : t.unseen}</span>
+                      ) : (
+                        <span className="pill muted">Seen</span>
+                      )}
+                    </div>
+                    <p className="muted">
+                      Last activity {t.latestAt ? new Date(t.latestAt).toLocaleString() : "recently"}
+                    </p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="inbox-section" style={{ marginTop: 18 }}>
+          <div className="inbox-section-head">
             <h3>Bug report updates</h3>
             <span className={`pill ${bugEvents.length > 0 ? "pill-hot" : ""}`}>
               {bugEvents.length > 99 ? "+99" : bugEvents.length}
@@ -325,4 +405,3 @@ function Inbox() {
 }
 
 export default Inbox;
-

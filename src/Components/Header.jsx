@@ -12,6 +12,7 @@ function Header(){
     const [inboxCount, setInboxCount] = useState(0);
     const [inboxPop, setInboxPop] = useState(false);
     const [inboxHelpOpen, setInboxHelpOpen] = useState(false);
+    const [inboxError, setInboxError] = useState("");
     const fileRef = useRef(null);
     const bgRef = useRef(null);
     const lastInboxRef = useRef(0);
@@ -30,6 +31,7 @@ function Header(){
     useEffect(() => {
         if (!user?.uid) {
             setInboxCount(0);
+            setInboxError("");
             return;
         }
 
@@ -38,9 +40,14 @@ function Header(){
         const unsub = onSnapshot(
             inboxQuery,
             (snap) => {
+                setInboxError("");
                 setInboxCount(snap.size);
             },
-            () => {
+            (err) => {
+                if (process.env.NODE_ENV !== "production") {
+                    console.warn("Inbox badge snapshot failed:", err);
+                }
+                setInboxError(err?.message || "Inbox unavailable.");
                 setInboxCount(0);
             }
         );
@@ -249,6 +256,11 @@ function Header(){
                                                 3. Bug report updates (if the owner resolves your report).
                                             </p>
                                         </div>
+                                    )}
+                                    {inboxError && (
+                                        <p className="publish-status error" style={{ margin: 0 }}>
+                                            {inboxError}
+                                        </p>
                                     )}
                                     {status && <p className="muted">{status}</p>}
                                     <button className="auth-button" type="button" onClick={signOutUser}>
