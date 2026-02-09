@@ -512,8 +512,9 @@ app.post("/api/anilist", async (req, res) => {
 });
 
 app.get("/api/ann/news", async (req, res) => {
-  const limit = Math.max(1, Math.min(60, Number(req.query?.limit) || 30));
-  const cacheKey = `ann-feed|${limit}`;
+  const limit = Math.max(1, Math.min(200, Number(req.query?.limit) || 60));
+  const days = Math.max(1, Math.min(180, Number(req.query?.days) || 30));
+  const cacheKey = `ann-feed|${limit}|days=${days}`;
   const cached = annCache.get(cacheKey);
   if (cached && Date.now() - cached.ts < ANN_TTL) {
     return res.json(cached.data);
@@ -531,9 +532,8 @@ app.get("/api/ann/news", async (req, res) => {
     });
     const parsed = parser.parse(xml);
     const itemsRaw = parsed?.rss?.channel?.item || [];
-    const items = (Array.isArray(itemsRaw) ? itemsRaw : [itemsRaw])
+    const rssItems = (Array.isArray(itemsRaw) ? itemsRaw : [itemsRaw])
       .filter(Boolean)
-      .slice(0, limit)
       .map((item) => {
         const title = item?.title || "Untitled";
         const link = item?.link || "";
@@ -550,6 +550,10 @@ app.get("/api/ann/news", async (req, res) => {
           title,
           link,
           pubDate,
+          publishedAt: (() => {
+            const dt = new Date(pubDate);
+            return Number.isNaN(dt.getTime()) ? "" : dt.toISOString();
+          })(),
           categories,
           description,
           summary: description,
@@ -559,7 +563,95 @@ app.get("/api/ann/news", async (req, res) => {
         };
       });
 
-    const payload = { items };
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const months = [];
+    const cursor = new Date(cutoff.getFullYear(), cutoff.getMonth(), 1);
+    const end = new Date();
+    const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
+    while (cursor <= endMonth) {
+      months.push(monthKey(cursor));
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+
+    const byLink = new Map();
+    rssItems.forEach((it) => {
+      if (!it.link) return;
+      byLink.set(it.link, it);
+    });
+
+    const parseArchive = (html, month) => {
+      const $ = cheerio.load(html);
+      const found = [];
+      $("a").each((_, el) => {
+        const href = String($(el).attr("href") || "").trim();
+        const title = $(el).text().trim();
+        if (!href.startsWith("/news/")) return;
+        if (!title || title.length < 10) return;
+        const match = href.match(/^\/news\/(\d{4}-\d{2}-\d{2})\//);
+        if (!match) return;
+        const day = match[1];
+        const dt = new Date(`${day}T00:00:00Z`);
+        if (Number.isNaN(dt.getTime())) return;
+        if (dt < cutoff) return;
+        const link = `https://www.animenewsnetwork.com${href}`;
+        found.push({
+          id: link,
+          title,
+          link,
+          pubDate: dt.toISOString(),
+          publishedAt: dt.toISOString(),
+          categories: [],
+          description: "",
+          summary: "",
+          image: "",
+          sourceId: "ann",
+          sourceName: "Anime News Network",
+          archiveMonth: month
+        });
+      });
+      return found;
+    };
+
+    // Pull older items from the archive to ensure we have at least N days worth of results.
+    for (const month of months) {
+      const archiveUrl = `https://www.animenewsnetwork.com/news/archive?month=${encodeURIComponent(month)}`;
+      const archiveKey = `ann-archive|${month}`;
+      let html = "";
+      const cachedArchive = annCache.get(archiveKey);
+      if (cachedArchive && Date.now() - cachedArchive.ts < 60 * 60 * 1000) {
+        html = cachedArchive.data?.html || "";
+      } else {
+        // eslint-disable-next-line no-await-in-loop
+        const archiveRes = await fetchWithTimeout(archiveUrl, { timeoutMs: 12000 });
+        if (archiveRes.ok) {
+          // eslint-disable-next-line no-await-in-loop
+          html = await archiveRes.text();
+          annCache.set(archiveKey, { data: { html }, ts: Date.now() });
+        }
+      }
+      if (!html) continue;
+      const archiveItems = parseArchive(html, month);
+      archiveItems.forEach((it) => {
+        if (!it.link) return;
+        if (!byLink.has(it.link)) {
+          byLink.set(it.link, it);
+        }
+      });
+    }
+
+    // Apply cutoff, sort, and cap.
+    const windowed = Array.from(byLink.values())
+      .filter((it) => {
+        const iso = it.publishedAt || it.pubDate || "";
+        const dt = new Date(iso);
+        if (Number.isNaN(dt.getTime())) return false;
+        return dt >= cutoff;
+      })
+      .sort((a, b) => String(b.publishedAt || b.pubDate || "").localeCompare(String(a.publishedAt || a.pubDate || "")))
+      .slice(0, limit);
+
+    const payload = { items: windowed, days, limit };
     annCache.set(cacheKey, { data: payload, ts: Date.now() });
     return res.json(payload);
   } catch (err) {

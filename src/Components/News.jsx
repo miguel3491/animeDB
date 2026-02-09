@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import ReactPaginate from "react-paginate";
 import "../styles.css";
 
 function News() {
@@ -31,6 +32,17 @@ function News() {
   const [search, setSearch] = useState("");
   const [timeFilter, setTimeFilter] = useState("all");
   const [genreFilter, setGenreFilter] = useState("all");
+  const [windowDays, setWindowDays] = useState(() => {
+    try {
+      const qs = new URLSearchParams(location.search || "");
+      const raw = Number(qs.get("days") || "");
+      if (Number.isFinite(raw) && raw > 0) return Math.max(1, Math.min(180, raw));
+    } catch (err) {
+      // ignore
+    }
+    return 14;
+  });
+  const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [thumbs, setThumbs] = useState({});
@@ -79,6 +91,10 @@ function News() {
     });
   }, [items, genreFilter, timeFilter, search]);
 
+  useEffect(() => {
+    setPage(0);
+  }, [search, timeFilter, genreFilter, windowDays, viewMode]);
+
   const proxiedImage = (url) => {
     const raw = String(url || "").trim();
     if (!raw) return "";
@@ -92,7 +108,8 @@ function News() {
       setLoading(true);
       setError("");
       try {
-        const response = await fetch("/api/ann/news?limit=40");
+        // Pull a larger window (server enforces cutoffs + caching). We paginate client-side.
+        const response = await fetch(`/api/ann/news?days=${encodeURIComponent(windowDays)}&limit=200`);
         if (!response.ok) {
           throw new Error("Failed to load news");
         }
@@ -110,10 +127,34 @@ function News() {
     };
 
     load();
-  }, []);
+  }, [windowDays]);
+
+  const highlight = filtered[0];
+  const nonHighlight = useMemo(() => filtered.slice(1), [filtered]);
+  const pageSize = useMemo(() => {
+    if (viewMode === "list") return 8;
+    if (viewMode === "compact") return 15;
+    return 12; // grid
+  }, [viewMode]);
+
+  const pageCount = useMemo(() => {
+    if (nonHighlight.length === 0) return 0;
+    return Math.max(1, Math.ceil(nonHighlight.length / pageSize));
+  }, [nonHighlight.length, pageSize]);
+
+  const pageItems = useMemo(() => {
+    const safePage = Math.max(0, Math.min(page, Math.max(0, pageCount - 1)));
+    const start = safePage * pageSize;
+    return nonHighlight.slice(start, start + pageSize);
+  }, [nonHighlight, page, pageCount, pageSize]);
 
   useEffect(() => {
-    if (filtered.length === 0) return;
+    // Resolve previews only for the visible content (highlight on page 1 + current page items).
+    const visible = [];
+    if (page === 0 && highlight) visible.push(highlight);
+    pageItems.forEach((it) => visible.push(it));
+    if (visible.length === 0) return;
+
     let cancelled = false;
     const controller = new AbortController();
 
@@ -172,27 +213,17 @@ function News() {
       await Promise.all(workers);
     };
 
-    // Load previews progressively: show the first batch quickly, then fill the rest in the background.
-    const MAX_PREVIEWS = 40;
-    const FIRST_BATCH = 18;
-    const primary = filtered.slice(0, Math.min(filtered.length, FIRST_BATCH, MAX_PREVIEWS));
-    const secondary = filtered.slice(primary.length, Math.min(filtered.length, MAX_PREVIEWS));
-
     setThumbLoading(true);
-    runQueue([...primary], 4, 0)
-      .then(() => runQueue([...secondary], 2, 180))
-      .finally(() => {
-        if (!cancelled) setThumbLoading(false);
-      });
+    runQueue([...visible], 3, 80).finally(() => {
+      if (!cancelled) setThumbLoading(false);
+    });
 
     return () => {
       cancelled = true;
       controller.abort();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered]);
-
-  const highlight = filtered[0];
+  }, [pageItems, page, highlight, windowDays, debugEnabled]);
   const persistItem = (item) => {
     if (typeof window === "undefined") return;
     try {
@@ -319,6 +350,18 @@ function News() {
                 </button>
               </div>
               <label className="genre-filter">
+                <span className="genre-label">Window</span>
+                <select
+                  value={windowDays}
+                  onChange={(e) => setWindowDays(Number(e.target.value) || 14)}
+                  aria-label="News window"
+                >
+                  <option value={14}>Last 14 days</option>
+                  <option value={30}>Last 30 days</option>
+                  <option value={60}>Last 60 days</option>
+                </select>
+              </label>
+              <label className="genre-filter">
                 <span className="genre-label">Category</span>
                 <select value={genreFilter} onChange={(e) => setGenreFilter(e.target.value)}>
                   {categories.map((cat) => (
@@ -383,7 +426,7 @@ function News() {
             </div>
           )}
 
-          {highlight && !loading && (
+          {page === 0 && highlight && !loading && (
             <div className="news-highlight">
               <div>
                 <p className="news-source">{highlight.sourceName}</p>
@@ -439,12 +482,12 @@ function News() {
 		                )}
 		                <span>{highlight.pubDate ? new Date(highlight.pubDate).toLocaleString() : ""}</span>
 		                <span>{highlight.categories.join(", ")}</span>
-		              </div>
-	            </div>
-	          )}
+              </div>
+            </div>
+          )}
 
-	          <div className={`news-grid ${viewMode}`}>
-	            {filtered.slice(1).map((item) => (
+          <div className={`news-grid ${viewMode}`}>
+	            {pageItems.map((item) => (
 		              <article className="news-card" key={item.id}>
 		                {(item.image || thumbs[item.id]) && !brokenThumbs.has(item.id) ? (
 		                  <img
@@ -511,6 +554,21 @@ function News() {
 	              </article>
 	            ))}
 	          </div>
+
+          {pageCount > 1 && (
+            <div className="pagination">
+              <ReactPaginate
+                previousLabel={"←"}
+                nextLabel={"→"}
+                breakLabel={"..."}
+                pageCount={pageCount}
+                marginPagesDisplayed={1}
+                pageRangeDisplayed={3}
+                onPageChange={(selected) => setPage(selected.selected)}
+                forcePage={Math.max(0, Math.min(page, pageCount - 1))}
+              />
+            </div>
+          )}
 	        </section>
 
         <div className="Sidebar">
