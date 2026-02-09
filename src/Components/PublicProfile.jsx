@@ -4,6 +4,7 @@ import {
   collection,
   collectionGroup,
   doc,
+  getCountFromServer,
   getDoc,
   getDocs,
   limit,
@@ -42,6 +43,8 @@ function PublicProfile() {
   const [brokenThumbs, setBrokenThumbs] = useState(() => new Set());
   const [groupBadges, setGroupBadges] = useState([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
+  const [groupCountLive, setGroupCountLive] = useState(null);
+  const [followerCountLive, setFollowerCountLive] = useState(null);
   const fromPath = `${location.pathname}${location.search || ""}`;
 
   const goBack = () => {
@@ -94,6 +97,7 @@ function PublicProfile() {
     if (!uid) {
       setGroupBadges([]);
       setGroupsLoading(false);
+      setGroupCountLive(null);
       return;
     }
 
@@ -101,6 +105,18 @@ function PublicProfile() {
     const loadGroups = async () => {
       setGroupsLoading(true);
       try {
+        // Use an aggregate count for an accurate group count without reading user-private mirrors.
+        try {
+          const cntSnap = await getCountFromServer(
+            query(collectionGroup(db, "members"), where("uid", "==", uid))
+          );
+          if (active) {
+            setGroupCountLive(cntSnap.data().count || 0);
+          }
+        } catch (err) {
+          if (active) setGroupCountLive(null);
+        }
+
         // We avoid reading users/{uid}/groups because our rules keep that private.
         // Instead we read memberships via collectionGroup (groups/{groupId}/members/{uid} is public-read).
         const q = query(collectionGroup(db, "members"), where("uid", "==", uid), limit(8));
@@ -139,6 +155,33 @@ function PublicProfile() {
       active = false;
     };
   }, [uid]);
+
+  useEffect(() => {
+    if (!uid) {
+      setFollowerCountLive(null);
+      return;
+    }
+    const isSelf = Boolean(user && user.uid === uid);
+    if (!isSelf) {
+      // For other users, followerCount is provided by Cloud Functions on users/{uid}.
+      setFollowerCountLive(null);
+      return;
+    }
+    let active = true;
+    (async () => {
+      try {
+        const cntSnap = await getCountFromServer(collection(db, "users", uid, "followers"));
+        if (!active) return;
+        setFollowerCountLive(cntSnap.data().count || 0);
+      } catch (err) {
+        if (!active) return;
+        setFollowerCountLive(null);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [uid, user]);
 
   useEffect(() => {
     let active = true;
@@ -291,8 +334,10 @@ function PublicProfile() {
 
   const isSelf = Boolean(user && uid && user.uid === uid);
   const canViewFavoritesActivity = isSelf || isFollowing;
-  const followerCount = Number.isFinite(Number(profile?.followerCount)) ? Number(profile.followerCount) : null;
-  const groupCount = Number.isFinite(Number(profile?.groupCount)) ? Number(profile.groupCount) : null;
+  const followerCountRaw = Number.isFinite(Number(profile?.followerCount)) ? Number(profile.followerCount) : null;
+  const groupCountRaw = Number.isFinite(Number(profile?.groupCount)) ? Number(profile.groupCount) : null;
+  const followerCount = followerCountRaw === null ? followerCountLive : followerCountRaw;
+  const groupCount = groupCountRaw === null ? groupCountLive : groupCountRaw;
 
   const toggleFollow = async () => {
     if (!user || !uid || isSelf) return;
@@ -415,7 +460,7 @@ function PublicProfile() {
               )}
               {groupBadges.length === 0 && (
                 <p className="muted" style={{ marginTop: 6 }}>
-                  {groupsLoading ? "Loading groups..." : "No public groups yet."}
+                  {groupsLoading ? "Loading groups..." : "No groups found (or not visible)."}
                 </p>
               )}
             </div>
