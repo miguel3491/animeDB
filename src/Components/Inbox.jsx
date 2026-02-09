@@ -20,6 +20,7 @@ import { useAuth } from "../AuthContext";
 import "../styles.css";
 
 const PAGE_SIZE = 100;
+const OWNER_UID = process.env.REACT_APP_OWNER_UID;
 
 const isoFromFirestore = (value) => {
   if (!value) return "";
@@ -34,6 +35,7 @@ function Inbox() {
   const { user, profile } = useAuth();
   const location = useLocation();
   const fromPath = `${location.pathname}${location.search || ""}`;
+  const isOwner = Boolean(user?.uid && OWNER_UID && user.uid === OWNER_UID);
 
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -320,7 +322,7 @@ function Inbox() {
           Inbox includes: new comments on your discussion posts, new followers, and bug report updates.
         </p>
 
-        {process.env.NODE_ENV !== "production" && (
+        {process.env.NODE_ENV !== "production" && isOwner && (
           <div className="publish-card" style={{ marginTop: 12 }}>
             <div className="results-bar" style={{ marginBottom: 10 }}>
               <h3 style={{ margin: 0 }}>Inbox diagnostics</h3>
