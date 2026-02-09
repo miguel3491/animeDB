@@ -694,6 +694,7 @@ function MangaContent({ mode } = {}) {
                 <Link className="dropdown-item" role="menuitem" to="/discussion">Discussion</Link>
                 <Link className="dropdown-item" role="menuitem" to="/news">News</Link>
                 <Link className="dropdown-item" role="menuitem" to="/favorites">Favorites</Link>
+                <Link className="dropdown-item" role="menuitem" to="/groups">Groups</Link>
               </div>
             </li>
           </ul>
