@@ -17,6 +17,7 @@ function News() {
   const [error, setError] = useState("");
   const [thumbs, setThumbs] = useState({});
   const [brokenThumbs, setBrokenThumbs] = useState(() => new Set());
+  const [thumbServiceError, setThumbServiceError] = useState("");
   const thumbInFlightRef = useRef(new Set());
 
   const categories = useMemo(() => {
@@ -91,6 +92,9 @@ function News() {
           signal: controller.signal
         });
         const data = await response.json().catch(() => ({}));
+        if (response.status === 404) {
+          setThumbServiceError("Preview service is unavailable. Make sure `npm start` is running (client + server).");
+        }
         if (!response.ok) return;
         const url = String(data?.image || "").trim();
         if (!url) return;
@@ -216,6 +220,7 @@ function News() {
 
           {loading && <p>Loading the latest news…</p>}
           {error && <p>{error}</p>}
+          {thumbServiceError && !loading && !error && <p className="muted">{thumbServiceError}</p>}
 
           {highlight && !loading && (
             <div className="news-highlight">
