@@ -86,8 +86,15 @@ a{
     letter-spacing: 4px;
     margin: 0;
     display: flex;
-    gap: 10px;
+    gap: 0px;
     align-items: baseline;
+    text-transform: none;
+}
+.brand-ani {
+    color: var(--text);
+}
+.brand-kodo {
+    color: #7afcff;
 }
 
 .header-tagline {

@@ -127,7 +127,10 @@ function Header(){
         >
             <div className="nav-left">
                 <Link className="title-link" to="/">
-                    <h1 id="Title">AniKodo</h1>
+                    <h1 id="Title">
+                        <span className="brand-ani">Ani</span>
+                        <span className="brand-kodo">Kodo</span>
+                    </h1>
                 </Link>
             </div>
             <div className="header-actions">
