@@ -9,6 +9,15 @@ function News() {
   const isMangaActive = location.pathname === "/manga" || location.pathname.startsWith("/seasonal/manga");
   const isNewsActive = location.pathname.startsWith("/news");
   const isDiscussionActive = location.pathname.startsWith("/discussion");
+  const [viewMode, setViewMode] = useState(() => {
+    try {
+      const stored = localStorage.getItem("news-view-mode");
+      if (stored === "grid" || stored === "list" || stored === "compact") return stored;
+    } catch (err) {
+      // ignore
+    }
+    return "grid";
+  });
   const [items, setItems] = useState([]);
   const [search, setSearch] = useState("");
   const [timeFilter, setTimeFilter] = useState("all");
@@ -19,6 +28,14 @@ function News() {
   const [brokenThumbs, setBrokenThumbs] = useState(() => new Set());
   const [thumbServiceError, setThumbServiceError] = useState("");
   const thumbInFlightRef = useRef(new Set());
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("news-view-mode", viewMode);
+    } catch (err) {
+      // ignore
+    }
+  }, [viewMode]);
 
   const categories = useMemo(() => {
     const set = new Set();
@@ -49,6 +66,12 @@ function News() {
       return true;
     });
   }, [items, genreFilter, timeFilter, search]);
+
+  const proxiedImage = (url) => {
+    const raw = String(url || "").trim();
+    if (!raw) return "";
+    return `/api/img?url=${encodeURIComponent(raw)}`;
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -196,6 +219,48 @@ function News() {
             <h3>Latest Headlines</h3>
             <div className="results-controls">
               <span className="pill">{filtered.length} stories</span>
+              <div className="view-toggle">
+                <button
+                  type="button"
+                  className={viewMode === "grid" ? "active" : ""}
+                  onClick={() => setViewMode("grid")}
+                  aria-label="Grid view"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="3" y="3" width="7" height="7" rx="1.5"></rect>
+                    <rect x="14" y="3" width="7" height="7" rx="1.5"></rect>
+                    <rect x="3" y="14" width="7" height="7" rx="1.5"></rect>
+                    <rect x="14" y="14" width="7" height="7" rx="1.5"></rect>
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className={viewMode === "list" ? "active" : ""}
+                  onClick={() => setViewMode("list")}
+                  aria-label="List view"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="4" y="5" width="16" height="3" rx="1.5"></rect>
+                    <rect x="4" y="10.5" width="16" height="3" rx="1.5"></rect>
+                    <rect x="4" y="16" width="16" height="3" rx="1.5"></rect>
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className={viewMode === "compact" ? "active" : ""}
+                  onClick={() => setViewMode("compact")}
+                  aria-label="Compact view"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="3" y="4" width="6" height="6" rx="1.2"></rect>
+                    <rect x="10" y="4" width="4" height="6" rx="1"></rect>
+                    <rect x="15" y="4" width="6" height="6" rx="1.2"></rect>
+                    <rect x="3" y="14" width="6" height="6" rx="1.2"></rect>
+                    <rect x="10" y="14" width="4" height="6" rx="1"></rect>
+                    <rect x="15" y="14" width="6" height="6" rx="1.2"></rect>
+                  </svg>
+                </button>
+              </div>
               <label className="genre-filter">
                 <span className="genre-label">Category</span>
                 <select value={genreFilter} onChange={(e) => setGenreFilter(e.target.value)}>
@@ -250,18 +315,17 @@ function News() {
                   Read more
                 </Link>
               </div>
-              <div className="news-meta">
-                {(highlight.image || thumbs[highlight.id]) && !brokenThumbs.has(highlight.id) && (
-                  <img
-                    className="news-highlight-image"
-                    src={highlight.image || thumbs[highlight.id]}
-                    alt={highlight.title}
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                    onError={() => {
-                      setBrokenThumbs((prev) => {
-                        const next = new Set(prev);
-                        next.add(highlight.id);
+	              <div className="news-meta">
+	                {(highlight.image || thumbs[highlight.id]) && !brokenThumbs.has(highlight.id) && (
+	                  <img
+	                    className="news-highlight-image"
+	                    src={proxiedImage(highlight.image || thumbs[highlight.id])}
+	                    alt={highlight.title}
+	                    loading="lazy"
+	                    onError={() => {
+	                      setBrokenThumbs((prev) => {
+	                        const next = new Set(prev);
+	                        next.add(highlight.id);
                         return next;
                       });
                     }}
@@ -269,24 +333,23 @@ function News() {
                 )}
                 <span>{highlight.pubDate ? new Date(highlight.pubDate).toLocaleString() : ""}</span>
                 <span>{highlight.categories.join(", ")}</span>
-              </div>
-            </div>
-          )}
+	              </div>
+	            </div>
+	          )}
 
-          <div className="news-grid">
-            {filtered.slice(1).map((item) => (
-              <article className="news-card" key={item.id}>
-                {(item.image || thumbs[item.id]) && !brokenThumbs.has(item.id) ? (
-                  <img
-                    className="news-card-image"
-                    src={item.image || thumbs[item.id]}
-                    alt={item.title}
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                    onError={() => {
-                      setBrokenThumbs((prev) => {
-                        const next = new Set(prev);
-                        next.add(item.id);
+	          <div className={`news-grid ${viewMode}`}>
+	            {filtered.slice(1).map((item) => (
+	              <article className="news-card" key={item.id}>
+	                {(item.image || thumbs[item.id]) && !brokenThumbs.has(item.id) ? (
+	                  <img
+	                    className="news-card-image"
+	                    src={proxiedImage(item.image || thumbs[item.id])}
+	                    alt={item.title}
+	                    loading="lazy"
+	                    onError={() => {
+	                      setBrokenThumbs((prev) => {
+	                        const next = new Set(prev);
+	                        next.add(item.id);
                         return next;
                       });
                     }}
@@ -294,48 +357,50 @@ function News() {
                 ) : (
                   <div className="news-card-image news-card-image-placeholder" aria-label="Preview unavailable">
                     <span className="muted">Preview unavailable</span>
+	                  </div>
+	                )}
+                  <div className="news-card-body">
+                    <div className="news-card-header">
+                      <span className="news-source">{item.sourceName}</span>
+                      <span className="news-date">
+                        {item.pubDate ? new Date(item.pubDate).toLocaleDateString() : ""}
+                      </span>
+                    </div>
+                    <h4>{item.title}</h4>
+                    <p>{item.summary || "No summary available."}</p>
+                    <div className="news-tags">
+                      {item.categories.slice(0, 3).map((cat) => (
+                        <span key={`${item.id}-${cat}`} className="tag">
+                          {cat}
+                        </span>
+                      ))}
+                    </div>
+                    <Link
+                      className="detail-link"
+                      to={`/news/${encodeURIComponent(item.id)}`}
+                      state={{
+                        from: fromPath,
+                        item: {
+                          ...item,
+                          displayTitle: item.title,
+                          displayBody: item.summary
+                        }
+                      }}
+                      onClick={() =>
+                        persistItem({
+                          ...item,
+                          displayTitle: item.title,
+                          displayBody: item.summary
+                        })
+                      }
+                    >
+                      Read more
+                    </Link>
                   </div>
-                )}
-                <div className="news-card-header">
-                  <span className="news-source">{item.sourceName}</span>
-                  <span className="news-date">
-                    {item.pubDate ? new Date(item.pubDate).toLocaleDateString() : ""}
-                  </span>
-                </div>
-                <h4>{item.title}</h4>
-                <p>{item.summary || "No summary available."}</p>
-                <div className="news-tags">
-                  {item.categories.slice(0, 3).map((cat) => (
-                    <span key={`${item.id}-${cat}`} className="tag">
-                      {cat}
-                    </span>
-                  ))}
-                </div>
-                <Link
-                  className="detail-link"
-                  to={`/news/${encodeURIComponent(item.id)}`}
-                  state={{
-                    from: fromPath,
-                    item: {
-                      ...item,
-                      displayTitle: item.title,
-                      displayBody: item.summary
-                    }
-                  }}
-                  onClick={() =>
-                    persistItem({
-                      ...item,
-                      displayTitle: item.title,
-                      displayBody: item.summary
-                    })
-                  }
-                >
-                  Read more
-                </Link>
-              </article>
-            ))}
-          </div>
-        </section>
+	              </article>
+	            ))}
+	          </div>
+	        </section>
 
         <div className="Sidebar">
           <div className="sidebar-card">

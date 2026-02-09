@@ -33,6 +33,10 @@ const ANILIST_TTL = 5 * 60 * 1000;
 const MAX_ANILIST_CACHE = 1200;
 const ANN_FEED_URL = "https://www.animenewsnetwork.com/news/rss.xml";
 const annCache = new Map();
+const imageProxyCache = new Map();
+const imageProxyInflight = new Map();
+const IMAGE_PROXY_TTL = 24 * 60 * 60 * 1000;
+const MAX_IMAGE_PROXY_CACHE = 220;
 const ANN_TTL = 5 * 60 * 1000;
 const mangaSeasonLastPageCache = new Map();
 const MANGA_SEASON_LASTPAGE_TTL = 60 * 60 * 1000;
@@ -636,6 +640,74 @@ app.get("/api/ann/thumb", async (req, res) => {
   } catch (err) {
     console.error("ANN thumb error:", err?.message || err);
     return res.status(502).json({ error: "ANN thumb unavailable" });
+  }
+});
+
+app.get("/api/img", async (req, res) => {
+  const url = String(req.query?.url || "");
+  if (!url || !url.startsWith("http")) {
+    return res.status(400).json({ error: "Missing url" });
+  }
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (err) {
+    return res.status(400).json({ error: "Invalid url" });
+  }
+  const host = String(parsed.hostname || "").toLowerCase();
+  // Avoid becoming an open proxy. Expand this list only if needed.
+  if (!host.endsWith("animenewsnetwork.com")) {
+    return res.status(403).json({ error: "Host not allowed" });
+  }
+
+  const key = `img|${url}`;
+  const cached = imageProxyCache.get(key);
+  if (cached && Date.now() - cached.ts < IMAGE_PROXY_TTL) {
+    res.set("Content-Type", cached.ct);
+    res.set("Cache-Control", "public, max-age=86400");
+    return res.send(cached.buf);
+  }
+
+  try {
+    const result = await withInflight(imageProxyInflight, key, async () => {
+      const response = await fetchWithTimeout(url, {
+        timeoutMs: 12000,
+        init: {
+          headers: {
+            Accept: "image/*",
+            "User-Agent": "AnimeDB/1.0 (+https://github.com/miguel3491/animeDB)"
+          }
+        }
+      });
+      if (!response.ok) {
+        const err = new Error("Image fetch failed");
+        err.status = response.status;
+        throw err;
+      }
+      const ct = String(response.headers.get("content-type") || "application/octet-stream");
+      if (!ct.startsWith("image/")) {
+        const err = new Error("Not an image");
+        err.status = 415;
+        throw err;
+      }
+      const ab = await response.arrayBuffer();
+      const buf = Buffer.from(ab);
+      if (buf.length > 2 * 1024 * 1024) {
+        const err = new Error("Image too large");
+        err.status = 413;
+        throw err;
+      }
+      const entry = { buf, ct, ts: Date.now() };
+      cacheSetBounded(imageProxyCache, key, entry, MAX_IMAGE_PROXY_CACHE);
+      return entry;
+    });
+
+    res.set("Content-Type", result.ct);
+    res.set("Cache-Control", "public, max-age=86400");
+    return res.send(result.buf);
+  } catch (err) {
+    const status = Number(err?.status) || 502;
+    return res.status(status).json({ error: "Image unavailable" });
   }
 });
 
