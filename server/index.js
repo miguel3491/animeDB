@@ -493,7 +493,10 @@ app.post("/api/summary", async (req, res) => {
 });
 
 app.get("/api/translate/status", (req, res) => {
-  return res.json({ enabled: Boolean(translateApiKey) });
+  return res.json({
+    enabled: Boolean(translateApiKey),
+    reason: translateApiKey ? "" : "missing-key"
+  });
 });
 
 app.post("/api/translate", async (req, res) => {

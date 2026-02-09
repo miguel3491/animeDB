@@ -284,12 +284,24 @@ function NewsDetail() {
     setTranslationNotice("");
 
     try {
-      const statusRes = await fetch("/api/translate/status");
-      const statusJson = await statusRes.json().catch(() => ({}));
-      if (!statusRes.ok || !statusJson?.enabled) {
-        sessionStorage.setItem("translate-disabled", "1");
-        setTranslationSessionDisabled(true);
-        throw new Error("Translation is disabled for this session.");
+      let statusRes;
+      let statusJson = {};
+      try {
+        statusRes = await fetch("/api/translate/status");
+        statusJson = await statusRes.json().catch(() => ({}));
+      } catch (err) {
+        throw new Error("Translation service is unavailable. Make sure `npm start` (client + server) is running.");
+      }
+      if (!statusRes?.ok) {
+        throw new Error("Translation service is unavailable. Please try again in a moment.");
+      }
+      if (!statusJson?.enabled) {
+        // Only lock the UI when the server explicitly says the key is missing.
+        if (statusJson?.reason === "missing-key") {
+          sessionStorage.setItem("translate-disabled", "1");
+          setTranslationSessionDisabled(true);
+        }
+        throw new Error("Translation is not configured on the server (missing Google Translate API key).");
       }
 
       const response = await fetch("/api/translate", {
@@ -304,7 +316,7 @@ function NewsDetail() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         const detail = String(data?.error || "Translation unavailable.");
-        if (response.status === 503 || detail.toLowerCase().includes("missing")) {
+        if (response.status === 503 || detail.toLowerCase().includes("missing google translate api key")) {
           sessionStorage.setItem("translate-disabled", "1");
           setTranslationSessionDisabled(true);
         }
