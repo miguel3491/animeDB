@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { addDoc, collection, doc, getDocs, limit, orderBy, query, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
+import { addDoc, collection, doc, getCountFromServer, getDocs, limit, orderBy, query, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { useAuth } from "../AuthContext";
 import { db } from "../firebase";
 import "../styles.css";
@@ -14,10 +14,13 @@ function Profile() {
   const [activity, setActivity] = useState([]);
   const [activityLoading, setActivityLoading] = useState(true);
   const [showUid, setShowUid] = useState(false);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [followerCountLoading, setFollowerCountLoading] = useState(false);
   const [reportTitle, setReportTitle] = useState("");
   const [reportDetails, setReportDetails] = useState("");
   const [reportSteps, setReportSteps] = useState("");
   const [reportSeverity, setReportSeverity] = useState("Medium");
+  const [reportType, setReportType] = useState("Bug");
   const [reportStatus, setReportStatus] = useState("");
   const [reports, setReports] = useState([]);
   const [reportsLoading, setReportsLoading] = useState(false);
@@ -34,6 +37,31 @@ function Profile() {
 
   useEffect(() => {
     setShowUid(false);
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setFollowerCount(0);
+      return;
+    }
+    let active = true;
+    const loadCount = async () => {
+      setFollowerCountLoading(true);
+      try {
+        const ref = collection(db, "users", user.uid, "followers");
+        const snap = await getCountFromServer(ref);
+        const count = Number(snap?.data?.().count ?? 0);
+        if (active) setFollowerCount(Number.isFinite(count) ? count : 0);
+      } catch (err) {
+        if (active) setFollowerCount(0);
+      } finally {
+        if (active) setFollowerCountLoading(false);
+      }
+    };
+    loadCount();
+    return () => {
+      active = false;
+    };
   }, [user?.uid]);
 
   useEffect(() => {
@@ -223,6 +251,7 @@ function Profile() {
     }
     try {
       await addDoc(collection(db, "bugReports"), {
+        type: reportType,
         title: reportTitle.trim(),
         details: reportDetails.trim(),
         steps: reportSteps.trim(),
@@ -240,6 +269,7 @@ function Profile() {
       setReportDetails("");
       setReportSteps("");
       setReportSeverity("Medium");
+      setReportType("Bug");
       setReportStatus("Report submitted. Thank you!");
     } catch (err) {
       setReportStatus(err?.message || "Report failed to submit.");
@@ -310,6 +340,11 @@ function Profile() {
         <div className="results-bar">
           <h3>Your profile</h3>
           <Link className="detail-link" to="/">Back to home</Link>
+        </div>
+        <div className="results-controls" style={{ marginBottom: 14 }}>
+          <span className="pill">
+            Followers: {followerCountLoading ? "…" : followerCount}
+          </span>
         </div>
         <div className="profile-page">
           <div className="profile-preview">
@@ -414,10 +449,19 @@ function Profile() {
         </div>
         <div className="public-section">
           <div className="results-bar">
-            <h3>Report a bug</h3>
-            <span className="pill">Help improve AnimeDB</span>
+            <h3>Send a report</h3>
+            <span className="pill">Owner-only</span>
           </div>
           <div className="bug-report">
+            <label>
+              Type
+              <select value={reportType} onChange={(e) => setReportType(e.target.value)}>
+                <option>Bug</option>
+                <option>Feature request</option>
+                <option>Account issue</option>
+                <option>Other</option>
+              </select>
+            </label>
             <label>
               Title
               <input
@@ -512,6 +556,7 @@ function Profile() {
                       {item.steps && <p className="muted">Steps: {item.steps}</p>}
                     </div>
                     <div className="bug-report-meta">
+                      <span className="pill">{item.type || "Bug"}</span>
                       <span className="pill">{item.severity || "Medium"}</span>
                       <span className="muted">{item.reporterName || "Anonymous"}</span>
                       <span className="muted">
