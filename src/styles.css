@@ -69,7 +69,8 @@ a{
     padding: 22px 6vw;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     backdrop-filter: blur(12px);
-    z-index: 80;
+    /* Must sit above page-level controls (e.g. Discussion filters) so the profile dropdown is clickable. */
+    z-index: 500;
 }
 .nav-left {
     display: flex;
