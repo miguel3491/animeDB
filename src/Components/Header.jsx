@@ -127,7 +127,7 @@ function Header(){
         >
             <div className="nav-left">
                 <Link className="title-link" to="/">
-                    <h1 id = "Title">Anime<span>情報</span></h1>
+                    <h1 id="Title">AniKodo</h1>
                 </Link>
             </div>
             <div className="header-actions">
