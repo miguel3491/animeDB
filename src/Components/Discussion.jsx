@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import ReactPaginate from "react-paginate";
 import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
@@ -582,6 +583,7 @@ function Discussion() {
   const suggestionTimeoutRef = useRef(null);
   const [activeTab, setActiveTab] = useState("anime");
   const [showGuide, setShowGuide] = useState(false);
+  const [postPage, setPostPage] = useState(0);
   const [spoilerBlurEnabled, setSpoilerBlurEnabled] = useState(() => {
     try {
       const stored = localStorage.getItem("spoiler-blur-enabled");
@@ -716,6 +718,24 @@ function Discussion() {
   })();
   const animeCount = withType.filter((post) => post.mediaType === "anime").length;
   const mangaCount = withType.filter((post) => post.mediaType === "manga").length;
+
+  const POSTS_PER_PAGE = 7;
+  const postPageCount = Math.max(1, Math.ceil(visiblePosts.length / POSTS_PER_PAGE));
+  const safePostPage = Math.max(0, Math.min(postPage, postPageCount - 1));
+  const pagedPosts = visiblePosts.slice(
+    safePostPage * POSTS_PER_PAGE,
+    safePostPage * POSTS_PER_PAGE + POSTS_PER_PAGE
+  );
+
+  useEffect(() => {
+    setPostPage(0);
+  }, [activeTab, filter, selectedMediaId, search]);
+
+  useEffect(() => {
+    if (postPage > postPageCount - 1) {
+      setPostPage(0);
+    }
+  }, [postPage, postPageCount]);
 
   return (
     <div className="layout">
@@ -867,21 +887,37 @@ function Discussion() {
             <Link className="detail-link" to="/favorites">Go to favorites</Link>
           </div>
         ) : (
-          <div className="discussion-grid">
-            {visiblePosts.map((post) => (
-              <DiscussionPost
-                key={post.id}
-                post={post}
-                user={user}
-                onDelete={handleDelete}
-                spoilerBlurEnabled={spoilerBlurEnabled}
-                draft={drafts[post.id]}
-                onDraftChange={(next) =>
-                  setDrafts((prev) => ({ ...prev, [post.id]: next }))
-                }
-              />
-            ))}
-          </div>
+          <>
+            <div className="discussion-grid">
+              {pagedPosts.map((post) => (
+                <DiscussionPost
+                  key={post.id}
+                  post={post}
+                  user={user}
+                  onDelete={handleDelete}
+                  spoilerBlurEnabled={spoilerBlurEnabled}
+                  draft={drafts[post.id]}
+                  onDraftChange={(next) =>
+                    setDrafts((prev) => ({ ...prev, [post.id]: next }))
+                  }
+                />
+              ))}
+            </div>
+            {postPageCount > 1 && (
+              <div className="pagination">
+                <ReactPaginate
+                  previousLabel={"←"}
+                  nextLabel={"→"}
+                  breakLabel={"..."}
+                  pageCount={postPageCount}
+                  marginPagesDisplayed={1}
+                  pageRangeDisplayed={3}
+                  onPageChange={(selected) => setPostPage(selected.selected)}
+                  forcePage={safePostPage}
+                />
+              </div>
+            )}
+          </>
         )}
       </section>
     </div>
