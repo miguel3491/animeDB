@@ -6,6 +6,14 @@ import "../styles.css";
 function News() {
   const location = useLocation();
   const fromPath = `${location.pathname}${location.search || ""}`;
+  const truncateByPercent = (text, percent) => {
+    const raw = String(text || "").trim();
+    if (!raw) return "";
+    if (raw.length <= 140) return raw;
+    const take = Math.max(80, Math.floor(raw.length * percent));
+    const sliced = raw.slice(0, take).trimEnd();
+    return sliced.endsWith("...") ? sliced : `${sliced}...`;
+  };
   const debugEnabled = useMemo(() => {
     try {
       const qs = new URLSearchParams(location.search || "");
@@ -486,7 +494,7 @@ function News() {
             </div>
           )}
 
-          <div className={`news-grid ${viewMode}`}>
+	          <div className={`news-grid ${viewMode}`}>
 	            {pageItems.map((item) => (
 		              <article className="news-card" key={item.id}>
 		                {(item.image || thumbs[item.id]) && !brokenThumbs.has(item.id) ? (
@@ -521,7 +529,11 @@ function News() {
                       </span>
                     </div>
                     <h4>{item.title}</h4>
-                    <p>{item.summary || "No summary available."}</p>
+                    <p title={viewMode === "compact" ? item.summary || "" : ""}>
+                      {viewMode === "compact"
+                        ? truncateByPercent(item.summary || "No summary available.", 0.25)
+                        : item.summary || "No summary available."}
+                    </p>
                     <div className="news-tags">
                       {item.categories.slice(0, 3).map((cat) => (
                         <span key={`${item.id}-${cat}`} className="tag">

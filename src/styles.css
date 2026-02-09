@@ -1362,6 +1362,10 @@ a{
     -webkit-overflow-scrolling: touch;
 }
 .anime-grid.compact .synopsis {
+    overflow: hidden;
+    padding-right: 0;
+}
+.anime-grid.compact .synopsis {
     max-height: 110px;
 }
 .anime-grid.list .synopsis {
@@ -2418,6 +2422,10 @@ a{
     overflow: auto;
     padding-right: 6px;
     -webkit-overflow-scrolling: touch;
+}
+.news-grid.compact .news-card p {
+    overflow: hidden;
+    padding-right: 0;
 }
 .news-grid.list .news-card p {
     max-height: 120px;

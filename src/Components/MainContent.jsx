@@ -1029,6 +1029,7 @@ function MainContent({ mode } = {}) {
                     cover={cover}
                     seasonLabel={seasonLabel}
                     fromPath={fromPath}
+                    viewMode={viewMode}
                     isFavorite={favorites.has(String(item.mal_id))}
                     pulse={favoritePulseId === String(item.mal_id)}
                     onToggle={toggleFavorite}
@@ -1124,6 +1125,7 @@ const AnimeCardItem = React.memo(function AnimeCardItem({
   cover,
   seasonLabel,
   fromPath,
+  viewMode,
   isFavorite,
   pulse,
   onToggle,
@@ -1142,6 +1144,18 @@ const AnimeCardItem = React.memo(function AnimeCardItem({
     duration
   } = item;
   const hasTrailer = Boolean(trailer?.embed_url);
+
+  const truncateByPercent = (text, percent) => {
+    const raw = String(text || "").trim();
+    if (!raw) return "";
+    if (raw.length <= 140) return raw;
+    const take = Math.max(80, Math.floor(raw.length * percent));
+    const sliced = raw.slice(0, take).trimEnd();
+    return sliced.endsWith("...") ? sliced : `${sliced}...`;
+  };
+
+  const fullSynopsis = synopsis || "No synopsis available yet.";
+  const displaySynopsis = viewMode === "compact" ? truncateByPercent(fullSynopsis, 0.25) : fullSynopsis;
 
   return (
     <article className="anime-card">
@@ -1190,7 +1204,9 @@ const AnimeCardItem = React.memo(function AnimeCardItem({
           <span className="card-callout muted">Trailer not available yet.</span>
         )}
         <span className="score-badge">Score {score ?? "N/A"}</span>
-        <p className="synopsis">{synopsis || "No synopsis available yet."}</p>
+        <p className="synopsis" title={viewMode === "compact" ? fullSynopsis : ""}>
+          {displaySynopsis}
+        </p>
         <div className="card-actions">
           <Link className="detail-link" to={`/anime/${mal_id}`} state={{ from: fromPath }}>
             View details

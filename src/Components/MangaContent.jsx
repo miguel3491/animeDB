@@ -966,6 +966,17 @@ function MangaContent({ mode } = {}) {
                   images?.jpg?.image_url ||
                   images?.webp?.image_url ||
                   "";
+                const truncateByPercent = (text, percent) => {
+                  const raw = String(text || "").trim();
+                  if (!raw) return "";
+                  if (raw.length <= 140) return raw;
+                  const take = Math.max(80, Math.floor(raw.length * percent));
+                  const sliced = raw.slice(0, take).trimEnd();
+                  return sliced.endsWith("...") ? sliced : `${sliced}...`;
+                };
+                const fullSynopsis = synopsis || "No synopsis available yet.";
+                const displaySynopsis =
+                  viewMode === "compact" ? truncateByPercent(fullSynopsis, 0.25) : fullSynopsis;
                 const seasonLabel = isSeasonalMode
                   ? seasonLabelFromIso(published?.from) ||
                     `${seasonOptions.find((s) => s.value === seasonName)?.label || "Season"} ${seasonYear}`
@@ -1017,7 +1028,9 @@ function MangaContent({ mode } = {}) {
                         <span>Volumes: {volumes ?? "?"}</span>
                       </div>
                       <span className="score-badge">Score {score ?? "N/A"}</span>
-                      <p className="synopsis">{synopsis || "No synopsis available yet."}</p>
+                      <p className="synopsis" title={viewMode === "compact" ? fullSynopsis : ""}>
+                        {displaySynopsis}
+                      </p>
                       <div className="card-actions">
                         {hasMal ? (
                           <Link className="detail-link" to={`/manga/${mal_id}`} state={{ from: fromPath }}>
