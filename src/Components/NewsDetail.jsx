@@ -389,7 +389,7 @@ function NewsDetail() {
             )}
 
             {!summary?.summary && !summaryLoading && !summaryError && !summaryNotice && (
-              <p className="muted">Generate a short summary for this story (one time per article in your browser).</p>
+              <p className="muted">Generate a summary for this article.</p>
             )}
           </div>
         </aside>

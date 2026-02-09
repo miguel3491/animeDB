@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import "../styles.css";
 
@@ -17,7 +17,7 @@ function News() {
   const [error, setError] = useState("");
   const [thumbs, setThumbs] = useState({});
   const [brokenThumbs, setBrokenThumbs] = useState(() => new Set());
-  const [thumbRequested, setThumbRequested] = useState(() => new Set());
+  const thumbInFlightRef = useRef(new Set());
 
   const categories = useMemo(() => {
     const set = new Set();
@@ -84,12 +84,8 @@ function News() {
       if (item.image) return;
       if (thumbs[item.id]) return;
       if (brokenThumbs.has(item.id)) return;
-      if (thumbRequested.has(item.id)) return;
-      setThumbRequested((prev) => {
-        const next = new Set(prev);
-        next.add(item.id);
-        return next;
-      });
+      if (thumbInFlightRef.current.has(item.id)) return;
+      thumbInFlightRef.current.add(item.id);
       try {
         const response = await fetch(`/api/ann/thumb?url=${encodeURIComponent(item.link)}`, {
           signal: controller.signal
@@ -102,6 +98,8 @@ function News() {
         setThumbs((prev) => ({ ...prev, [item.id]: url }));
       } catch (err) {
         // ignore
+      } finally {
+        thumbInFlightRef.current.delete(item.id);
       }
     };
 

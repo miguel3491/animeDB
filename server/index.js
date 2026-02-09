@@ -571,8 +571,14 @@ app.get("/api/ann/thumb", async (req, res) => {
   }
   const cacheKey = `ann-thumb|${url}`;
   const cached = annCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < ANN_TTL) {
-    return res.json(cached.data);
+  if (cached) {
+    const age = Date.now() - cached.ts;
+    const hasImage = Boolean(String(cached?.data?.image || "").trim());
+    // If we cached an empty thumbnail, retry sooner so fixes/changes can take effect.
+    const emptyTtl = 90 * 1000;
+    if ((hasImage && age < ANN_TTL) || (!hasImage && age < emptyTtl)) {
+      return res.json(cached.data);
+    }
   }
   try {
     const response = await fetchWithTimeout(url, { timeoutMs: 12000 });
