@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { addDoc, collection, doc, getCountFromServer, getDocs, limit, orderBy, query, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
+import { addDoc, collection, doc, getCountFromServer, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { useAuth } from "../AuthContext";
 import { db } from "../firebase";
 import "../styles.css";
@@ -308,7 +308,7 @@ function Profile() {
             type: "bugReportUpdate",
             seen: false,
             clientAt: resolvedAt,
-            createdAt: resolvedAt,
+            createdAt: serverTimestamp(),
             toUid: item.reporterId,
             reportId: item.id,
             reportTitle: item.title || "Bug report"

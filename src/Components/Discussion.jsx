@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, setDoc, updateDoc, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import { fetchJikanSuggestions } from "../utils/jikan";
@@ -289,7 +289,7 @@ export function DiscussionPost({
           type: "comment",
           seen: false,
           clientAt: nowIso,
-          createdAt: nowIso,
+          createdAt: serverTimestamp(),
           toUid: post.userId,
           fromUid: user.uid,
           fromName: profile?.username || user.displayName || user.email || "Anonymous",
