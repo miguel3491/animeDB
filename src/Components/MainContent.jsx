@@ -30,6 +30,8 @@ function MainContent({ mode } = {}) {
   const isMangaActive = location.pathname === "/manga" || location.pathname.startsWith("/seasonal/manga");
   const isNewsActive = location.pathname.startsWith("/news");
   const isDiscussionActive = location.pathname.startsWith("/discussion");
+  const isFavoritesActive = location.pathname.startsWith("/favorites");
+  const isSocialActive = isNewsActive || isDiscussionActive || isFavoritesActive;
   const [anime, setAnime] = useState([]);
   const [topAnime, setTopAnime] = useState([]);
   const [search, setSearch] = useState("");
@@ -745,11 +747,15 @@ function MainContent({ mode } = {}) {
                 <Link className="dropdown-item" role="menuitem" to="/seasonal/manga">Seasonal Manga</Link>
               </div>
             </li>
-            <li>
-              <Link className={`Small filter-button ${isNewsActive ? "active" : ""}`} to="/news">News</Link>
-            </li>
-            <li>
-              <Link className={`Small filter-button ${isDiscussionActive ? "active" : ""}`} to="/discussion">Discussion</Link>
+            <li className="nav-dropdown">
+              <Link className={`Small filter-button has-dropdown ${isSocialActive ? "active" : ""}`} to="/discussion">
+                Social Hub <span className="dropdown-caret" aria-hidden="true">▾</span>
+              </Link>
+              <div className="dropdown-menu" role="menu" aria-label="Social Hub menu">
+                <Link className="dropdown-item" role="menuitem" to="/discussion">Discussion</Link>
+                <Link className="dropdown-item" role="menuitem" to="/news">News</Link>
+                <Link className="dropdown-item" role="menuitem" to="/favorites">Favorites</Link>
+              </div>
             </li>
           </ul>
         </div>

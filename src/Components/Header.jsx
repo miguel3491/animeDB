@@ -132,9 +132,16 @@ function Header(){
             </div>
             <div className="header-actions">
                 <span className="header-tagline">Curate your next obsession</span>
-                <Link className="nav-link" to="/discussion">Discussion</Link>
-                <Link className="nav-link" to="/news">News</Link>
-                <Link className="nav-link" to="/favorites">Favorites</Link>
+                <div className="nav-dropdown">
+                    <Link className="nav-link has-dropdown" to="/discussion">
+                        Social Hub <span className="dropdown-caret" aria-hidden="true">▾</span>
+                    </Link>
+                    <div className="dropdown-menu" role="menu" aria-label="Social Hub menu">
+                        <Link className="dropdown-item" role="menuitem" to="/discussion">Discussion</Link>
+                        <Link className="dropdown-item" role="menuitem" to="/news">News</Link>
+                        <Link className="dropdown-item" role="menuitem" to="/favorites">Favorites</Link>
+                    </div>
+                </div>
                 {!loading && (
                     user ? (
                         <div className="profile-actions">
