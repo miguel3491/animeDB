@@ -239,22 +239,30 @@ const fetchAniListMangaSeasonPageLen = async ({ page, perPage, start, end }) => 
   const query = `
     query ($page: Int, $perPage: Int, $start: FuzzyDateInt, $end: FuzzyDateInt) {
       Page(page: $page, perPage: $perPage) {
-        media(type: MANGA, startDate_greater: $start, startDate_lesser: $end, sort: POPULARITY_DESC) { id }
+        media(type: MANGA, startDate_greater: $start, startDate_lesser: $end, sort: POPULARITY_DESC) {
+          id
+          startDate { year month day }
+        }
       }
     }
   `;
   const variables = { page, perPage, start, end };
   let lastStatus = 0;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await fetchWithTimeout("https://graphql.anilist.co", {
+    const response = await fetchAniListWithRetry("https://graphql.anilist.co", {
       timeoutMs: 12000,
+      retries: 3,
       init: {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ query, variables })
       }
     });
-    lastStatus = response.status;
+    lastStatus = response?.status || 0;
+    if (!response) {
+      await sleep(650 * (attempt + 1));
+      continue;
+    }
     if (!response.ok) {
       const retryable = [429, 502, 503, 504].includes(response.status);
       if (!retryable) {
@@ -267,8 +275,12 @@ const fetchAniListMangaSeasonPageLen = async ({ page, perPage, start, end }) => 
     if (Array.isArray(json?.errors) && json.errors.length > 0) {
       throw new Error(String(json.errors?.[0]?.message || "AniList probe error"));
     }
-    const media = json?.data?.Page?.media;
-    return Array.isArray(media) ? media.length : 0;
+    const media = Array.isArray(json?.data?.Page?.media) ? json.data.Page.media : [];
+    // Keep the probe aligned with what we actually display: only items with a complete startDate.
+    return media.filter((item) => {
+      const sd = item?.startDate || {};
+      return Number(sd.year) >= 2025 && Number(sd.month) > 0 && Number(sd.day) > 0;
+    }).length;
   }
   throw new Error(`AniList probe failed (${lastStatus || "network error"})`);
 };
@@ -286,9 +298,6 @@ const computeAniListMangaSeasonLastPage = async ({ start, end, perPage }) => {
       break;
     }
     low = high;
-    if (len < perPage) {
-      return low;
-    }
     high = Math.min(MAX_PAGE, high * 2);
     if (high === low) {
       return low;
@@ -312,9 +321,6 @@ const computeAniListMangaSeasonLastPage = async ({ start, end, perPage }) => {
       high = mid;
     } else {
       low = mid;
-      if (len < perPage) {
-        return low;
-      }
     }
   }
   return low;
@@ -1312,8 +1318,9 @@ app.get("/api/jikan/manga/seasonal", async (req, res) => {
         }
       `;
       const variables = { page, perPage: limit, start: startInt, end: endInt };
-      const response = await fetchWithTimeout("https://graphql.anilist.co", {
+      const response = await fetchAniListWithRetry("https://graphql.anilist.co", {
         timeoutMs: 12000,
+        retries: 3,
         init: {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
