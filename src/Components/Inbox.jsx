@@ -49,6 +49,7 @@ function Inbox() {
   const [debugStatus, setDebugStatus] = useState("");
   const [followsPage, setFollowsPage] = useState(0);
   const [commentsPage, setCommentsPage] = useState(0);
+  const [mentionsPage, setMentionsPage] = useState(0);
   const [bugsPage, setBugsPage] = useState(0);
 
   const sendTestNotification = async () => {
@@ -99,6 +100,8 @@ function Inbox() {
             fromName: data.fromName || "",
             fromAvatar: data.fromAvatar || "",
             discussionId: data.discussionId || "",
+            commentId: data.commentId || "",
+            excerpt: data.excerpt || "",
             mediaType: data.mediaType || "",
             mediaTitle: data.mediaTitle || "",
             mediaImage: data.mediaImage || "",
@@ -147,6 +150,8 @@ function Inbox() {
           fromName: data.fromName || "",
           fromAvatar: data.fromAvatar || "",
           discussionId: data.discussionId || "",
+          commentId: data.commentId || "",
+          excerpt: data.excerpt || "",
           mediaType: data.mediaType || "",
           mediaTitle: data.mediaTitle || "",
           mediaImage: data.mediaImage || "",
@@ -216,6 +221,15 @@ function Inbox() {
     return Array.from(map.values()).sort((a, b) => (b.latestAt || "").localeCompare(a.latestAt || ""));
   }, [events]);
 
+  const mentionEvents = useMemo(
+    () => events.filter((e) => e.type === "mention"),
+    [events]
+  );
+  const unseenMentions = useMemo(
+    () => mentionEvents.filter((e) => !e.seen),
+    [mentionEvents]
+  );
+
   const bugEvents = useMemo(
     () => events.filter((e) => e.type === "bugReportUpdate" && !e.seen),
     [events]
@@ -268,6 +282,17 @@ function Inbox() {
     return unseenCommentThreads.slice(start, start + SECTION_PAGE_SIZE);
   }, [unseenCommentThreads, commentsPage, commentsPageCount]);
 
+  const mentionsPageCount = useMemo(() => {
+    if (mentionEvents.length === 0) return 0;
+    return Math.max(1, Math.ceil(mentionEvents.length / SECTION_PAGE_SIZE));
+  }, [mentionEvents.length]);
+  const mentionPageItems = useMemo(() => {
+    if (mentionEvents.length === 0) return [];
+    const safe = Math.max(0, Math.min(mentionsPage, Math.max(0, mentionsPageCount - 1)));
+    const start = safe * SECTION_PAGE_SIZE;
+    return mentionEvents.slice(start, start + SECTION_PAGE_SIZE);
+  }, [mentionEvents, mentionsPage, mentionsPageCount]);
+
   const bugsPageCount = useMemo(() => {
     if (bugEvents.length === 0) return 0;
     return Math.max(1, Math.ceil(bugEvents.length / SECTION_PAGE_SIZE));
@@ -286,6 +311,10 @@ function Inbox() {
   useEffect(() => {
     setCommentsPage(0);
   }, [unseenCommentThreads.length]);
+
+  useEffect(() => {
+    setMentionsPage(0);
+  }, [mentionEvents.length]);
 
   useEffect(() => {
     setBugsPage(0);
@@ -369,7 +398,7 @@ function Inbox() {
         </div>
 
         <p className="muted inbox-intro">
-          Inbox includes: new comments on your discussion posts, new followers, and bug report updates.
+          Inbox includes: mentions, new comments on your discussion posts, new followers, and bug report updates.
         </p>
 
         {process.env.NODE_ENV !== "production" && isOwner && (
@@ -544,6 +573,76 @@ function Inbox() {
                   pageRangeDisplayed={2}
                   onPageChange={(selected) => setCommentsPage(selected.selected)}
                   forcePage={Math.max(0, Math.min(commentsPage, commentsPageCount - 1))}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="inbox-section">
+            <div className="inbox-section-head">
+              <h3>Mentions</h3>
+              <div className="inbox-section-actions">
+                <span className={`pill ${unseenMentions.length > 0 ? "pill-hot" : ""}`}>
+                  {unseenMentions.length > 99 ? "+99" : unseenMentions.length}
+                </span>
+                <button
+                  type="button"
+                  className="detail-link"
+                  onClick={() => markEventsSeen(unseenMentions.map((e) => e.id))}
+                  disabled={unseenMentions.length === 0}
+                >
+                  Mark seen
+                </button>
+              </div>
+            </div>
+
+            {mentionEvents.length === 0 ? (
+              <p className="muted">No mentions yet.</p>
+            ) : (
+              <div className="inbox-list">
+                {mentionPageItems.map((e) => {
+                  const name = e.fromName || profiles[e.fromUid]?.username || "User";
+                  const avatar = e.fromAvatar || profiles[e.fromUid]?.avatar || "";
+                  return (
+                    <Link
+                      key={`mention-${e.id}`}
+                      className="inbox-row"
+                      to={e.discussionId ? `/discussion/${e.discussionId}` : "/discussion"}
+                      state={{ from: fromPath }}
+                      onClick={() => {
+                        if (!e.seen) markEventsSeen([e.id]);
+                      }}
+                    >
+                      {avatar ? (
+                        <img className="inbox-avatar" src={avatar} alt={name} loading="lazy" />
+                      ) : (
+                        <div className="inbox-avatar placeholder"></div>
+                      )}
+                      <div className="inbox-row-text">
+                        <div className="inbox-row-title">
+                          <span>{name}</span>
+                          {!e.seen && <span className="pill pill-hot">New</span>}
+                        </div>
+                        <p className="muted">
+                          Mentioned you in {e.mediaTitle || "a post"}.
+                        </p>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+            {mentionsPageCount > 1 && (
+              <div className="pagination inbox-pagination">
+                <ReactPaginate
+                  previousLabel={"←"}
+                  nextLabel={"→"}
+                  breakLabel={"..."}
+                  pageCount={mentionsPageCount}
+                  marginPagesDisplayed={1}
+                  pageRangeDisplayed={2}
+                  onPageChange={(selected) => setMentionsPage(selected.selected)}
+                  forcePage={Math.max(0, Math.min(mentionsPage, mentionsPageCount - 1))}
                 />
               </div>
             )}

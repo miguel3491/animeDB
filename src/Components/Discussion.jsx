@@ -40,6 +40,40 @@ const fetchDiscussionProfile = async (uid) => {
   return task;
 };
 
+const extractMentionHandles = (text) => {
+  const raw = String(text || "");
+  const out = new Set();
+  const re = /@([a-zA-Z0-9_]{3,30})/g;
+  let match;
+  while ((match = re.exec(raw))) {
+    const handle = String(match[1] || "").trim().toLowerCase();
+    if (!handle) continue;
+    out.add(handle);
+    if (out.size >= 5) break; // prevent mention-spam
+  }
+  return Array.from(out);
+};
+
+const resolveHandlesToUids = async (handles) => {
+  const list = Array.isArray(handles) ? handles : [];
+  const pairs = await Promise.all(
+    list.map(async (handle) => {
+      try {
+        const snap = await getDoc(doc(db, "usernames", String(handle).toLowerCase()));
+        const uid = snap.exists() ? snap.data()?.uid : "";
+        return [handle, String(uid || "").trim()];
+      } catch (err) {
+        return [handle, ""];
+      }
+    })
+  );
+  const uids = new Set();
+  pairs.forEach(([, uid]) => {
+    if (uid) uids.add(uid);
+  });
+  return Array.from(uids);
+};
+
 export function DiscussionPost({
   post,
   user,
@@ -304,6 +338,41 @@ export function DiscussionPost({
       } catch (err) {
         // ignore
       }
+    }
+
+    // @mentions: notify mentioned users once per comment.
+    try {
+      const handles = extractMentionHandles(trimmed);
+      if (handles.length > 0) {
+        const uids = await resolveHandlesToUids(handles);
+        const targets = uids.filter((uid) => uid && uid !== user.uid).slice(0, 5);
+        if (targets.length > 0) {
+          const batch = writeBatch(db);
+          targets.forEach((toUid) => {
+            const eventId = `mention-${commentRef.id}-${toUid}`;
+            batch.set(doc(db, "users", toUid, "inboxEvents", eventId), {
+              type: "mention",
+              seen: false,
+              clientAt: nowIso,
+              createdAt: serverTimestamp(),
+              toUid,
+              fromUid: user.uid,
+              fromName: profile?.username || user.displayName || user.email || "Anonymous",
+              fromAvatar: profile?.avatar || user.photoURL || "",
+              discussionId: post.id,
+              commentId: commentRef.id,
+              mediaType,
+              mediaId: mediaId || null,
+              mediaTitle,
+              mediaImage,
+              excerpt: trimmed.slice(0, 140)
+            }, { merge: true });
+          });
+          await batch.commit();
+        }
+      }
+    } catch (err) {
+      // ignore mention failures
     }
     try {
       const activityRef = doc(db, "users", user.uid, "commentActivity", post.id);

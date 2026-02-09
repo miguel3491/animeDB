@@ -389,6 +389,12 @@ function Profile() {
           </div>
           {status && <p className="muted">{status}</p>}
           <div className="muted">
+            {profile?.handle && (
+              <div style={{ marginBottom: 6 }}>
+                <span>Tag: </span>
+                <code>@{profile.handle}</code>
+              </div>
+            )}
             {!showUid ? (
               <button
                 type="button"

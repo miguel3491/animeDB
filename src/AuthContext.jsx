@@ -19,6 +19,16 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
 
+  const toHandle = (name) => {
+    const raw = String(name || "").trim().toLowerCase();
+    const collapsed = raw
+      .replace(/[^a-z0-9_]+/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    const base = collapsed.length >= 3 ? collapsed.slice(0, 24) : `user_${Math.floor(1000 + Math.random() * 9000)}`;
+    return base;
+  };
+
   const generateName = () => {
     const adjectives = [
       "Cosmic",
@@ -69,18 +79,22 @@ export function AuthProvider({ children }) {
       const data = snapshot.data() || {};
       let nextProfile = data;
 
-      if (!snapshot.exists() || !data.username) {
+      if (!snapshot.exists() || !data.username || !data.handle) {
         const username = data.username || generateName();
+        const handle = data.handle || toHandle(username);
         nextProfile = {
           username,
+          handle,
           avatar: data.avatar || "",
           background: data.background || "",
           createdAt: data.createdAt || new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
         const usernameRef = doc(db, "usernames", username.toLowerCase());
+        const handleRef = doc(db, "usernames", handle);
         setDoc(profileRef, nextProfile, { merge: true });
         setDoc(usernameRef, { uid: user.uid }, { merge: true });
+        setDoc(handleRef, { uid: user.uid }, { merge: true });
       }
 
       setProfile(nextProfile);
@@ -104,12 +118,20 @@ export function AuthProvider({ children }) {
     if (updates.username) {
       const candidate = updates.username.trim();
       const usernameRef = doc(db, "usernames", candidate.toLowerCase());
+      const handle = toHandle(candidate);
+      const handleRef = doc(db, "usernames", handle);
       const existing = await getDoc(usernameRef);
       if (existing.exists() && existing.data()?.uid !== user.uid) {
         throw new Error("Username already taken.");
       }
+      const existingHandle = await getDoc(handleRef);
+      if (existingHandle.exists() && existingHandle.data()?.uid !== user.uid) {
+        throw new Error("That handle is already taken. Try a different display name.");
+      }
       await setDoc(usernameRef, { uid: user.uid }, { merge: true });
+      await setDoc(handleRef, { uid: user.uid }, { merge: true });
       updates.username = candidate;
+      updates.handle = handle;
     }
     await setDoc(
       profileRef,
