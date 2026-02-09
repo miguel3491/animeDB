@@ -76,7 +76,8 @@ function DiscussionDetail() {
     const mark = async () => {
       try {
         const inboxRef = collection(db, "users", user.uid, "inboxEvents");
-        const q = query(inboxRef, where("seen", "==", false), limit(200));
+        // Query by discussionId so we don't miss events when the user has a lot of unread notifications.
+        const q = query(inboxRef, where("discussionId", "==", post.id), limit(200));
         const snap = await getDocs(q);
         if (!active || snap.empty) return;
 
@@ -85,7 +86,7 @@ function DiscussionDetail() {
         snap.docs.forEach((docItem) => {
           const data = docItem.data() || {};
           if (data.type !== "comment") return;
-          if (data.discussionId !== post.id) return;
+          if (data.seen === true) return;
           batch.update(docItem.ref, { seen: true, seenAt: new Date().toISOString() });
           touched += 1;
         });

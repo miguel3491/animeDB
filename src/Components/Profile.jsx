@@ -279,6 +279,7 @@ function Profile() {
             seen: false,
             clientAt: resolvedAt,
             createdAt: resolvedAt,
+            toUid: item.reporterId,
             reportId: item.id,
             reportTitle: item.title || "Bug report"
           },

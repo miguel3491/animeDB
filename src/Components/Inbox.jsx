@@ -1,38 +1,82 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
+  addDoc,
   collection,
   doc,
   getDoc,
+  getDocs,
   limit,
   onSnapshot,
   orderBy,
   query,
+  serverTimestamp,
+  startAfter,
+  setDoc,
   writeBatch
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import "../styles.css";
 
+const PAGE_SIZE = 100;
+
+const isoFromFirestore = (value) => {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value?.toDate === "function") return value.toDate().toISOString();
+  if (typeof value?.seconds === "number") return new Date(value.seconds * 1000).toISOString();
+  return "";
+};
+
 function Inbox() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const location = useLocation();
   const fromPath = `${location.pathname}${location.search || ""}`;
 
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [cursor, setCursor] = useState(null);
   const [profiles, setProfiles] = useState({});
   const [snapshotError, setSnapshotError] = useState("");
+  const [debugStatus, setDebugStatus] = useState("");
+
+  const sendTestNotification = async () => {
+    if (!user?.uid) return;
+    setDebugStatus("");
+    const nowIso = new Date().toISOString();
+    try {
+      // Create a follow-style event targeted at yourself so it shows in the UI.
+      await addDoc(collection(db, "users", user.uid, "inboxEvents"), {
+        type: "follow",
+        seen: false,
+        clientAt: nowIso,
+        createdAt: serverTimestamp(),
+        toUid: user.uid,
+        fromUid: user.uid,
+        fromName: profile?.username || user.displayName || user.email || "Anonymous",
+        fromAvatar: profile?.avatar || user.photoURL || ""
+      });
+      setDebugStatus("Test notification created.");
+    } catch (err) {
+      setDebugStatus(err?.message || "Test notification failed.");
+    }
+  };
 
   useEffect(() => {
     if (!user?.uid) {
       setEvents([]);
+      setHasMore(false);
+      setCursor(null);
       return;
     }
 
     setLoading(true);
     const ref = collection(db, "users", user.uid, "inboxEvents");
-    const q = query(ref, orderBy("clientAt", "desc"), limit(100));
+    const q = query(ref, orderBy("clientAt", "desc"), limit(PAGE_SIZE));
     const unsub = onSnapshot(
       q,
       (snap) => {
@@ -43,7 +87,7 @@ function Inbox() {
             id: docItem.id,
             type: data.type || "unknown",
             seen: Boolean(data.seen),
-            clientAt: data.clientAt || "",
+            clientAt: isoFromFirestore(data.clientAt),
             fromUid: data.fromUid || "",
             fromName: data.fromName || "",
             fromAvatar: data.fromAvatar || "",
@@ -56,6 +100,8 @@ function Inbox() {
           };
         });
         setEvents(rows);
+        setCursor(snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null);
+        setHasMore(snap.docs.length === PAGE_SIZE);
         setLoading(false);
       },
       (err) => {
@@ -64,11 +110,67 @@ function Inbox() {
         }
         setSnapshotError(err?.message || "Inbox unavailable.");
         setEvents([]);
+        setHasMore(false);
+        setCursor(null);
         setLoading(false);
       }
     );
     return () => unsub();
   }, [user?.uid]);
+
+  const loadOlder = async () => {
+    if (!user?.uid) return;
+    if (loadingOlder) return;
+    if (!hasMore) return;
+    if (!cursor) return;
+
+    setLoadingOlder(true);
+    try {
+      const ref = collection(db, "users", user.uid, "inboxEvents");
+      const q = query(ref, orderBy("clientAt", "desc"), startAfter(cursor), limit(PAGE_SIZE));
+      const snap = await getDocs(q);
+      const rows = snap.docs.map((docItem) => {
+        const data = docItem.data() || {};
+        return {
+          id: docItem.id,
+          type: data.type || "unknown",
+          seen: Boolean(data.seen),
+          clientAt: isoFromFirestore(data.clientAt),
+          fromUid: data.fromUid || "",
+          fromName: data.fromName || "",
+          fromAvatar: data.fromAvatar || "",
+          discussionId: data.discussionId || "",
+          mediaType: data.mediaType || "",
+          mediaTitle: data.mediaTitle || "",
+          mediaImage: data.mediaImage || "",
+          reportId: data.reportId || "",
+          reportTitle: data.reportTitle || ""
+        };
+      });
+
+      // Older pages can overlap as new events arrive; dedupe by id.
+      setEvents((prev) => {
+        const map = new Map();
+        [...prev, ...rows].forEach((item) => {
+          map.set(item.id, item);
+        });
+        const merged = Array.from(map.values());
+        merged.sort((a, b) => (b.clientAt || "").localeCompare(a.clientAt || ""));
+        return merged;
+      });
+
+      if (snap.docs.length > 0) {
+        setCursor(snap.docs[snap.docs.length - 1]);
+      }
+      setHasMore(snap.docs.length === PAGE_SIZE);
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("Inbox pagination failed:", err);
+      }
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
 
   const unseenCount = useMemo(() => events.filter((e) => !e.seen).length, [events]);
 
@@ -217,6 +319,55 @@ function Inbox() {
         <p className="muted inbox-intro">
           Inbox includes: new comments on your discussion posts, new followers, and bug report updates.
         </p>
+
+        {process.env.NODE_ENV !== "production" && (
+          <div className="publish-card" style={{ marginTop: 12 }}>
+            <div className="results-bar" style={{ marginBottom: 10 }}>
+              <h3 style={{ margin: 0 }}>Inbox diagnostics</h3>
+              <span className="pill">Dev</span>
+            </div>
+            <p className="muted" style={{ marginTop: 0 }}>
+              User: <code>{user?.uid || "none"}</code> | Loaded: <code>{events.length}</code> | Unseen:{" "}
+              <code>{unseenCount}</code>
+            </p>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button type="button" className="detail-link" onClick={sendTestNotification} disabled={!user?.uid}>
+                Send test notification
+              </button>
+              <button
+                type="button"
+                className="detail-link"
+                onClick={async () => {
+                  if (!user?.uid) return;
+                  try {
+                    const id = `debug-seen-${Date.now()}`;
+                    await setDoc(doc(db, "users", user.uid, "inboxEvents", id), {
+                      type: "follow",
+                      seen: true,
+                      clientAt: new Date().toISOString(),
+                      createdAt: serverTimestamp(),
+                      toUid: user.uid,
+                      fromUid: user.uid,
+                      fromName: profile?.username || user.displayName || user.email || "Anonymous",
+                      fromAvatar: profile?.avatar || user.photoURL || ""
+                    });
+                    setDebugStatus("Created a seen event (should not affect badge).");
+                  } catch (err) {
+                    setDebugStatus(err?.message || "Failed to create seen event.");
+                  }
+                }}
+                disabled={!user?.uid}
+              >
+                Create seen event
+              </button>
+            </div>
+            {(debugStatus || snapshotError) && (
+              <p className={`publish-status ${debugStatus && !debugStatus.toLowerCase().includes("fail") ? "" : "error"}`}>
+                {debugStatus || snapshotError}
+              </p>
+            )}
+          </div>
+        )}
 
         {loading && <p className="muted">Loading inbox...</p>}
         {snapshotError && <p className="publish-status error">{snapshotError}</p>}
@@ -398,6 +549,18 @@ function Inbox() {
               ))}
             </div>
           )}
+        </div>
+
+        <div style={{ marginTop: 18, display: "flex", justifyContent: "center" }}>
+          <button
+            type="button"
+            className="detail-link"
+            onClick={loadOlder}
+            disabled={loading || loadingOlder || !hasMore}
+            title={!hasMore ? "No older notifications" : "Load older notifications"}
+          >
+            {loadingOlder ? "Loading..." : hasMore ? "Load older" : "No more"}
+          </button>
         </div>
       </section>
     </div>

@@ -229,6 +229,7 @@ export function DiscussionPost({
           seen: false,
           clientAt: nowIso,
           createdAt: nowIso,
+          toUid: post.userId,
           fromUid: user.uid,
           fromName: profile?.username || user.displayName || user.email || "Anonymous",
           fromAvatar: profile?.avatar || user.photoURL || "",

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../AuthContext";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, limit, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 
 function Header(){    
@@ -36,7 +36,8 @@ function Header(){
         }
 
         const inboxRef = collection(db, "users", user.uid, "inboxEvents");
-        const inboxQuery = query(inboxRef, where("seen", "==", false));
+        // Limit to 100 unseen docs: we only ever display 0-99 or +99 in the UI.
+        const inboxQuery = query(inboxRef, where("seen", "==", false), limit(100));
         const unsub = onSnapshot(
             inboxQuery,
             (snap) => {

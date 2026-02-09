@@ -267,6 +267,7 @@ function PublicProfile() {
           seen: false,
           clientAt: new Date().toISOString(),
           createdAt: serverTimestamp(),
+          toUid: uid,
           fromUid: user.uid,
           fromName: myProfile?.username || user.displayName || user.email || "Anonymous",
           fromAvatar: myProfile?.avatar || user.photoURL || ""
