@@ -5,6 +5,15 @@ import "../styles.css";
 function News() {
   const location = useLocation();
   const fromPath = `${location.pathname}${location.search || ""}`;
+  const debugEnabled = useMemo(() => {
+    try {
+      const qs = new URLSearchParams(location.search || "");
+      if (qs.get("debug") === "1") return true;
+      return localStorage.getItem("news-debug") === "1";
+    } catch (err) {
+      return false;
+    }
+  }, [location.search]);
   const isAnimeActive = location.pathname === "/" || location.pathname.startsWith("/seasonal/anime");
   const isMangaActive = location.pathname === "/manga" || location.pathname.startsWith("/seasonal/manga");
   const isNewsActive = location.pathname.startsWith("/news");
@@ -28,6 +37,7 @@ function News() {
   const [brokenThumbs, setBrokenThumbs] = useState(() => new Set());
   const [thumbServiceError, setThumbServiceError] = useState("");
   const [imgErrorUrls, setImgErrorUrls] = useState({});
+  const [thumbDebug, setThumbDebug] = useState({});
   const thumbInFlightRef = useRef(new Set());
 
   useEffect(() => {
@@ -116,8 +126,21 @@ function News() {
           signal: controller.signal
         });
         const data = await response.json().catch(() => ({}));
-        if (response.status === 404) {
-          setThumbServiceError("Preview service is unavailable. Make sure `npm start` is running (client + server).");
+        if (!response.ok) {
+          if (response.status === 404) {
+            setThumbServiceError("Preview service is unavailable. Make sure `npm start` is running (client + server).");
+          } else if (!thumbServiceError) {
+            setThumbServiceError(`Preview service error (${response.status}).`);
+          }
+        }
+        if (debugEnabled) {
+          setThumbDebug((prev) => ({
+            ...prev,
+            [item.id]: {
+              status: response.status,
+              hasImage: Boolean(String(data?.image || "").trim())
+            }
+          }));
         }
         if (!response.ok) return;
         const url = String(data?.image || "").trim();
@@ -168,16 +191,19 @@ function News() {
     return filtered.slice(0, 10).map((item) => {
       const raw = item.image || thumbs[item.id] || "";
       const proxied = raw ? proxiedImage(raw) : "";
+      const dbg = thumbDebug[item.id] || null;
       return {
         id: item.id,
         title: item.title,
         hasThumb: Boolean(raw),
         isBroken: brokenThumbs.has(item.id),
         proxied,
-        errorUrl: imgErrorUrls[item.id] || ""
+        errorUrl: imgErrorUrls[item.id] || "",
+        thumbStatus: dbg?.status ?? null,
+        thumbHasImage: dbg?.hasImage ?? null
       };
     });
-  }, [filtered, thumbs, brokenThumbs, imgErrorUrls]);
+  }, [filtered, thumbs, brokenThumbs, imgErrorUrls, thumbDebug]);
 
   return (
     <div>
@@ -303,7 +329,7 @@ function News() {
           {error && <p>{error}</p>}
           {thumbServiceError && !loading && !error && <p className="muted">{thumbServiceError}</p>}
 
-          {process.env.NODE_ENV !== "production" && !loading && !error && (
+          {debugEnabled && !loading && !error && (
             <div className="publish-card" style={{ marginTop: 12 }}>
               <div className="results-bar" style={{ marginBottom: 8 }}>
                 <h3 style={{ margin: 0 }}>News Image Debug</h3>
@@ -320,6 +346,8 @@ function News() {
                       <div className="inbox-row-title">
                         <span>{row.title}</span>
                         {row.hasThumb ? <span className="pill">thumb</span> : <span className="pill muted">none</span>}
+                        {row.thumbStatus ? <span className="pill muted">thumb:{row.thumbStatus}</span> : null}
+                        {row.thumbHasImage === false ? <span className="pill muted">empty</span> : null}
                         {row.isBroken ? <span className="pill pill-hot">broken</span> : null}
                       </div>
                       {row.errorUrl ? (
