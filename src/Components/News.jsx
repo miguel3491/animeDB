@@ -17,79 +17,7 @@ function News() {
   const [error, setError] = useState("");
   const [thumbs, setThumbs] = useState({});
   const [brokenThumbs, setBrokenThumbs] = useState(() => new Set());
-
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const response = await fetch("/api/ann/news?limit=40");
-        if (!response.ok) {
-          throw new Error("Failed to load news");
-        }
-        const json = await response.json();
-        const next = Array.isArray(json?.items) ? json.items : [];
-        setItems(next);
-        if (next.length === 0) {
-          setError("No news items available right now.");
-        }
-      } catch (err) {
-        setError("Unable to load news right now. Please try again later.");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    load();
-  }, []);
-
-  useEffect(() => {
-    if (items.length === 0) return;
-    let cancelled = false;
-    const controller = new AbortController();
-
-    const fetchThumb = async (item) => {
-      if (!item?.link || !item?.id) return;
-      if (item.image) return;
-      if (thumbs[item.id]) return;
-      if (brokenThumbs.has(item.id)) return;
-      try {
-        const response = await fetch(`/api/ann/thumb?url=${encodeURIComponent(item.link)}`, {
-          signal: controller.signal
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) return;
-        const url = String(data?.image || "").trim();
-        if (!url) return;
-        if (cancelled) return;
-        setThumbs((prev) => ({ ...prev, [item.id]: url }));
-      } catch (err) {
-        // ignore
-      }
-    };
-
-    // Only resolve thumbnails for the first N visible items to avoid hammering ANN.
-    const candidates = items.slice(0, 18);
-    const concurrency = 4;
-    const run = async () => {
-      const queue = [...candidates];
-      const workers = Array.from({ length: concurrency }).map(async () => {
-        while (!cancelled && queue.length > 0) {
-          const next = queue.shift();
-          // eslint-disable-next-line no-await-in-loop
-          await fetchThumb(next);
-        }
-      });
-      await Promise.all(workers);
-    };
-
-    run();
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items]);
+  const [thumbRequested, setThumbRequested] = useState(() => new Set());
 
   const categories = useMemo(() => {
     const set = new Set();
@@ -120,6 +48,85 @@ function News() {
       return true;
     });
   }, [items, genreFilter, timeFilter, search]);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const response = await fetch("/api/ann/news?limit=40");
+        if (!response.ok) {
+          throw new Error("Failed to load news");
+        }
+        const json = await response.json();
+        const next = Array.isArray(json?.items) ? json.items : [];
+        setItems(next);
+        if (next.length === 0) {
+          setError("No news items available right now.");
+        }
+      } catch (err) {
+        setError("Unable to load news right now. Please try again later.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, []);
+
+  useEffect(() => {
+    if (filtered.length === 0) return;
+    let cancelled = false;
+    const controller = new AbortController();
+
+    const fetchThumb = async (item) => {
+      if (!item?.link || !item?.id) return;
+      if (item.image) return;
+      if (thumbs[item.id]) return;
+      if (brokenThumbs.has(item.id)) return;
+      if (thumbRequested.has(item.id)) return;
+      setThumbRequested((prev) => {
+        const next = new Set(prev);
+        next.add(item.id);
+        return next;
+      });
+      try {
+        const response = await fetch(`/api/ann/thumb?url=${encodeURIComponent(item.link)}`, {
+          signal: controller.signal
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) return;
+        const url = String(data?.image || "").trim();
+        if (!url) return;
+        if (cancelled) return;
+        setThumbs((prev) => ({ ...prev, [item.id]: url }));
+      } catch (err) {
+        // ignore
+      }
+    };
+
+    // Only resolve thumbnails for the first N visible items to avoid hammering ANN.
+    const candidates = filtered.slice(0, 18);
+    const concurrency = 4;
+    const run = async () => {
+      const queue = [...candidates];
+      const workers = Array.from({ length: concurrency }).map(async () => {
+        while (!cancelled && queue.length > 0) {
+          const next = queue.shift();
+          // eslint-disable-next-line no-await-in-loop
+          await fetchThumb(next);
+        }
+      });
+      await Promise.all(workers);
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered]);
 
   const highlight = filtered[0];
   const persistItem = (item) => {

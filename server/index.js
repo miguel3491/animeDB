@@ -581,15 +581,50 @@ app.get("/api/ann/thumb", async (req, res) => {
     }
     const html = await response.text();
     const $ = cheerio.load(html);
-    const image =
+    const absolutize = (value) => {
+      const raw = String(value || "").trim();
+      if (!raw) return "";
+      if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
+      try {
+        return new URL(raw, url).toString();
+      } catch (err) {
+        return "";
+      }
+    };
+
+    const metaImage =
       $('meta[property="og:image"]').attr("content") ||
+      $('meta[name="twitter:image"]').attr("content") ||
       $("link[rel=image_src]").attr("href") ||
       $("link[rel=feed_image]").attr("href") ||
       "";
-    const safeImage = String(image || "").trim();
-    const payload = {
-      image: safeImage.includes("spacer.gif") ? "" : safeImage
-    };
+    let safeImage = absolutize(metaImage);
+
+    const isSpacer = (value) => String(value || "").includes("spacer.gif");
+
+    if (!safeImage || isSpacer(safeImage)) {
+      const meat = $(".meat").first();
+      meat.find("script, style, iframe, noscript").remove();
+      let found = "";
+      meat.find("img").each((_, el) => {
+        if (found) return;
+        const $img = $(el);
+        const candidate =
+          $img.attr("data-src") ||
+          $img.attr("data-lazy-src") ||
+          $img.attr("data-original") ||
+          $img.attr("data-src-large") ||
+          $img.attr("src") ||
+          "";
+        const abs = absolutize(candidate);
+        if (!abs) return;
+        if (isSpacer(abs)) return;
+        found = abs;
+      });
+      safeImage = found;
+    }
+
+    const payload = { image: safeImage && !isSpacer(safeImage) ? safeImage : "" };
     annCache.set(cacheKey, { data: payload, ts: Date.now() });
     return res.json(payload);
   } catch (err) {
