@@ -2085,6 +2085,22 @@ a{
     font-size: 11px;
     color: var(--muted);
 }
+.rating-field {
+    position: relative;
+    display: grid;
+}
+.rating-field input {
+    padding-right: 48px;
+}
+.rating-field .rating-max {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 11px;
+    color: var(--muted);
+    pointer-events: none;
+}
 .favorite-row select,
 .favorite-row input,
 .favorite-note textarea {

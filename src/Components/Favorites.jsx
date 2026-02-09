@@ -18,8 +18,10 @@ function Favorites() {
   const [completedPage, setCompletedPage] = useState(1);
   const [orderDrafts, setOrderDrafts] = useState({});
   const [statusDrafts, setStatusDrafts] = useState({});
+  const [ratingDrafts, setRatingDrafts] = useState({});
   const orderDraftsRef = useRef(orderDrafts);
   const statusDraftsRef = useRef(statusDrafts);
+  const ratingDraftsRef = useRef(ratingDrafts);
   const [activeTab, setActiveTab] = useState("anime");
   const backfillRunningRef = useRef(false);
   const backfilledRef = useRef(new Set());
@@ -37,12 +39,26 @@ function Favorites() {
   }, [statusDrafts]);
 
   useEffect(() => {
+    ratingDraftsRef.current = ratingDrafts;
+  }, [ratingDrafts]);
+
+  useEffect(() => {
     return () => {
       if (toastTimeoutRef.current) {
         clearTimeout(toastTimeoutRef.current);
       }
     };
   }, []);
+
+  const normalizeRating = (raw) => {
+    const text = String(raw ?? "").trim();
+    if (!text) return "";
+    const num = Number(text);
+    if (Number.isNaN(num)) return "";
+    const clamped = Math.max(0, Math.min(10, num));
+    // Avoid storing long floats (e.g. 7.199999999).
+    return Math.round(clamped * 10) / 10;
+  };
 
   const updateFavorite = useCallback(async (docId, updates) => {
     const favoriteRef = doc(db, "users", user.uid, "favorites", String(docId));
@@ -192,7 +208,8 @@ function Favorites() {
 
       const hasDrafts =
         Object.keys(orderDraftsRef.current).length > 0 ||
-        Object.keys(statusDraftsRef.current).length > 0;
+        Object.keys(statusDraftsRef.current).length > 0 ||
+        Object.keys(ratingDraftsRef.current).length > 0;
       if ((needsNormalization(activeItems) || needsNormalization(completedItems)) && !normalizingRef.current && !hasDrafts) {
         normalizingRef.current = true;
         const activeSorted = sortActiveFavorites(activeItems);
@@ -217,6 +234,24 @@ function Favorites() {
         const next = { ...prev };
         Object.keys(next).forEach((key) => {
           if (serverStatus.get(String(key)) === next[key]) {
+            delete next[key];
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
+      });
+
+      setRatingDrafts((prev) => {
+        const serverRatings = new Map(
+          data.map((item) => [String(item.docId), item.rating])
+        );
+        let changed = false;
+        const next = { ...prev };
+        Object.keys(next).forEach((key) => {
+          const serverValue = serverRatings.get(String(key));
+          const normalizedDraft = normalizeRating(next[key]);
+          const normalizedServer = normalizeRating(serverValue);
+          if (normalizedServer === normalizedDraft) {
             delete next[key];
             changed = true;
           }
@@ -264,6 +299,15 @@ function Favorites() {
     statusDrafts[item.docId] === "Completed"
       ? item.status ?? "Plan to watch"
       : statusDrafts[item.docId] ?? item.status ?? "Plan to watch";
+
+  const getRatingValue = (item) => {
+    if (Object.prototype.hasOwnProperty.call(ratingDrafts, item.docId)) {
+      return ratingDrafts[item.docId];
+    }
+    const server = item.rating;
+    if (server === null || server === undefined || server === "") return "";
+    return String(server);
+  };
 
   const animeCount = favorites.filter((item) => (item.mediaType ?? "anime") === "anime").length;
   const mangaCount = favorites.filter((item) => (item.mediaType ?? "anime") === "manga").length;
@@ -498,6 +542,30 @@ function Favorites() {
     await reorderWithinSection(item, nextValue);
   };
 
+  const applyRatingChange = async (item) => {
+    if (!Object.prototype.hasOwnProperty.call(ratingDraftsRef.current, item.docId)) {
+      return;
+    }
+    const draftValue = ratingDraftsRef.current[item.docId];
+    const nextValue = normalizeRating(draftValue);
+    const currentValue = normalizeRating(item.rating);
+    setRatingDrafts((prev) => {
+      const copy = { ...prev };
+      delete copy[item.docId];
+      return copy;
+    });
+
+    if (nextValue === currentValue) {
+      return;
+    }
+
+    setFavorites((prev) =>
+      prev.map((fav) => (fav.docId === item.docId ? { ...fav, rating: nextValue } : fav))
+    );
+
+    await updateFavorite(item.docId, { rating: nextValue });
+  };
+
   const renderFavorites = (items, sectionLabel, page, setPage, isActiveSection = false) => (
     <div className="favorites-section">
       <div className="results-bar">
@@ -563,17 +631,34 @@ function Favorites() {
                   </label>
                   <label>
                     Rating
-                    <select
-                      value={item.rating || ""}
-                      onChange={(e) => updateFavorite(item.docId, { rating: e.target.value })}
-                    >
-                      <option value="">Unrated</option>
-                      {[...Array(10)].map((_, i) => (
-                        <option key={`rate-${i + 1}`} value={String(i + 1)}>
-                          {i + 1}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="rating-field">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="Unrated"
+                        value={getRatingValue(item)}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          if (next === "") {
+                            setRatingDrafts((prev) => ({ ...prev, [item.docId]: "" }));
+                            return;
+                          }
+                          // Allow typing decimals without forcing clamping/rounding until blur/enter.
+                          const ok = /^(\d{0,2}(\.\d{0,2})?|\.\d{0,2})$/.test(next);
+                          if (!ok) return;
+                          setRatingDrafts((prev) => ({ ...prev, [item.docId]: next }));
+                        }}
+                        onBlur={() => applyRatingChange(item)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            applyRatingChange(item);
+                          }
+                        }}
+                        aria-label="Rating out of 10"
+                        title="Rating (0 to 10, decimals allowed)"
+                      />
+                      <span className="rating-max">/10</span>
+                    </div>
                   </label>
                   <label>
                     {item.mediaType === "manga" ? "Chapter" : "Episode"}
