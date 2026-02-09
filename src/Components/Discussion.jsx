@@ -1,9 +1,42 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { collection, doc, getDocs, onSnapshot, orderBy, query, setDoc, updateDoc, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import "../styles.css";
+
+// Cache user profile reads so display name updates propagate while avoiding N+1 fetches.
+const discussionProfileCache = new Map(); // uid -> { username, avatar }
+const discussionProfileInflight = new Map(); // uid -> Promise
+
+const fetchDiscussionProfile = async (uid) => {
+  const key = String(uid || "").trim();
+  if (!key) return null;
+  if (discussionProfileCache.has(key)) return discussionProfileCache.get(key);
+  if (discussionProfileInflight.has(key)) return discussionProfileInflight.get(key);
+  const task = (async () => {
+    try {
+      const snap = await getDoc(doc(db, "users", key));
+      if (!snap.exists()) {
+        discussionProfileCache.set(key, null);
+        return null;
+      }
+      const data = snap.data() || {};
+      const payload = {
+        username: String(data.username || "").trim(),
+        avatar: String(data.avatar || "").trim()
+      };
+      discussionProfileCache.set(key, payload);
+      return payload;
+    } catch (err) {
+      return null;
+    } finally {
+      discussionProfileInflight.delete(key);
+    }
+  })();
+  discussionProfileInflight.set(key, task);
+  return task;
+};
 
 export function DiscussionPost({
   post,
@@ -34,6 +67,7 @@ export function DiscussionPost({
   const [isEditing, setIsEditing] = useState(false);
   const [draftReview, setDraftReview] = useState(draft?.review ?? post.review ?? "");
   const [draftRating, setDraftRating] = useState(draft?.rating ?? post.rating ?? "");
+  const [liveProfiles, setLiveProfiles] = useState({});
   const onDraftChangeRef = useRef(onDraftChange);
   const isOwner = user?.uid === post.userId;
   const spoilerHidden = Boolean(post?.spoiler) && Boolean(spoilerBlurEnabled) && !isEditing;
@@ -100,6 +134,32 @@ export function DiscussionPost({
       setComments(data);
     });
   }, [post.id]);
+
+  useEffect(() => {
+    const uids = new Set();
+    if (post?.userId) uids.add(post.userId);
+    comments.forEach((c) => {
+      if (c?.userId) uids.add(c.userId);
+    });
+    const list = Array.from(uids).filter(Boolean);
+    if (list.length === 0) return;
+
+    let active = true;
+    (async () => {
+      const next = {};
+      for (const uid of list) {
+        // eslint-disable-next-line no-await-in-loop
+        const prof = await fetchDiscussionProfile(uid);
+        if (prof) next[uid] = prof;
+      }
+      if (!active) return;
+      setLiveProfiles((prev) => ({ ...prev, ...next }));
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [comments, post?.userId]);
 
   useEffect(() => {
     threadInitRef.current = false;
@@ -282,6 +342,12 @@ export function DiscussionPost({
     return comments.slice(start, start + COMMENTS_PER_PAGE);
   })();
 
+  const authorProfile = post?.userId ? liveProfiles[post.userId] : null;
+  const authorName =
+    authorProfile?.username ||
+    post.userName ||
+    "Anonymous";
+
   return (
     <article className={`discussion-card ${spoilerHidden ? "spoiler-hidden" : ""}`}>
       <div className="discussion-header">
@@ -313,10 +379,10 @@ export function DiscussionPost({
               Posted by{" "}
               {post.userId ? (
                 <Link className="discussion-user-link" to={`/profile/${post.userId}`} state={{ from: fromPath }}>
-                  {post.userName || "Anonymous"}
+                  {authorName}
                 </Link>
               ) : (
-                post.userName || "Anonymous"
+                authorName
               )}
             </span>
             {post.rating ? <span>Rating: {post.rating}/10</span> : <span>Rating: N/A</span>}
@@ -420,17 +486,21 @@ export function DiscussionPost({
           <div className="comment-list">
             {visibleComments.map((comment) => (
               <div className="comment-item" key={comment.id}>
-                {comment.userPhoto ? (
-                  <img className="comment-avatar" src={comment.userPhoto} alt={comment.userName} />
-                ) : (
-                  <div className="comment-avatar placeholder"></div>
-                )}
+                {(() => {
+                  const p = comment?.userId ? liveProfiles[comment.userId] : null;
+                  const name = p?.username || comment.userName || "Anonymous";
+                  const avatar = p?.avatar || comment.userPhoto || "";
+                  if (avatar) {
+                    return <img className="comment-avatar" src={avatar} alt={name} />;
+                  }
+                  return <div className="comment-avatar placeholder"></div>;
+                })()}
                 <div>
                   <div className="comment-meta">
                     <span>
                       {comment.userId ? (
                         <Link className="discussion-user-link" to={`/profile/${comment.userId}`} state={{ from: fromPath }}>
-                          {comment.userName || "Anonymous"}
+                          {(liveProfiles[comment.userId]?.username || comment.userName || "Anonymous")}
                         </Link>
                       ) : (
                         comment.userName || "Anonymous"
