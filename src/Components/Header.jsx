@@ -174,9 +174,6 @@ function Header(){
                                             Close
                                         </button>
                                     </div>
-                                    <Link className="detail-link" to="/inbox" onClick={() => setOpen(false)}>
-                                        Open inbox
-                                    </Link>
                                     <Link className="detail-link" to="/profile" onClick={() => setOpen(false)}>
                                         Open profile page
                                     </Link>
