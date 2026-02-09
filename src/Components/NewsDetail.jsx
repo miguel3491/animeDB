@@ -26,10 +26,19 @@ function NewsDetail() {
   const [translationSessionDisabled, setTranslationSessionDisabled] = useState(
     () => sessionStorage.getItem("translate-disabled") === "1"
   );
+  const [targetLang, setTargetLang] = useState("en");
   const [showTranslated, setShowTranslated] = useState(false);
   const summaryRequestedRef = useRef(false);
   const translationRequestedRef = useRef(false);
   const itemId = item?.id || "";
+
+  const languageOptions = [
+    { code: "en", label: "English" },
+    { code: "es", label: "Spanish" },
+    { code: "pt", label: "Portuguese" },
+    { code: "ja", label: "Japanese" },
+    { code: "zh-CN", label: "Mandarin" }
+  ];
 
   useEffect(() => {
     if (item || !decodedId) return;
@@ -97,11 +106,16 @@ function NewsDetail() {
     setTranslationNotice("");
     setTranslation(null);
     setShowTranslated(false);
+    setTargetLang("en");
 
     setTranslationSessionDisabled(sessionStorage.getItem("translate-disabled") === "1");
     if (sessionStorage.getItem("translate-disabled") === "1") return;
+  }, [itemId]);
 
-    const localKey = `news-translation-en-${itemId}`;
+  useEffect(() => {
+    if (!itemId) return;
+    if (sessionStorage.getItem("translate-disabled") === "1") return;
+    const localKey = `news-translation-${targetLang}-${itemId}`;
     try {
       const cached = localStorage.getItem(localKey);
       if (cached) {
@@ -119,7 +133,7 @@ function NewsDetail() {
         // ignore
       }
     }
-  }, [itemId]);
+  }, [itemId, targetLang]);
 
   const generateSummary = async () => {
     if (!item) return;
@@ -241,13 +255,14 @@ function NewsDetail() {
     };
   }, [item?.link]);
 
-  const translateToEnglish = async () => {
+  const translateToTarget = async (target) => {
     if (!item) return;
     if (translationLoading) return;
     if (translationSessionDisabled) return;
     if (translationRequestedRef.current) return;
 
-    const localKey = `news-translation-en-${item.id}`;
+    const safeTarget = String(target || "en").trim() || "en";
+    const localKey = `news-translation-${safeTarget}-${item.id}`;
     // Use the best available plain-text payload to avoid translating HTML.
     const title = item.displayTitle || item.title || "";
     const content = article?.contentText || item.displayBody || item.content || item.summary || item.description || "";
@@ -283,7 +298,7 @@ function NewsDetail() {
         body: JSON.stringify({
           title,
           content,
-          target: "en"
+          target: safeTarget
         })
       });
       const data = await response.json().catch(() => ({}));
@@ -297,6 +312,7 @@ function NewsDetail() {
       }
       setTranslation(data);
       setShowTranslated(true);
+      setTargetLang(safeTarget);
       sessionStorage.setItem(localKey, JSON.stringify(data));
       try {
         localStorage.setItem(localKey, JSON.stringify(data));
@@ -306,7 +322,7 @@ function NewsDetail() {
       if (data?.usedApi) {
         setTranslationNotice(`Translated (${data.sourceLang} → ${data.targetLang}). Cached in your browser.`);
       } else {
-        setTranslationNotice("This story already looks like English. No translation quota used.");
+        setTranslationNotice("No translation quota used for this request.");
       }
     } catch (err) {
       setTranslationError(err?.message || "Translation unavailable right now.");
@@ -533,18 +549,41 @@ function NewsDetail() {
           <div className="news-summary news-summary--side news-translate">
             <div className="news-summary-head">
               <h4>Translation</h4>
-              {!translation?.content && (
-                <button
-                  type="button"
-                  className="favorite-button news-ai-button"
-                  onClick={translateToEnglish}
+              <label className="genre-filter" style={{ marginLeft: "auto" }}>
+                <span className="genre-label">Language</span>
+                <select
+                  value={targetLang}
+                  onChange={(e) => {
+                    setTargetLang(e.target.value);
+                    setShowTranslated(false);
+                    setTranslationError("");
+                    setTranslationNotice("");
+                    setTranslation(null);
+                  }}
+                  aria-label="Translation language"
                   disabled={translationLoading || translationSessionDisabled}
-                  title={translationSessionDisabled ? "Translation disabled for this session" : "Translate to English"}
                 >
-                  {translationLoading ? "Translating..." : "Translate"}
-                </button>
-              )}
+                  {languageOptions.map((opt) => (
+                    <option key={`lang-${opt.code}`} value={opt.code}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
+
+            {!translation?.content && (
+              <button
+                type="button"
+                className="favorite-button news-ai-button"
+                onClick={() => translateToTarget(targetLang)}
+                disabled={translationLoading || translationSessionDisabled}
+                title={translationSessionDisabled ? "Translation disabled for this session" : "Translate"}
+                style={{ width: "100%" }}
+              >
+                {translationLoading ? "Translating..." : "Translate"}
+              </button>
+            )}
 
             {translationSessionDisabled && !translation?.content && (
               <div className="news-ai-disabled">
@@ -592,7 +631,7 @@ function NewsDetail() {
                     className={`detail-link ${showTranslated ? "active" : ""}`}
                     onClick={() => setShowTranslated(true)}
                   >
-                    English
+                    {languageOptions.find((opt) => opt.code === (translation?.targetLang || targetLang))?.label || "Translated"}
                   </button>
                 </div>
                 <p className="muted" style={{ marginBottom: 0 }}>
@@ -602,7 +641,7 @@ function NewsDetail() {
             )}
 
             {!translation?.content && !translationLoading && !translationError && !translationNotice && (
-              <p className="muted">Translate this story to English (on demand).</p>
+              <p className="muted">Translate this story on demand (cached per language).</p>
             )}
           </div>
         </aside>
