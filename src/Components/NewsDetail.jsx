@@ -113,6 +113,34 @@ function NewsDetail() {
   }, [itemId]);
 
   useEffect(() => {
+    // If the user previously disabled translation due to a missing key, auto-reenable
+    // once the server reports translation is configured (avoids manual "Re-enable").
+    if (!itemId) return;
+    if (!translationSessionDisabled) return;
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/translate/status");
+        const json = await res.json().catch(() => ({}));
+        if (!active) return;
+        if (res.ok && json?.enabled) {
+          try {
+            sessionStorage.removeItem("translate-disabled");
+          } catch (err) {
+            // ignore
+          }
+          setTranslationSessionDisabled(false);
+        }
+      } catch (err) {
+        // ignore
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [itemId, translationSessionDisabled]);
+
+  useEffect(() => {
     if (!itemId) return;
     if (sessionStorage.getItem("translate-disabled") === "1") return;
     const localKey = `news-translation-${targetLang}-${itemId}`;
@@ -606,7 +634,7 @@ function NewsDetail() {
             {translationSessionDisabled && !translation?.content && (
               <div className="news-ai-disabled">
                 <p className="muted" style={{ marginTop: 0 }}>
-                  Translation is currently disabled for this session.
+                  Translation is currently disabled for this session (server key missing).
                 </p>
                 <button type="button" className="detail-link" onClick={reenableTranslation}>
                   Re-enable
