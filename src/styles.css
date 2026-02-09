@@ -2972,6 +2972,15 @@ a{
     font-size: 13px;
     min-width: 220px;
 }
+.discussion-filter .search-wrap {
+    min-width: 280px;
+}
+.discussion-filter .search-wrap input {
+    border: none;
+    background: transparent;
+    padding: 0;
+    min-width: 180px;
+}
 .discussion-filter button {
     border: 1px solid rgba(255, 255, 255, 0.2);
     background: rgba(255, 255, 255, 0.08);

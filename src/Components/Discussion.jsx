@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
+import { fetchJikanSuggestions } from "../utils/jikan";
 import "../styles.css";
 
 // Cache user profile reads so display name updates propagate while avoiding N+1 fetches.
@@ -573,6 +574,12 @@ function Discussion() {
   const [filter, setFilter] = useState("all");
   const [drafts, setDrafts] = useState({});
   const [search, setSearch] = useState("");
+  const [selectedMediaId, setSelectedMediaId] = useState(null);
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const suggestionAbortRef = useRef(null);
+  const suggestionTimeoutRef = useRef(null);
   const [activeTab, setActiveTab] = useState("anime");
   const [showGuide, setShowGuide] = useState(false);
   const [spoilerBlurEnabled, setSpoilerBlurEnabled] = useState(() => {
@@ -592,6 +599,63 @@ function Discussion() {
       // ignore
     }
   }, [spoilerBlurEnabled]);
+
+  useEffect(() => {
+    setSelectedMediaId(null);
+    setSuggestions([]);
+    setSuggestionsOpen(false);
+    setSuggestionsLoading(false);
+    if (suggestionAbortRef.current) {
+      suggestionAbortRef.current.abort();
+    }
+    if (suggestionTimeoutRef.current) {
+      clearTimeout(suggestionTimeoutRef.current);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (suggestionTimeoutRef.current) {
+      clearTimeout(suggestionTimeoutRef.current);
+    }
+    if (suggestionAbortRef.current) {
+      suggestionAbortRef.current.abort();
+    }
+    const q = search.trim();
+    if (q.length < 2) {
+      setSuggestions([]);
+      setSuggestionsOpen(false);
+      setSuggestionsLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    suggestionAbortRef.current = controller;
+    setSuggestionsLoading(true);
+    suggestionTimeoutRef.current = setTimeout(async () => {
+      try {
+        const items = await fetchJikanSuggestions({
+          type: activeTab === "manga" ? "manga" : "anime",
+          query: q,
+          signal: controller.signal
+        });
+        setSuggestions(items);
+        setSuggestionsOpen(true);
+      } catch (err) {
+        if (err?.name !== "AbortError") {
+          setSuggestions([]);
+          setSuggestionsOpen(false);
+        }
+      } finally {
+        setSuggestionsLoading(false);
+      }
+    }, 220);
+
+    return () => {
+      if (suggestionTimeoutRef.current) {
+        clearTimeout(suggestionTimeoutRef.current);
+      }
+      controller.abort();
+    };
+  }, [activeTab, search]);
 
   useEffect(() => {
     const discussionsRef = collection(db, "discussions");
@@ -632,11 +696,24 @@ function Discussion() {
   const myPosts = filteredByType.filter((post) => post.userId === user?.uid);
   const filteredByOwner = filter === "mine" ? myPosts : filteredByType;
   const term = search.trim().toLowerCase();
-  const visiblePosts = term
-    ? filteredByOwner.filter((post) =>
-        (post.mediaTitle || post.animeTitle || "").toLowerCase().includes(term)
-      )
-    : filteredByOwner;
+  const visiblePosts = (() => {
+    const normalizeId = (value) => {
+      const v = value === null || value === undefined ? "" : String(value);
+      return v.trim();
+    };
+    if (selectedMediaId) {
+      const sel = normalizeId(selectedMediaId);
+      if (!sel) return filteredByOwner;
+      return filteredByOwner.filter((post) => {
+        const pid = normalizeId(post.mediaId || post.animeId || post.mal_id || "");
+        return pid === sel;
+      });
+    }
+    if (!term) return filteredByOwner;
+    return filteredByOwner.filter((post) =>
+      (post.mediaTitle || post.animeTitle || "").toLowerCase().includes(term)
+    );
+  })();
   const animeCount = withType.filter((post) => post.mediaType === "anime").length;
   const mangaCount = withType.filter((post) => post.mediaType === "manga").length;
 
@@ -671,12 +748,71 @@ function Discussion() {
         <div className="results-bar">
           <h3>Community reviews</h3>
           <div className="discussion-filter">
-            <input
-              type="search"
-              placeholder="Search by anime title..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+            <div className="search-wrap discussion-search">
+              <input
+                type="search"
+                placeholder={activeTab === "manga" ? "Search manga reviews..." : "Search anime reviews..."}
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setSelectedMediaId(null);
+                  setSuggestionsOpen(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setSuggestionsOpen(false);
+                  }
+                  if (e.key === "Enter") {
+                    setSuggestionsOpen(false);
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setSuggestionsOpen(false)}
+                title="Search"
+              >
+                Search
+              </button>
+              {suggestionsOpen && (suggestionsLoading || suggestions.length > 0) && (
+                <div className="search-suggestions" role="listbox">
+                  {suggestionsLoading && (
+                    <div className="muted" style={{ padding: "8px 10px" }}>
+                      Loading suggestions...
+                    </div>
+                  )}
+                  {suggestions.map((item) => (
+                    <button
+                      key={`discussion-suggest-${activeTab}-${item.mal_id || item.title}`}
+                      type="button"
+                      className="search-suggestion-item"
+                      onClick={() => {
+                        setSearch(item.title || "");
+                        if (item?.mal_id) {
+                          setSelectedMediaId(String(item.mal_id));
+                        } else {
+                          setSelectedMediaId(null);
+                        }
+                        setSuggestionsOpen(false);
+                      }}
+                    >
+                      {item.image ? (
+                        <img className="search-suggestion-thumb" src={item.image} alt={item.title} />
+                      ) : (
+                        <div className="search-suggestion-thumb" aria-hidden="true"></div>
+                      )}
+                      <div>
+                        <div className="search-suggestion-title">{item.title}</div>
+                        <div className="search-suggestion-meta">
+                          <span>{activeTab === "manga" ? "Manga" : "Anime"}</span>
+                          {item?.mal_id ? <span>#{item.mal_id}</span> : null}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button
               type="button"
               className={`spoiler-toggle ${spoilerBlurEnabled ? "active" : ""}`}
