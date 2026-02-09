@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import ReactPaginate from "react-paginate";
 import {
   addDoc,
   collection,
@@ -20,6 +21,7 @@ import { useAuth } from "../AuthContext";
 import "../styles.css";
 
 const PAGE_SIZE = 100;
+const SECTION_PAGE_SIZE = 5;
 const OWNER_UID = process.env.REACT_APP_OWNER_UID;
 
 const isoFromFirestore = (value) => {
@@ -45,6 +47,9 @@ function Inbox() {
   const [profiles, setProfiles] = useState({});
   const [snapshotError, setSnapshotError] = useState("");
   const [debugStatus, setDebugStatus] = useState("");
+  const [followsPage, setFollowsPage] = useState(0);
+  const [commentsPage, setCommentsPage] = useState(0);
+  const [bugsPage, setBugsPage] = useState(0);
 
   const sendTestNotification = async () => {
     if (!user?.uid) return;
@@ -241,6 +246,51 @@ function Inbox() {
     return Array.from(map.values()).sort((a, b) => (b.latestAt || "").localeCompare(a.latestAt || "")).slice(0, 10);
   }, [events]);
 
+  const followsPageCount = useMemo(() => {
+    if (followEvents.length === 0) return 0;
+    return Math.max(1, Math.ceil(followEvents.length / SECTION_PAGE_SIZE));
+  }, [followEvents.length]);
+  const followPageItems = useMemo(() => {
+    if (followEvents.length === 0) return [];
+    const safe = Math.max(0, Math.min(followsPage, Math.max(0, followsPageCount - 1)));
+    const start = safe * SECTION_PAGE_SIZE;
+    return followEvents.slice(start, start + SECTION_PAGE_SIZE);
+  }, [followEvents, followsPage, followsPageCount]);
+
+  const commentsPageCount = useMemo(() => {
+    if (unseenCommentThreads.length === 0) return 0;
+    return Math.max(1, Math.ceil(unseenCommentThreads.length / SECTION_PAGE_SIZE));
+  }, [unseenCommentThreads.length]);
+  const commentPageItems = useMemo(() => {
+    if (unseenCommentThreads.length === 0) return [];
+    const safe = Math.max(0, Math.min(commentsPage, Math.max(0, commentsPageCount - 1)));
+    const start = safe * SECTION_PAGE_SIZE;
+    return unseenCommentThreads.slice(start, start + SECTION_PAGE_SIZE);
+  }, [unseenCommentThreads, commentsPage, commentsPageCount]);
+
+  const bugsPageCount = useMemo(() => {
+    if (bugEvents.length === 0) return 0;
+    return Math.max(1, Math.ceil(bugEvents.length / SECTION_PAGE_SIZE));
+  }, [bugEvents.length]);
+  const bugPageItems = useMemo(() => {
+    if (bugEvents.length === 0) return [];
+    const safe = Math.max(0, Math.min(bugsPage, Math.max(0, bugsPageCount - 1)));
+    const start = safe * SECTION_PAGE_SIZE;
+    return bugEvents.slice(start, start + SECTION_PAGE_SIZE);
+  }, [bugEvents, bugsPage, bugsPageCount]);
+
+  useEffect(() => {
+    setFollowsPage(0);
+  }, [followEvents.length]);
+
+  useEffect(() => {
+    setCommentsPage(0);
+  }, [unseenCommentThreads.length]);
+
+  useEffect(() => {
+    setBugsPage(0);
+  }, [bugEvents.length]);
+
   useEffect(() => {
     const missing = new Set();
     events.forEach((e) => {
@@ -397,7 +447,7 @@ function Inbox() {
               <p className="muted">No followers yet.</p>
             ) : (
               <div className="inbox-list">
-                {followEvents.slice(0, 10).map((e) => {
+                {followPageItems.map((e) => {
                   const name = e.fromName || profiles[e.fromUid]?.username || "User";
                   const avatar = e.fromAvatar || profiles[e.fromUid]?.avatar || "";
                   return (
@@ -429,6 +479,20 @@ function Inbox() {
                 })}
               </div>
             )}
+            {followsPageCount > 1 && (
+              <div className="pagination inbox-pagination">
+                <ReactPaginate
+                  previousLabel={"←"}
+                  nextLabel={"→"}
+                  breakLabel={"..."}
+                  pageCount={followsPageCount}
+                  marginPagesDisplayed={1}
+                  pageRangeDisplayed={2}
+                  onPageChange={(selected) => setFollowsPage(selected.selected)}
+                  forcePage={Math.max(0, Math.min(followsPage, followsPageCount - 1))}
+                />
+              </div>
+            )}
           </div>
 
           <div className="inbox-section">
@@ -445,7 +509,7 @@ function Inbox() {
               <p className="muted">No new comments.</p>
             ) : (
               <div className="inbox-list">
-                {unseenCommentThreads.slice(0, 10).map((t) => (
+                {commentPageItems.map((t) => (
                   <Link
                     key={`thread-${t.discussionId}`}
                     className="inbox-row"
@@ -467,6 +531,20 @@ function Inbox() {
                     </div>
                   </Link>
                 ))}
+              </div>
+            )}
+            {commentsPageCount > 1 && (
+              <div className="pagination inbox-pagination">
+                <ReactPaginate
+                  previousLabel={"←"}
+                  nextLabel={"→"}
+                  breakLabel={"..."}
+                  pageCount={commentsPageCount}
+                  marginPagesDisplayed={1}
+                  pageRangeDisplayed={2}
+                  onPageChange={(selected) => setCommentsPage(selected.selected)}
+                  forcePage={Math.max(0, Math.min(commentsPage, commentsPageCount - 1))}
+                />
               </div>
             )}
           </div>
@@ -531,7 +609,7 @@ function Inbox() {
             <p className="muted">No updates yet.</p>
           ) : (
             <div className="inbox-list">
-              {bugEvents.slice(0, 5).map((e) => (
+              {bugPageItems.map((e) => (
                 <Link
                   key={`bug-${e.id}`}
                   className="inbox-row"
@@ -549,6 +627,20 @@ function Inbox() {
                   </div>
                 </Link>
               ))}
+            </div>
+          )}
+          {bugsPageCount > 1 && (
+            <div className="pagination inbox-pagination">
+              <ReactPaginate
+                previousLabel={"←"}
+                nextLabel={"→"}
+                breakLabel={"..."}
+                pageCount={bugsPageCount}
+                marginPagesDisplayed={1}
+                pageRangeDisplayed={2}
+                onPageChange={(selected) => setBugsPage(selected.selected)}
+                forcePage={Math.max(0, Math.min(bugsPage, bugsPageCount - 1))}
+              />
             </div>
           )}
         </div>
