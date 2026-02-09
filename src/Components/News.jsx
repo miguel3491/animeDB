@@ -27,6 +27,7 @@ function News() {
   const [thumbs, setThumbs] = useState({});
   const [brokenThumbs, setBrokenThumbs] = useState(() => new Set());
   const [thumbServiceError, setThumbServiceError] = useState("");
+  const [imgErrorUrls, setImgErrorUrls] = useState({});
   const thumbInFlightRef = useRef(new Set());
 
   useEffect(() => {
@@ -163,6 +164,21 @@ function News() {
     }
   };
 
+  const debugRows = useMemo(() => {
+    return filtered.slice(0, 10).map((item) => {
+      const raw = item.image || thumbs[item.id] || "";
+      const proxied = raw ? proxiedImage(raw) : "";
+      return {
+        id: item.id,
+        title: item.title,
+        hasThumb: Boolean(raw),
+        isBroken: brokenThumbs.has(item.id),
+        proxied,
+        errorUrl: imgErrorUrls[item.id] || ""
+      };
+    });
+  }, [filtered, thumbs, brokenThumbs, imgErrorUrls]);
+
   return (
     <div>
       <div className="menu">
@@ -287,6 +303,43 @@ function News() {
           {error && <p>{error}</p>}
           {thumbServiceError && !loading && !error && <p className="muted">{thumbServiceError}</p>}
 
+          {process.env.NODE_ENV !== "production" && !loading && !error && (
+            <div className="publish-card" style={{ marginTop: 12 }}>
+              <div className="results-bar" style={{ marginBottom: 8 }}>
+                <h3 style={{ margin: 0 }}>News Image Debug</h3>
+                <span className="pill">Dev</span>
+              </div>
+              <p className="muted" style={{ marginTop: 0 }}>
+                Filtered: <code>{filtered.length}</code> | Resolved thumbs: <code>{Object.keys(thumbs).length}</code> | Broken:{" "}
+                <code>{brokenThumbs.size}</code>
+              </p>
+              <div className="inbox-list">
+                {debugRows.map((row) => (
+                  <div key={`news-debug-${row.id}`} className="inbox-row" style={{ cursor: "default" }}>
+                    <div className="inbox-row-text">
+                      <div className="inbox-row-title">
+                        <span>{row.title}</span>
+                        {row.hasThumb ? <span className="pill">thumb</span> : <span className="pill muted">none</span>}
+                        {row.isBroken ? <span className="pill pill-hot">broken</span> : null}
+                      </div>
+                      {row.errorUrl ? (
+                        <p className="muted" style={{ wordBreak: "break-all" }}>
+                          onError: <code>{row.errorUrl}</code>
+                        </p>
+                      ) : row.proxied ? (
+                        <p className="muted" style={{ wordBreak: "break-all" }}>
+                          src: <code>{row.proxied}</code>
+                        </p>
+                      ) : (
+                        <p className="muted">No image URL to load.</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {highlight && !loading && (
             <div className="news-highlight">
               <div>
@@ -315,17 +368,22 @@ function News() {
                   Read more
                 </Link>
               </div>
-	              <div className="news-meta">
-	                {(highlight.image || thumbs[highlight.id]) && !brokenThumbs.has(highlight.id) && (
-	                  <img
-	                    className="news-highlight-image"
-	                    src={proxiedImage(highlight.image || thumbs[highlight.id])}
-	                    alt={highlight.title}
-	                    loading="lazy"
-	                    onError={() => {
-	                      setBrokenThumbs((prev) => {
-	                        const next = new Set(prev);
-	                        next.add(highlight.id);
+		              <div className="news-meta">
+		                {(highlight.image || thumbs[highlight.id]) && !brokenThumbs.has(highlight.id) && (
+		                  <img
+		                    className="news-highlight-image"
+		                    src={proxiedImage(highlight.image || thumbs[highlight.id])}
+		                    alt={highlight.title}
+		                    loading="lazy"
+		                    onError={() => {
+                          const failing = proxiedImage(highlight.image || thumbs[highlight.id]);
+                          if (process.env.NODE_ENV !== "production") {
+                            console.warn("News highlight image failed:", failing);
+                          }
+                          setImgErrorUrls((prev) => ({ ...prev, [highlight.id]: failing }));
+		                      setBrokenThumbs((prev) => {
+		                        const next = new Set(prev);
+		                        next.add(highlight.id);
                         return next;
                       });
                     }}
@@ -339,17 +397,22 @@ function News() {
 
 	          <div className={`news-grid ${viewMode}`}>
 	            {filtered.slice(1).map((item) => (
-	              <article className="news-card" key={item.id}>
-	                {(item.image || thumbs[item.id]) && !brokenThumbs.has(item.id) ? (
-	                  <img
-	                    className="news-card-image"
-	                    src={proxiedImage(item.image || thumbs[item.id])}
-	                    alt={item.title}
-	                    loading="lazy"
-	                    onError={() => {
-	                      setBrokenThumbs((prev) => {
-	                        const next = new Set(prev);
-	                        next.add(item.id);
+		              <article className="news-card" key={item.id}>
+		                {(item.image || thumbs[item.id]) && !brokenThumbs.has(item.id) ? (
+		                  <img
+		                    className="news-card-image"
+		                    src={proxiedImage(item.image || thumbs[item.id])}
+		                    alt={item.title}
+		                    loading="lazy"
+		                    onError={() => {
+                          const failing = proxiedImage(item.image || thumbs[item.id]);
+                          if (process.env.NODE_ENV !== "production") {
+                            console.warn("News card image failed:", failing);
+                          }
+                          setImgErrorUrls((prev) => ({ ...prev, [item.id]: failing }));
+		                      setBrokenThumbs((prev) => {
+		                        const next = new Set(prev);
+		                        next.add(item.id);
                         return next;
                       });
                     }}
