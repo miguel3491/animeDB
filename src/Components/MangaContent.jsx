@@ -1027,16 +1027,35 @@ function MangaContent({ mode } = {}) {
                           <span className="muted">Details unavailable</span>
                         )}
                         <button
-                          className={`favorite-button ${hasMal && favorites.has(`manga_${mal_id}`) ? "active" : ""} ${hasMal && favoritePulseId === `manga_${mal_id}` ? "pulse" : ""}`}
+                          className={`favorite-button favorite-icon ${hasMal && favorites.has(`manga_${mal_id}`) ? "active" : ""} ${hasMal && favoritePulseId === `manga_${mal_id}` ? "pulse" : ""}`}
                           type="button"
                           onClick={() => {
                             if (!hasMal) return;
                             toggleFavorite({ mal_id, title, images, chapters, cover });
                           }}
                           disabled={!user || !hasMal}
-                          title={!hasMal ? "MAL id unavailable for this title" : user ? "Save to favorites" : "Sign in to save favorites"}
+                          title={
+                            !hasMal
+                              ? "MAL id unavailable for this title"
+                              : user
+                              ? favorites.has(`manga_${mal_id}`)
+                                ? "Remove from favorites"
+                                : "Add to favorites"
+                              : "Sign in to save favorites"
+                          }
+                          aria-label={
+                            !hasMal
+                              ? "MAL id unavailable for this title"
+                              : user
+                              ? favorites.has(`manga_${mal_id}`)
+                                ? "Remove from favorites"
+                                : "Add to favorites"
+                              : "Sign in to save favorites"
+                          }
                         >
-                          {hasMal && favorites.has(`manga_${mal_id}`) ? "Favorited" : "Add to favorites"}
+                          <span className="favorite-icon-symbol" aria-hidden="true">
+                            {hasMal && favorites.has(`manga_${mal_id}`) ? "✓" : "+"}
+                          </span>
                         </button>
                       </div>
                     </div>

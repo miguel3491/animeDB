@@ -1196,13 +1196,16 @@ const AnimeCardItem = React.memo(function AnimeCardItem({
             View details
           </Link>
           <button
-            className={`favorite-button ${isFavorite ? "active" : ""} ${pulse ? "pulse" : ""}`}
+            className={`favorite-button favorite-icon ${isFavorite ? "active" : ""} ${pulse ? "pulse" : ""}`}
             type="button"
             onClick={() => onToggle(item)}
             disabled={disabled}
-            title={disabled ? "Sign in to save favorites" : "Save to favorites"}
+            title={disabled ? "Sign in to save favorites" : isFavorite ? "Remove from favorites" : "Add to favorites"}
+            aria-label={disabled ? "Sign in to save favorites" : isFavorite ? "Remove from favorites" : "Add to favorites"}
           >
-            {isFavorite ? "Favorited" : "Add to favorites"}
+            <span className="favorite-icon-symbol" aria-hidden="true">
+              {isFavorite ? "✓" : "+"}
+            </span>
           </button>
         </div>
       </div>
