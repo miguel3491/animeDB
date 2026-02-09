@@ -569,13 +569,6 @@ function News() {
                       )}
                     </p>
                     <div className="news-card-bottom">
-                      <div className="news-tags">
-                        {item.categories.slice(0, 3).map((cat) => (
-                          <span key={`${item.id}-${cat}`} className="tag">
-                            {cat}
-                          </span>
-                        ))}
-                      </div>
                       <Link
                         className="detail-link news-readmore"
                         to={`/news/${encodeURIComponent(item.id)}`}
@@ -597,6 +590,13 @@ function News() {
                       >
                         Read more
                       </Link>
+                      <div className="news-tags">
+                        {item.categories.slice(0, 3).map((cat) => (
+                          <span key={`${item.id}-${cat}`} className="tag">
+                            {cat}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </div>
 	              </article>
