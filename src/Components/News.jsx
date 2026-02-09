@@ -14,6 +14,11 @@ function News() {
     const sliced = raw.slice(0, take).trimEnd();
     return sliced.endsWith("...") ? sliced : `${sliced}...`;
   };
+  const expandToggle = (evt) => {
+    const el = evt?.currentTarget;
+    if (!el || !el.dataset) return;
+    el.dataset.expanded = "1";
+  };
   const debugEnabled = useMemo(() => {
     try {
       const qs = new URLSearchParams(location.search || "");
@@ -529,10 +534,33 @@ function News() {
                       </span>
                     </div>
                     <h4>{item.title}</h4>
-                    <p title={viewMode === "compact" ? item.summary || "" : ""}>
-                      {viewMode === "compact"
-                        ? truncateByPercent(item.summary || "No summary available.", 0.25)
-                        : item.summary || "No summary available."}
+                    <p
+                      className={viewMode === "compact" ? "news-summary summary-toggle" : ""}
+                      title={viewMode === "compact" ? item.summary || "" : ""}
+                      data-expanded="0"
+                      onClick={viewMode === "compact" ? expandToggle : undefined}
+                      onWheel={viewMode === "compact" ? expandToggle : undefined}
+                      onKeyDown={
+                        viewMode === "compact"
+                          ? (e) => {
+                              if (e.key === "Enter" || e.key === " ") expandToggle(e);
+                            }
+                          : undefined
+                      }
+                      role={viewMode === "compact" ? "button" : undefined}
+                      tabIndex={viewMode === "compact" ? 0 : undefined}
+                      aria-label={viewMode === "compact" ? "Summary. Click to expand and scroll." : undefined}
+                    >
+                      {viewMode === "compact" ? (
+                        <>
+                          <span className="synopsis-preview">
+                            {truncateByPercent(item.summary || "No summary available.", 0.25)}
+                          </span>
+                          <span className="synopsis-full">{item.summary || "No summary available."}</span>
+                        </>
+                      ) : (
+                        item.summary || "No summary available."
+                      )}
                     </p>
                     <div className="news-tags">
                       {item.categories.slice(0, 3).map((cat) => (

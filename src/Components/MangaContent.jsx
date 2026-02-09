@@ -975,8 +975,13 @@ function MangaContent({ mode } = {}) {
                   return sliced.endsWith("...") ? sliced : `${sliced}...`;
                 };
                 const fullSynopsis = synopsis || "No synopsis available yet.";
-                const displaySynopsis =
-                  viewMode === "compact" ? truncateByPercent(fullSynopsis, 0.25) : fullSynopsis;
+                const previewSynopsis = truncateByPercent(fullSynopsis, 0.25);
+                const expandToggle = (evt) => {
+                  if (viewMode !== "compact") return;
+                  const el = evt?.currentTarget;
+                  if (!el || !el.dataset) return;
+                  el.dataset.expanded = "1";
+                };
                 const seasonLabel = isSeasonalMode
                   ? seasonLabelFromIso(published?.from) ||
                     `${seasonOptions.find((s) => s.value === seasonName)?.label || "Season"} ${seasonYear}`
@@ -1028,8 +1033,27 @@ function MangaContent({ mode } = {}) {
                         <span>Volumes: {volumes ?? "?"}</span>
                       </div>
                       <span className="score-badge">Score {score ?? "N/A"}</span>
-                      <p className="synopsis" title={viewMode === "compact" ? fullSynopsis : ""}>
-                        {displaySynopsis}
+                      <p
+                        className={viewMode === "compact" ? "synopsis synopsis-toggle" : "synopsis"}
+                        title={viewMode === "compact" ? fullSynopsis : ""}
+                        data-expanded="0"
+                        onClick={expandToggle}
+                        onWheel={expandToggle}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") expandToggle(e);
+                        }}
+                        role={viewMode === "compact" ? "button" : undefined}
+                        tabIndex={viewMode === "compact" ? 0 : undefined}
+                        aria-label={viewMode === "compact" ? "Synopsis. Click to expand and scroll." : undefined}
+                      >
+                        {viewMode === "compact" ? (
+                          <>
+                            <span className="synopsis-preview">{previewSynopsis}</span>
+                            <span className="synopsis-full">{fullSynopsis}</span>
+                          </>
+                        ) : (
+                          fullSynopsis
+                        )}
                       </p>
                       <div className="card-actions">
                         {hasMal ? (

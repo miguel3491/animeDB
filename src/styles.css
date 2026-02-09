@@ -1176,7 +1176,7 @@ a{
     padding: 12px;
 }
 .anime-grid.compact .synopsis {
-    max-height: 48px;
+    max-height: 110px;
 }
 .anime-grid.compact .score-badge {
     align-self: flex-start;
@@ -1362,14 +1362,23 @@ a{
     -webkit-overflow-scrolling: touch;
 }
 .anime-grid.compact .synopsis {
-    overflow: hidden;
-    padding-right: 0;
-}
-.anime-grid.compact .synopsis {
     max-height: 110px;
 }
 .anime-grid.list .synopsis {
     max-height: 140px;
+}
+
+.synopsis-toggle {
+    cursor: pointer;
+}
+.synopsis-toggle .synopsis-full {
+    display: none;
+}
+.synopsis-toggle[data-expanded="1"] .synopsis-full {
+    display: inline;
+}
+.synopsis-toggle[data-expanded="1"] .synopsis-preview {
+    display: none;
 }
 
 .anime-grid.compact .synopsis::-webkit-scrollbar,
@@ -2371,7 +2380,7 @@ a{
     height: 118px;
 }
 .news-grid.compact .news-card p {
-    max-height: 72px;
+    max-height: 110px;
 }
 .news-card-image {
     width: 100%;
@@ -2423,15 +2432,23 @@ a{
     padding-right: 6px;
     -webkit-overflow-scrolling: touch;
 }
-.news-grid.compact .news-card p {
-    overflow: hidden;
-    padding-right: 0;
-}
 .news-grid.list .news-card p {
     max-height: 120px;
 }
 .news-grid.compact .news-card p {
     max-height: 110px;
+}
+.summary-toggle {
+    cursor: pointer;
+}
+.summary-toggle .synopsis-full {
+    display: none;
+}
+.summary-toggle[data-expanded="1"] .synopsis-full {
+    display: inline;
+}
+.summary-toggle[data-expanded="1"] .synopsis-preview {
+    display: none;
 }
 .news-grid.list .news-card p::-webkit-scrollbar,
 .news-grid.compact .news-card p::-webkit-scrollbar {
