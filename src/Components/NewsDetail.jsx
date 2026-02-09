@@ -293,6 +293,9 @@ function NewsDetail() {
         throw new Error("Translation service is unavailable. Make sure `npm start` (client + server) is running.");
       }
       if (!statusRes?.ok) {
+        if (statusRes?.status === 404) {
+          throw new Error("Translation endpoints are missing on the server. Restart `npm start` to load the latest API routes.");
+        }
         throw new Error("Translation service is unavailable. Please try again in a moment.");
       }
       if (!statusJson?.enabled) {
@@ -315,6 +318,9 @@ function NewsDetail() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error("Translation endpoint not found. Restart `npm start` so the server picks up the latest changes.");
+        }
         const detail = String(data?.error || "Translation unavailable.");
         if (response.status === 503 || detail.toLowerCase().includes("missing google translate api key")) {
           sessionStorage.setItem("translate-disabled", "1");
