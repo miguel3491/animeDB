@@ -35,6 +35,7 @@ function News() {
   const [error, setError] = useState("");
   const [thumbs, setThumbs] = useState({});
   const [brokenThumbs, setBrokenThumbs] = useState(() => new Set());
+  const [thumbLoading, setThumbLoading] = useState(false);
   const [thumbServiceError, setThumbServiceError] = useState("");
   const [imgErrorUrls, setImgErrorUrls] = useState({});
   const [thumbDebug, setThumbDebug] = useState({});
@@ -83,6 +84,8 @@ function News() {
     if (!raw) return "";
     return `/api/img?url=${encodeURIComponent(raw)}`;
   };
+
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   useEffect(() => {
     const load = async () => {
@@ -154,22 +157,34 @@ function News() {
       }
     };
 
-    // Only resolve thumbnails for the first N visible items to avoid hammering ANN.
-    const candidates = filtered.slice(0, 18);
-    const concurrency = 4;
-    const run = async () => {
-      const queue = [...candidates];
+    const runQueue = async (queue, concurrency, pauseMs) => {
       const workers = Array.from({ length: concurrency }).map(async () => {
         while (!cancelled && queue.length > 0) {
           const next = queue.shift();
           // eslint-disable-next-line no-await-in-loop
           await fetchThumb(next);
+          if (pauseMs) {
+            // eslint-disable-next-line no-await-in-loop
+            await sleep(pauseMs);
+          }
         }
       });
       await Promise.all(workers);
     };
 
-    run();
+    // Load previews progressively: show the first batch quickly, then fill the rest in the background.
+    const MAX_PREVIEWS = 40;
+    const FIRST_BATCH = 18;
+    const primary = filtered.slice(0, Math.min(filtered.length, FIRST_BATCH, MAX_PREVIEWS));
+    const secondary = filtered.slice(primary.length, Math.min(filtered.length, MAX_PREVIEWS));
+
+    setThumbLoading(true);
+    runQueue([...primary], 4, 0)
+      .then(() => runQueue([...secondary], 2, 180))
+      .finally(() => {
+        if (!cancelled) setThumbLoading(false);
+      });
+
     return () => {
       cancelled = true;
       controller.abort();
@@ -412,14 +427,19 @@ function News() {
 		                      setBrokenThumbs((prev) => {
 		                        const next = new Set(prev);
 		                        next.add(highlight.id);
-                        return next;
-                      });
-                    }}
-                  />
-                )}
-                <span>{highlight.pubDate ? new Date(highlight.pubDate).toLocaleString() : ""}</span>
-                <span>{highlight.categories.join(", ")}</span>
-	              </div>
+		                        return next;
+		                      });
+		                    }}
+		                  />
+		                )}
+		                {!brokenThumbs.has(highlight.id) && !(highlight.image || thumbs[highlight.id]) && (
+		                  <div className="news-highlight-image news-card-image-placeholder" aria-label="Preview unavailable">
+		                    <span className="muted">{thumbLoading ? "Loading preview..." : "Preview unavailable"}</span>
+		                  </div>
+		                )}
+		                <span>{highlight.pubDate ? new Date(highlight.pubDate).toLocaleString() : ""}</span>
+		                <span>{highlight.categories.join(", ")}</span>
+		              </div>
 	            </div>
 	          )}
 
@@ -445,11 +465,11 @@ function News() {
                       });
                     }}
                   />
-                ) : (
-                  <div className="news-card-image news-card-image-placeholder" aria-label="Preview unavailable">
-                    <span className="muted">Preview unavailable</span>
-	                  </div>
-	                )}
+	                ) : (
+	                  <div className="news-card-image news-card-image-placeholder" aria-label="Preview unavailable">
+	                    <span className="muted">{thumbLoading ? "Loading preview..." : "Preview unavailable"}</span>
+		                  </div>
+		                )}
                   <div className="news-card-body">
                     <div className="news-card-header">
                       <span className="news-source">{item.sourceName}</span>
