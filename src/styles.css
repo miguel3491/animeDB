@@ -2722,12 +2722,23 @@ a{
     letter-spacing: 0.6px;
 }
 .group-detail .group-detail-banner {
-    height: 120px;
+    height: 140px;
     border-radius: 18px;
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.1);
     background-size: cover;
     background-position: center;
+    position: relative;
+}
+.group-detail .group-detail-banner::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 92px;
+    background: linear-gradient(to top, rgba(10, 15, 31, 0.92), rgba(10, 15, 31, 0));
+    pointer-events: none;
 }
 .group-detail .group-detail-banner.placeholder {
     background: radial-gradient(circle at 20% 30%, rgba(255, 107, 156, 0.16), transparent 52%),
@@ -2738,19 +2749,21 @@ a{
     display: flex;
     gap: 14px;
     align-items: center;
-    margin-top: 12px;
+    margin-top: -42px;
     padding: 12px 14px;
     border-radius: 18px;
     border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(16, 26, 48, 0.65);
+    background: rgba(10, 15, 31, 0.55);
     backdrop-filter: blur(10px);
 }
 .group-detail-title-text h2 {
     letter-spacing: 1px;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.7), 0 0 18px rgba(122, 252, 255, 0.16);
 }
 .group-detail-head {
     display: grid;
     gap: 12px;
+    position: relative;
 }
 .group-detail-actions {
     display: flex;
