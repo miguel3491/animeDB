@@ -2738,11 +2738,42 @@ a{
     display: flex;
     gap: 14px;
     align-items: center;
-    margin-top: -28px;
-    padding-left: 16px;
+    margin-top: 12px;
+    padding: 12px 14px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(16, 26, 48, 0.65);
+    backdrop-filter: blur(10px);
 }
 .group-detail-title-text h2 {
     letter-spacing: 1px;
+}
+.group-detail-head {
+    display: grid;
+    gap: 12px;
+}
+.group-detail-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+}
+.detail-link.secondary {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.16);
+}
+.detail-link.danger {
+    background: rgba(255, 107, 156, 0.16);
+    border-color: rgba(255, 107, 156, 0.35);
+    color: var(--text);
+}
+.detail-link.danger:hover {
+    background: rgba(255, 107, 156, 0.22);
+    border-color: rgba(255, 107, 156, 0.5);
+}
+.group-pagination {
+    margin-top: 12px;
 }
 .group-split {
     display: grid;
@@ -2761,7 +2792,6 @@ a{
     }
     .group-detail-title {
         margin-top: 12px;
-        padding-left: 0;
     }
 }
 .news-detail-image {

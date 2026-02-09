@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import ReactPaginate from "react-paginate";
 import {
   collection,
   doc,
@@ -47,6 +48,7 @@ function GroupDetail() {
   const [members, setMembers] = useState([]);
   const [myMember, setMyMember] = useState(null);
   const [status, setStatus] = useState("");
+  const [memberPage, setMemberPage] = useState(0);
 
   const [editOpen, setEditOpen] = useState(false);
   const [draftName, setDraftName] = useState("");
@@ -58,7 +60,11 @@ function GroupDetail() {
 
   const [inviteHandle, setInviteHandle] = useState("");
   const [inviteStatus, setInviteStatus] = useState("");
+  const [invitePreview, setInvitePreview] = useState(null);
+  const [invitePreviewLoading, setInvitePreviewLoading] = useState(false);
   const inviteInflightRef = useRef(false);
+  const invitePreviewTimeoutRef = useRef(null);
+  const invitePreviewSeqRef = useRef(0);
 
   useEffect(() => {
     if (!groupId) return;
@@ -102,6 +108,10 @@ function GroupDetail() {
       () => setMembers([])
     );
   }, [groupId]);
+
+  useEffect(() => {
+    setMemberPage(0);
+  }, [groupId, members.length]);
 
   useEffect(() => {
     if (!groupId || !user?.uid) {
@@ -267,6 +277,50 @@ function GroupDetail() {
     }
   };
 
+  useEffect(() => {
+    if (invitePreviewTimeoutRef.current) {
+      clearTimeout(invitePreviewTimeoutRef.current);
+    }
+    const raw = safeText(inviteHandle);
+    if (!raw) {
+      setInvitePreview(null);
+      setInvitePreviewLoading(false);
+      return;
+    }
+    const handle = raw.replace(/^@/, "").toLowerCase();
+    const seq = (invitePreviewSeqRef.current += 1);
+    setInvitePreviewLoading(true);
+    invitePreviewTimeoutRef.current = setTimeout(async () => {
+      try {
+        const uid = await resolveHandleToUid(handle);
+        if (invitePreviewSeqRef.current !== seq) return;
+        if (!uid) {
+          setInvitePreview({ handle, uid: "", username: "", avatar: "" });
+          return;
+        }
+        const snap = await getDoc(doc(db, "users", uid));
+        const userData = snap.exists() ? snap.data() || {} : {};
+        if (invitePreviewSeqRef.current !== seq) return;
+        setInvitePreview({
+          handle,
+          uid,
+          username: String(userData.username || "").trim(),
+          avatar: String(userData.avatar || "").trim()
+        });
+      } catch (err) {
+        if (invitePreviewSeqRef.current !== seq) return;
+        setInvitePreview({ handle, uid: "", username: "", avatar: "" });
+      } finally {
+        if (invitePreviewSeqRef.current === seq) setInvitePreviewLoading(false);
+      }
+    }, 260);
+    return () => {
+      if (invitePreviewTimeoutRef.current) {
+        clearTimeout(invitePreviewTimeoutRef.current);
+      }
+    };
+  }, [inviteHandle]);
+
   const inviteMember = async () => {
     if (!canManageMembers) {
       setInviteStatus("Only admins/officers can add members.");
@@ -286,7 +340,7 @@ function GroupDetail() {
     inviteInflightRef.current = true;
     setInviteStatus("Looking up user...");
     try {
-      const uid = await resolveHandleToUid(raw);
+      const uid = invitePreview?.uid || (await resolveHandleToUid(raw));
       if (!uid) {
         setInviteStatus("User not found for that handle.");
         return;
@@ -327,6 +381,7 @@ function GroupDetail() {
       batch.update(groupRef, { memberCount: increment(1), updatedAt: nowIso, updatedAtTs: serverTimestamp() });
       await batch.commit();
       setInviteHandle("");
+      setInvitePreview(null);
       setInviteStatus("Added member.");
     } catch (err) {
       setInviteStatus(err?.message || "Unable to add member.");
@@ -380,6 +435,18 @@ function GroupDetail() {
   const accent = group?.accent || "#7afcff";
   const style = group?.nameStyle || "neon";
   const memberCount = Number.isFinite(Number(group?.memberCount)) ? Number(group.memberCount) : null;
+
+  const MEMBERS_PER_PAGE = 10;
+  const memberPageCount = useMemo(() => {
+    if (members.length === 0) return 0;
+    return Math.max(1, Math.ceil(members.length / MEMBERS_PER_PAGE));
+  }, [members.length]);
+  const memberPageItems = useMemo(() => {
+    if (members.length === 0) return [];
+    const safe = Math.max(0, Math.min(memberPage, Math.max(0, memberPageCount - 1)));
+    const start = safe * MEMBERS_PER_PAGE;
+    return members.slice(start, start + MEMBERS_PER_PAGE);
+  }, [memberPage, memberPageCount, members]);
 
   if (!groupId) {
     return (
@@ -442,8 +509,8 @@ function GroupDetail() {
               </div>
             </div>
           </div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button type="button" className="detail-link" onClick={goBack}>
+          <div className="group-detail-actions">
+            <button type="button" className="detail-link secondary" onClick={goBack}>
               ← Back
             </button>
             {!user && <Link className="detail-link" to="/profile" state={{ from: fromPath }}>Sign in</Link>}
@@ -453,7 +520,7 @@ function GroupDetail() {
               </button>
             )}
             {user && myMember && (
-              <button type="button" className="detail-link" onClick={leaveGroup}>
+              <button type="button" className="detail-link danger" onClick={leaveGroup}>
                 Leave
               </button>
             )}
@@ -552,10 +619,41 @@ function GroupDetail() {
                 </button>
               </div>
             )}
+            {canManageMembers && (invitePreviewLoading || invitePreview) && (
+              <div className="mention-preview" aria-live="polite" style={{ marginTop: 10 }}>
+                <div className="mention-preview-head">
+                  <span className="muted">Member preview</span>
+                  {invitePreviewLoading && <span className="pill">Checking...</span>}
+                </div>
+                {invitePreview && (
+                  <div className="mention-chips">
+                    <span
+                      className={`mention-chip ${invitePreview.uid ? "valid" : "invalid"}`}
+                      title={invitePreview.uid ? `Will add @${invitePreview.handle}` : `Unknown handle: @${invitePreview.handle}`}
+                    >
+                      {invitePreview.avatar ? (
+                        <img
+                          className="mention-chip-avatar"
+                          src={invitePreview.avatar}
+                          alt={invitePreview.username || invitePreview.handle}
+                          loading="lazy"
+                        />
+                      ) : (
+                        <span className="mention-chip-avatar placeholder" aria-hidden="true"></span>
+                      )}
+                      <span className="mention-chip-text">@{invitePreview.handle}</span>
+                      <span className="mention-chip-name">
+                        {invitePreview.uid ? (invitePreview.username || "User") : "Not found"}
+                      </span>
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
             {inviteStatus && <p className="muted" style={{ marginTop: 8 }}>{inviteStatus}</p>}
 
             <div className="inbox-list" style={{ marginTop: 10 }}>
-              {members.map((m) => {
+              {memberPageItems.map((m) => {
                 const uid = String(m.uid || m.id || "");
                 const uname = String(m.username || "User");
                 const uavatar = String(m.avatar || "");
@@ -597,6 +695,20 @@ function GroupDetail() {
                 );
               })}
             </div>
+            {memberPageCount > 1 && (
+              <div className="pagination group-pagination">
+                <ReactPaginate
+                  previousLabel={"←"}
+                  nextLabel={"→"}
+                  breakLabel={"..."}
+                  pageCount={memberPageCount}
+                  marginPagesDisplayed={1}
+                  pageRangeDisplayed={2}
+                  onPageChange={(selected) => setMemberPage(selected.selected)}
+                  forcePage={Math.max(0, Math.min(memberPage, memberPageCount - 1))}
+                />
+              </div>
+            )}
           </div>
 
           <div className="group-perms">
