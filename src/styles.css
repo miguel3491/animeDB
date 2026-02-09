@@ -2583,6 +2583,10 @@ a{
     top: 18px;
     align-self: start;
 }
+.news-translate .detail-link.active {
+    border-color: rgba(255, 107, 156, 0.45);
+    background: rgba(255, 107, 156, 0.14);
+}
 .news-summary--side {
     margin-bottom: 0;
 }

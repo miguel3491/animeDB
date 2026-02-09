@@ -19,7 +19,16 @@ function NewsDetail() {
   const [summarySessionDisabled, setSummarySessionDisabled] = useState(
     () => sessionStorage.getItem("summary-disabled") === "1"
   );
+  const [translation, setTranslation] = useState(null);
+  const [translationLoading, setTranslationLoading] = useState(false);
+  const [translationError, setTranslationError] = useState("");
+  const [translationNotice, setTranslationNotice] = useState("");
+  const [translationSessionDisabled, setTranslationSessionDisabled] = useState(
+    () => sessionStorage.getItem("translate-disabled") === "1"
+  );
+  const [showTranslated, setShowTranslated] = useState(false);
   const summaryRequestedRef = useRef(false);
+  const translationRequestedRef = useRef(false);
   const itemId = item?.id || "";
 
   useEffect(() => {
@@ -76,6 +85,38 @@ function NewsDetail() {
         setSummary(JSON.parse(cached));
       } catch (err) {
         // ignore cache errors
+      }
+    }
+  }, [itemId]);
+
+  useEffect(() => {
+    if (!itemId) return;
+    translationRequestedRef.current = false;
+    setTranslationLoading(false);
+    setTranslationError("");
+    setTranslationNotice("");
+    setTranslation(null);
+    setShowTranslated(false);
+
+    setTranslationSessionDisabled(sessionStorage.getItem("translate-disabled") === "1");
+    if (sessionStorage.getItem("translate-disabled") === "1") return;
+
+    const localKey = `news-translation-en-${itemId}`;
+    try {
+      const cached = localStorage.getItem(localKey);
+      if (cached) {
+        setTranslation(JSON.parse(cached));
+        return;
+      }
+    } catch (err) {
+      // ignore
+    }
+    const sessionCached = sessionStorage.getItem(localKey);
+    if (sessionCached) {
+      try {
+        setTranslation(JSON.parse(sessionCached));
+      } catch (err) {
+        // ignore
       }
     }
   }, [itemId]);
@@ -159,6 +200,17 @@ function NewsDetail() {
     setSummaryNotice("");
   };
 
+  const reenableTranslation = () => {
+    try {
+      sessionStorage.removeItem("translate-disabled");
+    } catch (err) {
+      // ignore
+    }
+    setTranslationSessionDisabled(false);
+    setTranslationError("");
+    setTranslationNotice("");
+  };
+
   useEffect(() => {
     if (!item?.link) return;
     let cancelled = false;
@@ -188,6 +240,81 @@ function NewsDetail() {
       cancelled = true;
     };
   }, [item?.link]);
+
+  const translateToEnglish = async () => {
+    if (!item) return;
+    if (translationLoading) return;
+    if (translationSessionDisabled) return;
+    if (translationRequestedRef.current) return;
+
+    const localKey = `news-translation-en-${item.id}`;
+    // Use the best available plain-text payload to avoid translating HTML.
+    const title = item.displayTitle || item.title || "";
+    const content = article?.contentText || item.displayBody || item.content || item.summary || item.description || "";
+
+    try {
+      const cached = localStorage.getItem(localKey);
+      if (cached) {
+        setTranslation(JSON.parse(cached));
+        setShowTranslated(true);
+        return;
+      }
+    } catch (err) {
+      // ignore
+    }
+
+    translationRequestedRef.current = true;
+    setTranslationLoading(true);
+    setTranslationError("");
+    setTranslationNotice("");
+
+    try {
+      const statusRes = await fetch("/api/translate/status");
+      const statusJson = await statusRes.json().catch(() => ({}));
+      if (!statusRes.ok || !statusJson?.enabled) {
+        sessionStorage.setItem("translate-disabled", "1");
+        setTranslationSessionDisabled(true);
+        throw new Error("Translation is disabled for this session.");
+      }
+
+      const response = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          content,
+          target: "en"
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = String(data?.error || "Translation unavailable.");
+        if (response.status === 503 || detail.toLowerCase().includes("missing")) {
+          sessionStorage.setItem("translate-disabled", "1");
+          setTranslationSessionDisabled(true);
+        }
+        throw new Error(detail);
+      }
+      setTranslation(data);
+      setShowTranslated(true);
+      sessionStorage.setItem(localKey, JSON.stringify(data));
+      try {
+        localStorage.setItem(localKey, JSON.stringify(data));
+      } catch (err) {
+        // ignore
+      }
+      if (data?.usedApi) {
+        setTranslationNotice(`Translated (${data.sourceLang} → ${data.targetLang}). Cached in your browser.`);
+      } else {
+        setTranslationNotice("This story already looks like English. No translation quota used.");
+      }
+    } catch (err) {
+      setTranslationError(err?.message || "Translation unavailable right now.");
+    } finally {
+      setTranslationLoading(false);
+      translationRequestedRef.current = false;
+    }
+  };
 
   const goBack = () => {
     const from = location.state?.from;
@@ -220,6 +347,10 @@ function NewsDetail() {
   const displayBody = item.displayBody || item.content || item.summary || "No summary available.";
   const bodyHtml = article?.contentHtml || "";
 
+  const translatedTitle = translation?.title || "";
+  const translatedBody = translation?.content || "";
+  const effectiveTitle = showTranslated && translatedTitle ? translatedTitle : displayTitle;
+
   const heroImage = article?.image || item.image || "";
   const inlineImages = Array.isArray(article?.inlineImages) ? article.inlineImages : [];
   const galleryImages = [heroImage, ...inlineImages.map((img) => img.url)]
@@ -235,7 +366,7 @@ function NewsDetail() {
           <div className="detail-header">
             <div>
               <p className="news-source">{item.sourceName}</p>
-              <h2>{displayTitle}</h2>
+              <h2>{effectiveTitle}</h2>
               {item.pubDate && <p className="news-date">{new Date(item.pubDate).toLocaleString()}</p>}
             </div>
             <button type="button" className="detail-link" onClick={goBack}>
@@ -304,6 +435,12 @@ function NewsDetail() {
           <div className="news-body">
             {articleLoading ? (
               <p className="muted">Loading the full article...</p>
+            ) : showTranslated && translatedBody ? (
+              translatedBody
+                .split(/\n{2,}/)
+                .map((block, idx) => (
+                  <p key={`news-translate-${item.id}-${idx}`}>{block.trim()}</p>
+                ))
             ) : bodyHtml ? (
               <div dangerouslySetInnerHTML={{ __html: bodyHtml }} />
             ) : (
@@ -390,6 +527,82 @@ function NewsDetail() {
 
             {!summary?.summary && !summaryLoading && !summaryError && !summaryNotice && (
               <p className="muted">Generate a summary for this article.</p>
+            )}
+          </div>
+
+          <div className="news-summary news-summary--side news-translate">
+            <div className="news-summary-head">
+              <h4>Translation</h4>
+              {!translation?.content && (
+                <button
+                  type="button"
+                  className="favorite-button news-ai-button"
+                  onClick={translateToEnglish}
+                  disabled={translationLoading || translationSessionDisabled}
+                  title={translationSessionDisabled ? "Translation disabled for this session" : "Translate to English"}
+                >
+                  {translationLoading ? "Translating..." : "Translate"}
+                </button>
+              )}
+            </div>
+
+            {translationSessionDisabled && !translation?.content && (
+              <div className="news-ai-disabled">
+                <p className="muted" style={{ marginTop: 0 }}>
+                  Translation is currently disabled for this session.
+                </p>
+                <button type="button" className="detail-link" onClick={reenableTranslation}>
+                  Re-enable
+                </button>
+              </div>
+            )}
+
+            {!translationSessionDisabled && translationError && !translation?.content && (
+              <p className="publish-status error">{translationError}</p>
+            )}
+
+            {!translation?.content && !translationLoading && !translationError && translationNotice && (
+              <p className="muted">{translationNotice}</p>
+            )}
+
+            {translation?.content && (
+              <>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <span className="pill muted">
+                    {translation.sourceLang || "?"} → {translation.targetLang || "en"}
+                  </span>
+                  {translation.usedApi ? (
+                    <span className="pill muted">
+                      {Number(translation.chars || 0).toLocaleString()} chars
+                    </span>
+                  ) : (
+                    <span className="pill muted">0 chars</span>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className={`detail-link ${!showTranslated ? "active" : ""}`}
+                    onClick={() => setShowTranslated(false)}
+                  >
+                    Original
+                  </button>
+                  <button
+                    type="button"
+                    className={`detail-link ${showTranslated ? "active" : ""}`}
+                    onClick={() => setShowTranslated(true)}
+                  >
+                    English
+                  </button>
+                </div>
+                <p className="muted" style={{ marginBottom: 0 }}>
+                  Translation is generated on demand and cached in your browser to reduce quota usage.
+                </p>
+              </>
+            )}
+
+            {!translation?.content && !translationLoading && !translationError && !translationNotice && (
+              <p className="muted">Translate this story to English (on demand).</p>
             )}
           </div>
         </aside>

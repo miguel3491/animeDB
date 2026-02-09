@@ -4,6 +4,7 @@ const cors = require("cors");
 const OpenAI = require("openai");
 const { XMLParser } = require("fast-xml-parser");
 const cheerio = require("cheerio");
+const crypto = require("crypto");
 
 const app = express();
 const port = 4000;
@@ -13,9 +14,13 @@ app.use(express.json({ limit: "1mb" }));
 
 const apiKey = process.env.OPENAI_API_KEY;
 const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+const translateApiKey = process.env.GOOGLE_TRANSLATE_API_KEY || "";
 
 if (!apiKey) {
   console.warn("Missing OPENAI_API_KEY. /api/summary will return 503.");
+}
+if (!translateApiKey) {
+  console.warn("Missing GOOGLE_TRANSLATE_API_KEY. /api/translate will return 503.");
 }
 
 const client = apiKey ? new OpenAI({ apiKey }) : null;
@@ -33,6 +38,10 @@ const ANILIST_TTL = 5 * 60 * 1000;
 const MAX_ANILIST_CACHE = 1200;
 const ANN_FEED_URL = "https://www.animenewsnetwork.com/news/rss.xml";
 const annCache = new Map();
+const translateCache = new Map();
+const TRANSLATE_TTL = 30 * 24 * 60 * 60 * 1000;
+const MAX_TRANSLATE_CACHE = 400;
+const MAX_TRANSLATE_CHARS = 20000;
 const imageProxyCache = new Map();
 const imageProxyInflight = new Map();
 const IMAGE_PROXY_TTL = 24 * 60 * 60 * 1000;
@@ -73,6 +82,58 @@ const absFromBase = (value, baseUrl) => {
 };
 
 const stripTags = (value = "") => String(value).replace(/<[^>]+>/g, "").trim();
+
+const decodeHtml = (value = "") => {
+  // Google Translate v2 returns HTML-escaped strings.
+  const raw = String(value || "");
+  try {
+    return cheerio.load(`<div>${raw}</div>`).text();
+  } catch (err) {
+    return raw
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">");
+  }
+};
+
+const looksEnglish = (value = "") => {
+  const text = String(value || "");
+  if (!text.trim()) return true;
+  // If Japanese characters exist, assume not English.
+  if (/[\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff]/.test(text)) return false;
+  // Ratio of ASCII characters as a heuristic.
+  let ascii = 0;
+  let total = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    total += 1;
+    if (code <= 0x7f) ascii += 1;
+  }
+  if (!total) return true;
+  return ascii / total >= 0.98;
+};
+
+const chunkText = (text, maxLen) => {
+  const raw = String(text || "");
+  if (raw.length <= maxLen) return [raw];
+  const out = [];
+  let i = 0;
+  while (i < raw.length) {
+    let end = Math.min(raw.length, i + maxLen);
+    if (end < raw.length) {
+      const window = raw.slice(i, end);
+      const cut = Math.max(window.lastIndexOf("\n"), window.lastIndexOf(" "));
+      if (cut > Math.floor(maxLen * 0.6)) {
+        end = i + cut;
+      }
+    }
+    out.push(raw.slice(i, end));
+    i = end;
+  }
+  return out;
+};
 
 const looksLikeSpacerGif = (value) => {
   const v = String(value || "").toLowerCase();
@@ -428,6 +489,99 @@ app.post("/api/summary", async (req, res) => {
       error: "Failed to summarize",
       detail: err?.message || "Unknown error"
     });
+  }
+});
+
+app.get("/api/translate/status", (req, res) => {
+  return res.json({ enabled: Boolean(translateApiKey) });
+});
+
+app.post("/api/translate", async (req, res) => {
+  try {
+    if (!translateApiKey) {
+      return res.status(503).json({ error: "Missing Google Translate API key" });
+    }
+    const { title = "", content = "", target = "en" } = req.body || {};
+    const safeTitle = String(title || "").trim();
+    const safeContent = String(content || "").trim();
+    const safeTarget = String(target || "en").trim().toLowerCase() || "en";
+    if (!safeTitle && !safeContent) {
+      return res.status(400).json({ error: "Missing content" });
+    }
+    if (safeTitle.length + safeContent.length > MAX_TRANSLATE_CHARS) {
+      return res.status(413).json({ error: "Content too large to translate" });
+    }
+
+    const combined = `${safeTitle}\n${safeContent}`.trim();
+    if (looksEnglish(combined) && safeTarget === "en") {
+      return res.json({
+        cached: true,
+        usedApi: false,
+        sourceLang: "en",
+        targetLang: safeTarget,
+        title: safeTitle,
+        content: safeContent,
+        chars: 0
+      });
+    }
+
+    const hash = crypto
+      .createHash("sha256")
+      .update(`${safeTarget}\n${safeTitle}\n${safeContent}`)
+      .digest("hex");
+    const cacheKey = `translate|${hash}`;
+    const cached = translateCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < TRANSLATE_TTL) {
+      return res.json({ ...cached.data, cached: true });
+    }
+
+    const chunks = safeContent ? chunkText(safeContent, 3500) : [];
+    const q = [];
+    if (safeTitle) q.push(safeTitle);
+    chunks.forEach((c) => q.push(c));
+    const chars = q.reduce((sum, s) => sum + String(s || "").length, 0);
+
+    const url = `https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(translateApiKey)}`;
+    const response = await fetchWithRetry(url, {
+      timeoutMs: 12000,
+      retries: 2,
+      init: {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          q,
+          target: safeTarget,
+          format: "text"
+        })
+      }
+    });
+    if (!response) {
+      return res.status(502).json({ error: "Translate unavailable" });
+    }
+    const json = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = String(json?.error?.message || "Translate failed");
+      return res.status(response.status).json({ error: message });
+    }
+    const translations = Array.isArray(json?.data?.translations) ? json.data.translations : [];
+    const detected = String(translations?.[0]?.detectedSourceLanguage || "").trim() || "unknown";
+    const titleTranslated = safeTitle ? decodeHtml(translations?.[0]?.translatedText || "") : "";
+    const contentParts = safeTitle ? translations.slice(1) : translations;
+    const contentTranslated = contentParts.map((t) => decodeHtml(t?.translatedText || "")).join("");
+
+    const payload = {
+      cached: false,
+      usedApi: true,
+      sourceLang: detected,
+      targetLang: safeTarget,
+      title: titleTranslated || safeTitle,
+      content: contentTranslated || safeContent,
+      chars
+    };
+    cacheSetBounded(translateCache, cacheKey, { data: payload, ts: Date.now() }, MAX_TRANSLATE_CACHE);
+    return res.json(payload);
+  } catch (err) {
+    return res.status(500).json({ error: "Translate failed" });
   }
 });
 
