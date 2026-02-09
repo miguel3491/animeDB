@@ -2381,6 +2381,7 @@ a{
     flex-direction: column;
     gap: 10px;
     min-width: 0;
+    flex: 1;
 }
 .news-grid.list .news-card {
     flex-direction: row;
