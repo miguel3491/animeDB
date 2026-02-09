@@ -11,6 +11,7 @@ function Favorites() {
   const { user, profile } = useAuth();
   const [favorites, setFavorites] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showGuide, setShowGuide] = useState(false);
   const dragItem = useRef(null);
   const normalizingRef = useRef(false);
   const pageSize = 10;
@@ -819,6 +820,30 @@ function Favorites() {
           </div>
           <span className="pill">{tabFavorites.length} total</span>
         </div>
+
+        <div className="hero" style={{ margin: "0 0 16px" }}>
+          <p>Completed an anime? Publish your review and let the community discuss it.</p>
+          <button
+            type="button"
+            className="detail-link"
+            onClick={() => setShowGuide((prev) => !prev)}
+          >
+            {showGuide ? "Hide steps" : "Read more..."}
+          </button>
+          {showGuide && (
+            <div className="discussion-guide">
+              <h4>How to publish a review</h4>
+              <ol>
+                <li>Go to Favorites and open the anime or manga you finished.</li>
+                <li>Set the status to <strong>Completed</strong>.</li>
+                <li>Add your review in the Notes field and pick a rating.</li>
+                <li>Click <strong>Publish review</strong>.</li>
+                <li>Visit Discussion to see your post and reply to comments.</li>
+              </ol>
+            </div>
+          )}
+        </div>
+
         <div className="favorites-tabs">
           <button
             type="button"
