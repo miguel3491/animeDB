@@ -209,10 +209,9 @@ export function DiscussionPost({
     }
     setCommentError("");
     const nowIso = new Date().toISOString();
-    const batch = writeBatch(db);
     const commentsRef = collection(db, "discussions", post.id, "comments");
     const commentRef = doc(commentsRef);
-    batch.set(commentRef, {
+    await setDoc(commentRef, {
       text: trimmed,
       userId: user.uid,
       userName: profile?.username || user.displayName || user.email || "Anonymous",
@@ -222,25 +221,27 @@ export function DiscussionPost({
 
     // Denormalized inbox event for the post author. This avoids N listeners in the header.
     if (post.userId && post.userId !== user.uid) {
-      const inboxRef = collection(db, "users", post.userId, "inboxEvents");
-      const inboxEventRef = doc(inboxRef, commentRef.id);
-      batch.set(inboxEventRef, {
-        type: "comment",
-        seen: false,
-        clientAt: nowIso,
-        createdAt: nowIso,
-        fromUid: user.uid,
-        fromName: profile?.username || user.displayName || user.email || "Anonymous",
-        fromAvatar: profile?.avatar || user.photoURL || "",
-        discussionId: post.id,
-        mediaType,
-        mediaId: mediaId || null,
-        mediaTitle,
-        mediaImage
-      });
+      // Don't block comment creation if inbox events are locked down by rules.
+      try {
+        const inboxEventRef = doc(db, "users", post.userId, "inboxEvents", commentRef.id);
+        await setDoc(inboxEventRef, {
+          type: "comment",
+          seen: false,
+          clientAt: nowIso,
+          createdAt: nowIso,
+          fromUid: user.uid,
+          fromName: profile?.username || user.displayName || user.email || "Anonymous",
+          fromAvatar: profile?.avatar || user.photoURL || "",
+          discussionId: post.id,
+          mediaType,
+          mediaId: mediaId || null,
+          mediaTitle,
+          mediaImage
+        });
+      } catch (err) {
+        // ignore
+      }
     }
-
-    await batch.commit();
     try {
       const activityRef = doc(db, "users", user.uid, "commentActivity", post.id);
       await setDoc(
