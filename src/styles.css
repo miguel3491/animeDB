@@ -2280,6 +2280,16 @@ a{
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.08);
 }
+.news-card-image-placeholder {
+    display: grid;
+    place-items: center;
+    background: radial-gradient(circle at 20% 20%, rgba(122, 252, 255, 0.16), transparent 55%),
+        radial-gradient(circle at 80% 0%, rgba(255, 107, 156, 0.18), transparent 55%),
+        rgba(255, 255, 255, 0.04);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-size: 11px;
+}
 .news-card:hover {
     transform: translateY(-4px);
     border-color: rgba(255, 255, 255, 0.2);

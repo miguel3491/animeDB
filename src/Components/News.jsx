@@ -15,6 +15,8 @@ function News() {
   const [genreFilter, setGenreFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [thumbs, setThumbs] = useState({});
+  const [brokenThumbs, setBrokenThumbs] = useState(() => new Set());
 
   useEffect(() => {
     const load = async () => {
@@ -40,6 +42,54 @@ function News() {
 
     load();
   }, []);
+
+  useEffect(() => {
+    if (items.length === 0) return;
+    let cancelled = false;
+    const controller = new AbortController();
+
+    const fetchThumb = async (item) => {
+      if (!item?.link || !item?.id) return;
+      if (item.image) return;
+      if (thumbs[item.id]) return;
+      if (brokenThumbs.has(item.id)) return;
+      try {
+        const response = await fetch(`/api/ann/thumb?url=${encodeURIComponent(item.link)}`, {
+          signal: controller.signal
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) return;
+        const url = String(data?.image || "").trim();
+        if (!url) return;
+        if (cancelled) return;
+        setThumbs((prev) => ({ ...prev, [item.id]: url }));
+      } catch (err) {
+        // ignore
+      }
+    };
+
+    // Only resolve thumbnails for the first N visible items to avoid hammering ANN.
+    const candidates = items.slice(0, 18);
+    const concurrency = 4;
+    const run = async () => {
+      const queue = [...candidates];
+      const workers = Array.from({ length: concurrency }).map(async () => {
+        while (!cancelled && queue.length > 0) {
+          const next = queue.shift();
+          // eslint-disable-next-line no-await-in-loop
+          await fetchThumb(next);
+        }
+      });
+      await Promise.all(workers);
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
 
   const categories = useMemo(() => {
     const set = new Set();
@@ -191,11 +241,20 @@ function News() {
                 </Link>
               </div>
               <div className="news-meta">
-                {highlight.image && (
+                {(highlight.image || thumbs[highlight.id]) && !brokenThumbs.has(highlight.id) && (
                   <img
                     className="news-highlight-image"
-                    src={highlight.image}
+                    src={highlight.image || thumbs[highlight.id]}
                     alt={highlight.title}
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    onError={() => {
+                      setBrokenThumbs((prev) => {
+                        const next = new Set(prev);
+                        next.add(highlight.id);
+                        return next;
+                      });
+                    }}
                   />
                 )}
                 <span>{highlight.pubDate ? new Date(highlight.pubDate).toLocaleString() : ""}</span>
@@ -207,9 +266,26 @@ function News() {
           <div className="news-grid">
             {filtered.slice(1).map((item) => (
               <article className="news-card" key={item.id}>
-                {item.image ? (
-                  <img className="news-card-image" src={item.image} alt={item.title} />
-                ) : null}
+                {(item.image || thumbs[item.id]) && !brokenThumbs.has(item.id) ? (
+                  <img
+                    className="news-card-image"
+                    src={item.image || thumbs[item.id]}
+                    alt={item.title}
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    onError={() => {
+                      setBrokenThumbs((prev) => {
+                        const next = new Set(prev);
+                        next.add(item.id);
+                        return next;
+                      });
+                    }}
+                  />
+                ) : (
+                  <div className="news-card-image news-card-image-placeholder" aria-label="Preview unavailable">
+                    <span className="muted">Preview unavailable</span>
+                  </div>
+                )}
                 <div className="news-card-header">
                   <span className="news-source">{item.sourceName}</span>
                   <span className="news-date">

@@ -549,6 +549,7 @@ app.get("/api/ann/news", async (req, res) => {
           categories,
           description,
           summary: description,
+          image: "",
           sourceId: "ann",
           sourceName: "Anime News Network"
         };
@@ -560,6 +561,40 @@ app.get("/api/ann/news", async (req, res) => {
   } catch (err) {
     console.error("ANN feed error:", err?.message || err);
     return res.status(502).json({ error: "ANN feed unavailable" });
+  }
+});
+
+app.get("/api/ann/thumb", async (req, res) => {
+  const url = String(req.query?.url || "");
+  if (!url || !url.startsWith("http")) {
+    return res.status(400).json({ error: "Missing url" });
+  }
+  const cacheKey = `ann-thumb|${url}`;
+  const cached = annCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < ANN_TTL) {
+    return res.json(cached.data);
+  }
+  try {
+    const response = await fetchWithTimeout(url, { timeoutMs: 12000 });
+    if (!response.ok) {
+      return res.status(response.status).json({ error: "Failed to load article" });
+    }
+    const html = await response.text();
+    const $ = cheerio.load(html);
+    const image =
+      $('meta[property="og:image"]').attr("content") ||
+      $("link[rel=image_src]").attr("href") ||
+      $("link[rel=feed_image]").attr("href") ||
+      "";
+    const safeImage = String(image || "").trim();
+    const payload = {
+      image: safeImage.includes("spacer.gif") ? "" : safeImage
+    };
+    annCache.set(cacheKey, { data: payload, ts: Date.now() });
+    return res.json(payload);
+  } catch (err) {
+    console.error("ANN thumb error:", err?.message || err);
+    return res.status(502).json({ error: "ANN thumb unavailable" });
   }
 });
 
