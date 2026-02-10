@@ -42,6 +42,7 @@ function GroupDetail() {
   const location = useLocation();
   const navigate = useNavigate();
   const fromPath = `${location.pathname}${location.search || ""}`;
+  const openSettingsHandledRef = useRef(false);
 
   const [group, setGroup] = useState(null);
   const [groupLoading, setGroupLoading] = useState(true);
@@ -139,6 +140,15 @@ function GroupDetail() {
   const isAdmin = myRole === "admin" || (user?.uid && group?.ownerId === user.uid);
   const isOfficer = myRole === "officer";
   const canManageMembers = isAdmin || isOfficer;
+
+  useEffect(() => {
+    const wantsOpen = Boolean(location.state?.openSettings);
+    if (!wantsOpen) return;
+    if (openSettingsHandledRef.current) return;
+    if (!isAdmin) return;
+    openSettingsHandledRef.current = true;
+    setEditOpen(true);
+  }, [isAdmin, location.state]);
 
   const goBack = () => {
     const from = location.state?.from;
@@ -532,7 +542,7 @@ function GroupDetail() {
             )}
             {user && isAdmin && (
               <button type="button" className="detail-link" onClick={() => setEditOpen((p) => !p)}>
-                {editOpen ? "Close settings" : "Group settings"}
+                {editOpen ? "Close" : "Customize"}
               </button>
             )}
           </div>

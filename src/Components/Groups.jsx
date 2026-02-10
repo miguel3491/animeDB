@@ -224,6 +224,8 @@ function Groups() {
     const gAvatar = g?.avatar || g?.groupAvatar || "";
     const gBg = g?.background || "";
     const gCount = Number.isFinite(Number(g?.memberCount)) ? Number(g.memberCount) : null;
+    const isOwner = Boolean(user?.uid && g?.ownerId && String(g.ownerId) === String(user.uid));
+    const isAdmin = isOwner || String(g?.role || "").toLowerCase() === "admin";
     return (
       <Link
         key={`${keyPrefix}-${gid || gName}`}
@@ -256,8 +258,30 @@ function Groups() {
             <p className="muted group-desc">No description.</p>
           )}
           <div className="group-card-actions">
-            <span className="detail-link">View</span>
-            {g?.role ? <span className="pill">{String(g.role).toUpperCase()}</span> : <span className="pill">PUBLIC</span>}
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <span className="detail-link">View</span>
+              {isAdmin && gid && (
+                <button
+                  type="button"
+                  className="detail-link secondary"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    navigate(`/groups/${gid}`, { state: { from: fromPath, openSettings: true } });
+                  }}
+                  title="Open customization"
+                >
+                  Customize
+                </button>
+              )}
+            </div>
+            {isAdmin ? (
+              <span className="pill">ADMIN</span>
+            ) : g?.role ? (
+              <span className="pill">{String(g.role).toUpperCase()}</span>
+            ) : (
+              <span className="pill">PUBLIC</span>
+            )}
           </div>
         </div>
       </Link>
