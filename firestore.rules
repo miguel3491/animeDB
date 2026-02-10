@@ -1,0 +1,334 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner() {
+      return signedIn() && request.auth.uid == "WavSWVSkWcZ5kUR4qVKKZnhqq9A2";
+    }
+
+    function isProfileOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isFollowerOf(targetUid) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(targetUid)/followers/$(request.auth.uid));
+    }
+
+    // -----------------------------
+    // Groups helpers
+    // -----------------------------
+    function groupDoc(groupId) {
+      return get(/databases/$(database)/documents/groups/$(groupId));
+    }
+
+    function isGroupOwner(groupId) {
+      return signedIn() && groupDoc(groupId).data.ownerId == request.auth.uid;
+    }
+
+    function isGroupMember(groupId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid));
+    }
+
+    function myGroupRole(groupId) {
+      return isGroupMember(groupId)
+        ? get(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid)).data.role
+        : "";
+    }
+
+    function isGroupAdmin(groupId) {
+      return signedIn() && (isGroupOwner(groupId) || myGroupRole(groupId) == "admin");
+    }
+
+    // officer OR admin OR owner
+    function isGroupOfficer(groupId) {
+      return signedIn() && (isGroupAdmin(groupId) || myGroupRole(groupId) == "officer");
+    }
+
+    function commentApprovalEnabled(groupId) {
+      return groupDoc(groupId).data.commentApprovalEnabled == true;
+    }
+
+    // -----------------------------
+    // Bug reports
+    // -----------------------------
+    match /bugReports/{reportId} {
+      allow create: if signedIn();
+      allow read, update, delete: if isOwner();
+    }
+
+    match /bugReportsArchive/{reportId} {
+      allow read, write: if isOwner();
+    }
+
+    // -----------------------------
+    // Groups (with Threads)
+    // -----------------------------
+    match /groups/{groupId} {
+      // group metadata can be public
+      allow read: if true;
+
+      // Create group: must be the owner creating their own group doc.
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid;
+
+      // Only admins can edit group settings.
+      // If commentApprovalEnabled changes, ONLY the group owner can change it.
+      // Note: memberCount is expected to be maintained by Cloud Functions (Admin SDK bypasses rules).
+      allow update: if signedIn()
+        && isGroupAdmin(groupId)
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          "name",
+          "description",
+          "accent",
+          "nameStyle",
+          "avatar",
+          "background",
+          "commentApprovalEnabled",
+          "updatedAt",
+          "updatedAtTs"
+        ])
+        && (
+          !request.resource.data.diff(resource.data).changedKeys().hasAny(["commentApprovalEnabled"])
+          || isGroupOwner(groupId)
+        );
+
+      allow delete: if isGroupOwner(groupId);
+
+      // Membership
+      match /members/{uid} {
+        // roster access only for members; individuals can always read their own membership doc
+        allow get: if signedIn() && (request.auth.uid == uid || isGroupMember(groupId));
+        allow list: if isGroupMember(groupId);
+
+        // Join self (member) OR create owner membership (admin) during group creation
+        allow create: if signedIn()
+          && request.resource.data.uid == uid
+          && (
+            // self-join
+            (
+              uid == request.auth.uid
+              && request.resource.data.role == "member"
+            )
+            ||
+            // owner creates own admin membership (works in same batch as group create)
+            (
+              uid == request.auth.uid
+              && request.resource.data.role == "admin"
+              && getAfter(/databases/$(database)/documents/groups/$(groupId)).data.ownerId == uid
+            )
+            ||
+            // officer/admin adds someone else as member (cannot create officers/admins)
+            (
+              uid != request.auth.uid
+              && isGroupOfficer(groupId)
+              && request.resource.data.role == "member"
+            )
+          );
+
+        // Admin can change roles. Users can keep their display fields fresh.
+        allow update: if
+          (
+            isGroupAdmin(groupId)
+            && request.resource.data.diff(resource.data).changedKeys().hasOnly(["role"])
+            && request.resource.data.role in ["admin","officer","member"]
+          )
+          ||
+          (
+            isProfileOwner(uid)
+            && request.resource.data.diff(resource.data).changedKeys().hasOnly(["username","avatar"])
+          );
+
+        // Leave self OR officer/admin removes someone (cannot remove owner)
+        allow delete: if signedIn()
+          && uid != groupDoc(groupId).data.ownerId
+          && (uid == request.auth.uid || isGroupOfficer(groupId));
+      }
+
+      // Threads: posts + comments (locked to group members)
+      match /posts/{postId} {
+        allow read: if isGroupMember(groupId);
+
+        allow create: if isGroupMember(groupId)
+          && request.auth.uid == request.resource.data.userId;
+
+        // optional: allow author edits only
+        allow update: if signedIn() && request.auth.uid == resource.data.userId;
+
+        // author OR officer/admin can delete posts
+        allow delete: if signedIn()
+          && (
+            request.auth.uid == resource.data.userId
+            || isGroupOfficer(groupId)
+          );
+
+        // Approved comments
+        match /comments/{commentId} {
+          allow read: if isGroupMember(groupId);
+
+          // If approval is enabled, only officer/admin can write directly to /comments.
+          allow create: if isGroupMember(groupId)
+            && request.auth.uid == request.resource.data.userId
+            && (
+              !commentApprovalEnabled(groupId)
+              || isGroupOfficer(groupId)
+            );
+
+          // keep simple: no edits
+          allow update: if false;
+
+          // author OR officer/admin can delete
+          allow delete: if signedIn()
+            && (
+              request.auth.uid == resource.data.userId
+              || isGroupOfficer(groupId)
+            );
+        }
+
+        // Pending comments (approval queue)
+        match /pendingComments/{commentId} {
+          // only officer/admin can see the queue
+          allow read: if isGroupOfficer(groupId);
+
+          // members can create pending comments only when approval is enabled,
+          // and only if they are NOT already officer/admin.
+          allow create: if isGroupMember(groupId)
+            && request.auth.uid == request.resource.data.userId
+            && commentApprovalEnabled(groupId)
+            && !isGroupOfficer(groupId);
+
+          // officer/admin can reject; author can retract
+          allow delete: if signedIn()
+            && (
+              isGroupOfficer(groupId)
+              || request.auth.uid == resource.data.userId
+            );
+
+          allow update: if false;
+        }
+      }
+    }
+
+    match /users/{uid} {
+      allow read: if true;
+      allow write: if isProfileOwner(uid);
+
+      match /bugReportUpdates/{updateId} {
+        allow read: if isProfileOwner(uid);
+        allow write: if isOwner();
+      }
+
+      match /publicGroups/{groupId} {
+        allow read: if true;
+        allow write: if isProfileOwner(uid); // optional; Admin SDK bypasses rules anyway
+      }
+
+      match /commentActivity/{activityId} {
+        allow read: if true;
+        allow write: if isProfileOwner(uid);
+      }
+
+      match /favorites/{favoriteId} {
+        allow read, write: if isProfileOwner(uid);
+      }
+
+      match /inboxEvents/{eventId} {
+        allow read, delete: if isProfileOwner(uid);
+
+        allow update: if isProfileOwner(uid)
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(["seen", "seenAt"]);
+
+        allow create: if signedIn()
+          && request.resource.data.seen == false
+          && request.resource.data.toUid == uid
+          && request.resource.data.fromUid == request.auth.uid
+          && (request.resource.data.clientAt is string || request.resource.data.clientAt is timestamp);
+
+        allow create: if isOwner()
+          && request.resource.data.type == "bugReportUpdate"
+          && request.resource.data.seen == false
+          && request.resource.data.toUid == uid
+          && (request.resource.data.clientAt is string || request.resource.data.clientAt is timestamp);
+      }
+
+      // Groups mirror under user
+      match /groups/{groupId} {
+        // Keep membership private to the user by default
+        allow read: if isProfileOwner(uid);
+
+        // User creates/updates their own mirror (join/leave via their client)
+        allow create: if isProfileOwner(uid) && request.resource.data.groupId == groupId;
+        allow delete: if isProfileOwner(uid);
+
+        // Officer/admin can create/delete mirrors for other users when they add/remove members
+        allow create: if signedIn()
+          && uid != request.auth.uid
+          && isGroupOfficer(groupId)
+          && request.resource.data.groupId == groupId
+          && request.resource.data.role == "member";
+
+        allow delete: if signedIn()
+          && uid != request.auth.uid
+          && isGroupOfficer(groupId);
+
+        // Admin can sync role into the mirror
+        allow update: if isGroupAdmin(groupId)
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(["role"])
+          && request.resource.data.role in ["admin","officer","member"];
+      }
+
+      match /followers/{followerId} {
+        allow get: if isProfileOwner(uid) || (signedIn() && request.auth.uid == followerId);
+        allow list: if isProfileOwner(uid);
+        allow create, update, delete: if signedIn() && request.auth.uid == followerId;
+      }
+
+      match /following/{targetId} {
+        allow read, create, update, delete: if isProfileOwner(uid);
+      }
+
+      match /favoriteActivity/{activityId} {
+        allow create: if isProfileOwner(uid);
+        allow delete: if isProfileOwner(uid);
+        allow update: if false;
+
+        allow get, list: if isProfileOwner(uid) || isFollowerOf(uid);
+      }
+    }
+
+    match /usernames/{name} {
+      allow read: if true;
+      allow write: if signedIn();
+    }
+
+    match /discussions/{discussionId} {
+      allow read: if true;
+
+      allow create: if signedIn() && request.auth.uid == request.resource.data.userId;
+      allow update: if signedIn() && request.auth.uid == resource.data.userId;
+      allow delete: if signedIn() && request.auth.uid == resource.data.userId;
+
+      match /comments/{commentId} {
+        allow read: if signedIn();
+
+        allow create: if signedIn()
+          && request.auth.uid == request.resource.data.userId;
+
+        allow update: if signedIn()
+          && request.auth.uid == resource.data.userId;
+
+        allow delete: if signedIn()
+          && (
+            request.auth.uid == resource.data.userId
+            || request.auth.uid == get(/databases/$(database)/documents/discussions/$(discussionId)).data.userId
+          );
+      }
+    }
+  }
+}
+
