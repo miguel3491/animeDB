@@ -25,8 +25,6 @@ function NewsDetail() {
   );
   const [targetLang, setTargetLang] = useState("en");
   const [showTranslated, setShowTranslated] = useState(false);
-  const [context, setContext] = useState(null);
-  const [contextError, setContextError] = useState("");
   const [related, setRelated] = useState([]);
   const [relatedContext, setRelatedContext] = useState({});
   const [brokenRelatedCovers, setBrokenRelatedCovers] = useState(() => new Set());
@@ -65,39 +63,6 @@ function NewsDetail() {
     // Keep detail navigation feeling intentional.
     window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
   }, [decodedId]);
-
-  useEffect(() => {
-    if (!item?.id || !item?.title) return;
-    let active = true;
-    (async () => {
-      try {
-        setContextError("");
-        const res = await fetch("/api/news/context", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: [{ id: item.id, title: item.title, categories: item.categories }] })
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!active) return;
-        if (!res.ok) {
-          if (res.status === 404) {
-            throw new Error("Context endpoint missing. Restart `npm start` to reload the server.");
-          }
-          throw new Error(String(json?.error || "Context unavailable"));
-        }
-        const next = json?.results?.[item.id] || null;
-        setContext(next);
-        if (!next) setContextError("No related title found for this headline.");
-      } catch (err) {
-        if (!active) return;
-        setContext(null);
-        setContextError(err?.message || "Context unavailable.");
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [item?.id, item?.title]);
 
   useEffect(() => {
     if (!item?.id) return;
@@ -544,175 +509,6 @@ function NewsDetail() {
             </button>
           </div>
 
-          <div className="news-ai-inline">
-            <div className="news-summary news-summary--inline">
-              <div className="news-summary-head">
-                <h4>AI Summary</h4>
-                {!summary?.summary && (
-                  <button
-                    type="button"
-                    className="favorite-button news-ai-button"
-                    onClick={generateSummary}
-                    disabled={summaryLoading || summaryUsed || summarySessionDisabled}
-                    title={
-                      summarySessionDisabled
-                        ? "AI summary disabled for this session"
-                        : summaryUsed
-                          ? "Summary already generated for this article"
-                          : "Generate one summary per article"
-                    }
-                  >
-                    {summaryUsed ? "Used" : summaryLoading ? "Generating..." : "Generate"}
-                  </button>
-                )}
-              </div>
-
-              {summaryLoading && !summary?.summary && (
-                <div className="news-ai-skeleton" aria-label="Generating summary">
-                  <div className="skeleton-line" />
-                  <div className="skeleton-line" />
-                  <div className="skeleton-line short" />
-                </div>
-              )}
-
-              {summarySessionDisabled && !summary?.summary && (
-                <div className="news-ai-disabled">
-                  <p className="muted" style={{ marginTop: 0 }}>
-                    AI summary is currently disabled for this session.
-                  </p>
-                  <button type="button" className="detail-link" onClick={reenableSummary}>
-                    Re-enable
-                  </button>
-                </div>
-              )}
-
-              {!summarySessionDisabled && summaryError && !summary?.summary && (
-                <p className="publish-status error">{summaryError}</p>
-              )}
-
-              {!summary?.summary && !summaryLoading && !summaryError && summaryNotice && (
-                <p className="muted">{summaryNotice}</p>
-              )}
-
-              {summary?.summary ? (
-                <p className="muted" style={{ marginTop: 0 }}>
-                  Summary ready {summary?.keyPoints?.length ? `(${summary.keyPoints.length} key points)` : ""}. Cached in your browser.
-                </p>
-              ) : (
-                <p className="muted" style={{ marginTop: 0 }}>Generate a summary for this article.</p>
-              )}
-            </div>
-
-            <div className="news-summary news-summary--inline news-translate">
-              <div className="news-summary-head">
-                <h4>Translation</h4>
-                <label className="genre-filter" style={{ marginLeft: "auto" }}>
-                  <span className="genre-label">Language</span>
-                  <select
-                    value={targetLang}
-                    onChange={(e) => {
-                      setTargetLang(e.target.value);
-                      setShowTranslated(false);
-                      setTranslationError("");
-                      setTranslationNotice("");
-                      setTranslation(null);
-                    }}
-                    aria-label="Translation language"
-                    disabled={translationLoading || translationSessionDisabled}
-                  >
-                    {languageOptions.map((opt) => (
-                      <option key={`lang-${opt.code}`} value={opt.code}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              {!translation?.content && (
-                <button
-                  type="button"
-                  className="favorite-button news-ai-button"
-                  onClick={() => translateToTarget(targetLang)}
-                  disabled={translationLoading || translationSessionDisabled || !canTranslate}
-                  title={
-                    translationSessionDisabled
-                      ? "Translation disabled for this session"
-                      : !canTranslate
-                      ? "Generate an AI summary first"
-                      : "Translate"
-                  }
-                  style={{ width: "100%" }}
-                >
-                  {translationLoading ? "Translating..." : "Translate"}
-                </button>
-              )}
-
-              {translationSessionDisabled && !translation?.content && (
-                <div className="news-ai-disabled">
-                  <p className="muted" style={{ marginTop: 0 }}>
-                    Translation is currently disabled for this session (server key missing).
-                  </p>
-                  <button type="button" className="detail-link" onClick={reenableTranslation}>
-                    Re-enable
-                  </button>
-                </div>
-              )}
-
-              {!translationSessionDisabled && translationError && !translation?.content && (
-                <p className="publish-status error">{translationError}</p>
-              )}
-
-              {!translation?.content && !translationLoading && !translationError && translationNotice && (
-                <p className="muted">{translationNotice}</p>
-              )}
-
-              {translation?.content && (
-                <>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                    <span className="pill muted">
-                      {translation.sourceLang || "?"} → {translation.targetLang || "en"}
-                    </span>
-                    {translation.usedApi ? (
-                      <span className="pill muted">
-                        {Number(translation.chars || 0).toLocaleString()} chars
-                      </span>
-                    ) : (
-                      <span className="pill muted">0 chars</span>
-                    )}
-                  </div>
-                  <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      className={`detail-link ${!showTranslated ? "active" : ""}`}
-                      onClick={() => setShowTranslated(false)}
-                    >
-                      Original
-                    </button>
-                    <button
-                      type="button"
-                      className={`detail-link ${showTranslated ? "active" : ""}`}
-                      onClick={() => setShowTranslated(true)}
-                    >
-                      {languageOptions.find((opt) => opt.code === (translation?.targetLang || targetLang))?.label || "Translated"}
-                    </button>
-                  </div>
-                  <p className="muted" style={{ marginBottom: 0 }}>
-                    Translation is cached in your browser to reduce quota usage.
-                  </p>
-                </>
-              )}
-
-              {!translation?.content && !translationLoading && !translationError && !translationNotice && (
-                <p className="muted" style={{ marginTop: 10 }}>
-                  {canTranslate
-                    ? "Translate the AI summary on demand (cached per language)."
-                    : "Generate an AI summary first to translate it."}
-                </p>
-              )}
-            </div>
-          </div>
-
           <div className="news-body">
             <p className="muted" style={{ marginTop: 0 }}>
               This view shows the headline and an optional AI-generated summary. For the full article, open the original source.
@@ -794,120 +590,231 @@ function NewsDetail() {
         </section>
 
         <aside className="news-ai-rail">
-          {(context?.cover || contextError) && (
-            <div className="news-summary news-summary--side">
-              <div className="news-summary-head">
-                <h4>Context</h4>
-              </div>
-              {context?.cover ? (
-                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                  <img
-                    src={context.cover}
-                    alt={context?.title?.romaji || context?.title?.english || "Cover"}
-                    style={{
-                      width: 64,
-                      height: 92,
-                      borderRadius: 14,
-                      objectFit: "cover",
-                      border: "1px solid rgba(255,255,255,0.08)"
-                    }}
-                    loading="lazy"
-                    decoding="async"
-                    referrerPolicy="no-referrer"
-                  />
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 800 }}>
-                      {context?.title?.english || context?.title?.romaji || context?.title?.native || "Related title"}
-                    </div>
-                    <p className="muted" style={{ marginTop: 6 }}>
-                      {context.type ? String(context.type).toUpperCase() : "MEDIA"}
-                      {context.format ? ` • ${String(context.format).replaceAll("_", " ")}` : ""}
-                      {context.seasonYear ? ` • ${context.seasonYear}` : ""}
-                    </p>
-                    {context?.idMal ? (
-                      <Link
-                        className="detail-link"
-                        to={context.type === "MANGA" ? `/manga/${context.idMal}` : `/anime/${context.idMal}`}
-                        state={{ from: `${location.pathname}${location.search || ""}` }}
-                      >
-                        View details
-                      </Link>
-                    ) : null}
-                  </div>
-                </div>
-              ) : (
-                <p className="muted">{contextError || "No related title found."}</p>
+          <div className="news-summary news-summary--side">
+            <div className="news-summary-head">
+              <h4>AI Summary</h4>
+              {!summary?.summary && (
+                <button
+                  type="button"
+                  className="favorite-button news-ai-button"
+                  onClick={generateSummary}
+                  disabled={summaryLoading || summaryUsed || summarySessionDisabled}
+                  title={
+                    summarySessionDisabled
+                      ? "AI summary disabled for this session"
+                      : summaryUsed
+                        ? "Summary already generated for this article"
+                        : "Generate one summary per article"
+                  }
+                >
+                  {summaryUsed ? "Used" : summaryLoading ? "Generating..." : "Generate"}
+                </button>
               )}
             </div>
-          )}
 
-          {related.length > 0 && (
-            <div className="news-summary news-summary--side" style={{ marginTop: 14 }}>
-              <div className="news-summary-head">
-                <h4>Related Stories</h4>
+            {summaryLoading && !summary?.summary && (
+              <div className="news-ai-skeleton" aria-label="Generating summary">
+                <div className="skeleton-line" />
+                <div className="skeleton-line" />
+                <div className="skeleton-line short" />
               </div>
-              <div className="inbox-list">
-                {related.slice(0, 6).map((r) => {
-                  const rid = String(r?.id || "").trim();
-                  const cover = String(relatedContext?.[rid]?.cover || "").trim();
-                  const showCover = Boolean(cover) && !brokenRelatedCovers.has(rid);
-                  return (
-                  <Link
-                    key={`rel-${rid}`}
-                    className="inbox-row"
-                    to={`/news/${encodeURIComponent(rid)}`}
-                    state={{ from: feedPath, item: r }}
-                    onClick={() => {
-                      try {
-                        sessionStorage.setItem(`news-item-${rid}`, JSON.stringify(r));
-                      } catch (err) {
-                        // ignore
-                      }
-                    }}
-                    title="Open related story"
-                  >
-                    {showCover ? (
-                      <img
-                        className="inbox-thumb"
-                        src={cover}
-                        alt={r.title}
-                        loading="lazy"
-                        decoding="async"
-                        referrerPolicy="no-referrer"
-                        onError={() =>
-                          setBrokenRelatedCovers((prev) => {
-                            const next = new Set(prev);
-                            next.add(rid);
-                            return next;
-                          })
-                        }
-                      />
-                    ) : (
-                      <div className="inbox-thumb placeholder" aria-hidden="true" />
-                    )}
-                    <div className="inbox-row-text">
-                      <div className="inbox-row-title" style={{ gap: 10 }}>
-                        <span style={{ fontWeight: 700 }}>{r.title}</span>
-                        <span className="pill">OPEN</span>
-                      </div>
-                      {r.pubDate ? (
-                        <p className="muted" style={{ marginTop: 6 }}>
-                          {new Date(r.pubDate).toLocaleDateString()}
-                        </p>
-                      ) : (
-                        <p className="muted" style={{ marginTop: 6 }}>
-                          Similar topic
-                        </p>
-                      )}
-                    </div>
-                  </Link>
-                  );
-                })}
+            )}
+
+            {summarySessionDisabled && !summary?.summary && (
+              <div className="news-ai-disabled">
+                <p className="muted" style={{ marginTop: 0 }}>
+                  AI summary is currently disabled for this session.
+                </p>
+                <button type="button" className="detail-link" onClick={reenableSummary}>
+                  Re-enable
+                </button>
               </div>
+            )}
+
+            {!summarySessionDisabled && summaryError && !summary?.summary && (
+              <p className="publish-status error">{summaryError}</p>
+            )}
+
+            {!summary?.summary && !summaryLoading && !summaryError && summaryNotice && (
+              <p className="muted">{summaryNotice}</p>
+            )}
+
+            {summary?.summary ? (
+              <p className="muted" style={{ marginTop: 0 }}>
+                Summary ready {summary?.keyPoints?.length ? `(${summary.keyPoints.length} key points)` : ""}. Cached in your browser.
+              </p>
+            ) : (
+              <p className="muted" style={{ marginTop: 0 }}>Generate a summary for this article.</p>
+            )}
+          </div>
+
+          <div className="news-summary news-summary--side news-translate" style={{ marginTop: 14 }}>
+            <div className="news-summary-head">
+              <h4>Translation</h4>
+              <label className="genre-filter" style={{ marginLeft: "auto" }}>
+                <span className="genre-label">Language</span>
+                <select
+                  value={targetLang}
+                  onChange={(e) => {
+                    setTargetLang(e.target.value);
+                    setShowTranslated(false);
+                    setTranslationError("");
+                    setTranslationNotice("");
+                    setTranslation(null);
+                  }}
+                  aria-label="Translation language"
+                  disabled={translationLoading || translationSessionDisabled}
+                >
+                  {languageOptions.map((opt) => (
+                    <option key={`lang-${opt.code}`} value={opt.code}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-          )}
+
+            {!translation?.content && (
+              <button
+                type="button"
+                className="favorite-button news-ai-button"
+                onClick={() => translateToTarget(targetLang)}
+                disabled={translationLoading || translationSessionDisabled || !canTranslate}
+                title={
+                  translationSessionDisabled
+                    ? "Translation disabled for this session"
+                    : !canTranslate
+                    ? "Generate an AI summary first"
+                    : "Translate"
+                }
+                style={{ width: "100%" }}
+              >
+                {translationLoading ? "Translating..." : "Translate"}
+              </button>
+            )}
+
+            {translationSessionDisabled && !translation?.content && (
+              <div className="news-ai-disabled">
+                <p className="muted" style={{ marginTop: 0 }}>
+                  Translation is currently disabled for this session (server key missing).
+                </p>
+                <button type="button" className="detail-link" onClick={reenableTranslation}>
+                  Re-enable
+                </button>
+              </div>
+            )}
+
+            {!translationSessionDisabled && translationError && !translation?.content && (
+              <p className="publish-status error">{translationError}</p>
+            )}
+
+            {!translation?.content && !translationLoading && !translationError && translationNotice && (
+              <p className="muted">{translationNotice}</p>
+            )}
+
+            {translation?.content && (
+              <>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <span className="pill muted">
+                    {translation.sourceLang || "?"} → {translation.targetLang || "en"}
+                  </span>
+                  {translation.usedApi ? (
+                    <span className="pill muted">
+                      {Number(translation.chars || 0).toLocaleString()} chars
+                    </span>
+                  ) : (
+                    <span className="pill muted">0 chars</span>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className={`detail-link ${!showTranslated ? "active" : ""}`}
+                    onClick={() => setShowTranslated(false)}
+                  >
+                    Original
+                  </button>
+                  <button
+                    type="button"
+                    className={`detail-link ${showTranslated ? "active" : ""}`}
+                    onClick={() => setShowTranslated(true)}
+                  >
+                    {languageOptions.find((opt) => opt.code === (translation?.targetLang || targetLang))?.label || "Translated"}
+                  </button>
+                </div>
+                <p className="muted" style={{ marginBottom: 0 }}>
+                  Translation is cached in your browser to reduce quota usage.
+                </p>
+              </>
+            )}
+
+            {!translation?.content && !translationLoading && !translationError && !translationNotice && (
+              <p className="muted" style={{ marginTop: 10 }}>
+                {canTranslate
+                  ? "Translate the AI summary on demand (cached per language)."
+                  : "Generate an AI summary first to translate it."}
+              </p>
+            )}
+          </div>
         </aside>
       </div>
+
+      {related.length > 0 && (
+        <section className="publish-card news-related-block">
+          <div className="results-bar" style={{ marginBottom: 12 }}>
+            <h3 style={{ margin: 0 }}>Related Stories</h3>
+            <span className="pill">From your feed</span>
+          </div>
+          <div className="news-related-grid">
+            {related.slice(0, 8).map((r) => {
+              const rid = String(r?.id || "").trim();
+              const cover = String(relatedContext?.[rid]?.cover || "").trim();
+              const showCover = Boolean(cover) && !brokenRelatedCovers.has(rid);
+              return (
+                <Link
+                  key={`rel-row-${rid}`}
+                  className="news-related-card"
+                  to={`/news/${encodeURIComponent(rid)}`}
+                  state={{ from: feedPath, item: r }}
+                  onClick={() => {
+                    try {
+                      sessionStorage.setItem(`news-item-${rid}`, JSON.stringify(r));
+                    } catch (err) {
+                      // ignore
+                    }
+                  }}
+                >
+                  {showCover ? (
+                    <img
+                      className="news-related-thumb"
+                      src={cover}
+                      alt={r.title}
+                      loading="lazy"
+                      decoding="async"
+                      referrerPolicy="no-referrer"
+                      onError={() =>
+                        setBrokenRelatedCovers((prev) => {
+                          const next = new Set(prev);
+                          next.add(rid);
+                          return next;
+                        })
+                      }
+                    />
+                  ) : (
+                    <div className="news-related-thumb placeholder" aria-hidden="true" />
+                  )}
+                  <div className="news-related-text">
+                    <div className="news-related-title">{r.title}</div>
+                    <div className="news-related-meta muted">
+                      {r.pubDate ? new Date(r.pubDate).toLocaleDateString() : "Similar topic"}
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
