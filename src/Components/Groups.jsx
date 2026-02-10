@@ -47,6 +47,15 @@ function Groups() {
   const [pinnedDocs, setPinnedDocs] = useState({});
   const [browsePage, setBrowsePage] = useState(0);
   const [minePage, setMinePage] = useState(0);
+  const [viewMode, setViewMode] = useState(() => {
+    try {
+      const stored = localStorage.getItem("groups-view-mode");
+      if (stored === "grid" || stored === "list" || stored === "compact") return stored;
+    } catch (err) {
+      // ignore
+    }
+    return "grid";
+  });
 
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
@@ -162,6 +171,14 @@ function Groups() {
     setBrowsePage(0);
     setMinePage(0);
   }, [tab]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("groups-view-mode", viewMode);
+    } catch (err) {
+      // ignore
+    }
+  }, [viewMode]);
 
   const pinnedIds = useMemo(() => {
     return pinned.map((p) => String(p.groupId || p.id || "").trim()).filter(Boolean);
@@ -611,12 +628,60 @@ function Groups() {
           </div>
         )}
 
+        <div className="results-bar">
+          <h3>{tab === "mine" ? "Your Groups" : "Browse Groups"}</h3>
+          <div className="results-controls">
+            <div className="view-toggle">
+              <button
+                type="button"
+                className={viewMode === "grid" ? "active" : ""}
+                onClick={() => setViewMode("grid")}
+                aria-label="Grid view"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="3" width="7" height="7" rx="1.5"></rect>
+                  <rect x="14" y="3" width="7" height="7" rx="1.5"></rect>
+                  <rect x="3" y="14" width="7" height="7" rx="1.5"></rect>
+                  <rect x="14" y="14" width="7" height="7" rx="1.5"></rect>
+                </svg>
+              </button>
+              <button
+                type="button"
+                className={viewMode === "list" ? "active" : ""}
+                onClick={() => setViewMode("list")}
+                aria-label="List view"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="4" y="5" width="16" height="3" rx="1.5"></rect>
+                  <rect x="4" y="10.5" width="16" height="3" rx="1.5"></rect>
+                  <rect x="4" y="16" width="16" height="3" rx="1.5"></rect>
+                </svg>
+              </button>
+              <button
+                type="button"
+                className={viewMode === "compact" ? "active" : ""}
+                onClick={() => setViewMode("compact")}
+                aria-label="Compact view"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="4" width="6" height="6" rx="1.2"></rect>
+                  <rect x="10" y="4" width="4" height="6" rx="1"></rect>
+                  <rect x="15" y="4" width="6" height="6" rx="1.2"></rect>
+                  <rect x="3" y="14" width="6" height="6" rx="1.2"></rect>
+                  <rect x="10" y="14" width="4" height="6" rx="1"></rect>
+                  <rect x="15" y="14" width="6" height="6" rx="1.2"></rect>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
         {tab === "browse" ? (
           <>
             {loading ? <p className="muted">Loading groups...</p> : null}
             {!loading && groupsError ? <p className="publish-status error">{groupsError}</p> : null}
             {!loading && groups.length === 0 ? <p className="muted">No groups yet. Create the first one.</p> : null}
-            <div className="groups-grid">
+            <div className={`groups-grid ${viewMode}`}>
               {pinnedGroupRows.map((g) => renderCard(g, "pinned"))}
               {browsePageItems.map((g) => renderCard(g, "browse"))}
             </div>
@@ -639,7 +704,7 @@ function Groups() {
           <>
             {!user ? <p className="muted">Sign in to see your groups.</p> : null}
             {user && myGroups.length === 0 ? <p className="muted">You haven't joined any groups yet.</p> : null}
-            <div className="groups-grid">
+            <div className={`groups-grid ${viewMode}`}>
               {minePinned.map((g) => renderCard(g, "pinned-mine"))}
               {minePageItems.map((g) => renderCard(g, "mine"))}
             </div>

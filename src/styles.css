@@ -2685,6 +2685,41 @@ a{
     gap: 16px;
     margin-top: 16px;
 }
+.groups-grid.list {
+    grid-template-columns: 1fr;
+}
+.groups-grid.compact {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+}
+.groups-grid.list .group-card {
+    grid-template-columns: 180px 1fr;
+    min-height: 160px;
+}
+.groups-grid.list .group-card-banner {
+    height: 100%;
+    min-height: 160px;
+    border-bottom: none;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+.groups-grid.compact .group-card {
+    min-height: 210px;
+}
+.groups-grid.compact .group-card-banner {
+    height: 64px;
+}
+.groups-grid.compact .group-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+}
+.groups-grid.compact .group-name {
+    font-size: 14px;
+}
+.groups-grid.compact .group-desc {
+    max-height: 48px;
+    font-size: 12px;
+}
 .group-hero-actions {
     display: flex;
     gap: 10px;
