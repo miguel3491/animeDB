@@ -40,6 +40,7 @@ function Groups() {
 
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [groupsError, setGroupsError] = useState("");
   const [tab, setTab] = useState("browse");
   const [myGroups, setMyGroups] = useState([]);
   const [pinned, setPinned] = useState([]);
@@ -62,18 +63,31 @@ function Groups() {
 
   useEffect(() => {
     setLoading(true);
+    setGroupsError("");
     const ref = collection(db, "groups");
-    // Order by memberCount to surface active groups first (better for discovery).
-    // updatedAt provides a stable secondary tie-break.
-    const q = query(ref, orderBy("memberCount", "desc"), orderBy("updatedAt", "desc"), limit(GROUP_FETCH_LIMIT));
+    // Avoid requiring a composite index here. We fetch a recent slice and sort client-side.
+    const q = query(ref, orderBy("updatedAt", "desc"), limit(GROUP_FETCH_LIMIT));
     return onSnapshot(
       q,
       (snap) => {
-        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const rows = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => {
+            const ac = Number.isFinite(Number(a?.memberCount)) ? Number(a.memberCount) : 0;
+            const bc = Number.isFinite(Number(b?.memberCount)) ? Number(b.memberCount) : 0;
+            if (bc !== ac) return bc - ac;
+            const au = String(a?.updatedAt || "");
+            const bu = String(b?.updatedAt || "");
+            return bu.localeCompare(au);
+          });
         setGroups(rows);
         setLoading(false);
       },
-      () => {
+      (err) => {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("Groups browse snapshot failed:", err);
+        }
+        setGroupsError(err?.message || "Unable to load groups.");
         setGroups([]);
         setLoading(false);
       }
@@ -600,6 +614,7 @@ function Groups() {
         {tab === "browse" ? (
           <>
             {loading ? <p className="muted">Loading groups...</p> : null}
+            {!loading && groupsError ? <p className="publish-status error">{groupsError}</p> : null}
             {!loading && groups.length === 0 ? <p className="muted">No groups yet. Create the first one.</p> : null}
             <div className="groups-grid">
               {pinnedGroupRows.map((g) => renderCard(g, "pinned"))}
