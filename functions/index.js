@@ -136,3 +136,78 @@ exports.syncPublicGroupsIndexOnMemberDelete = onDocumentDeleted("groups/{groupId
     console.log("syncPublicGroupsIndexOnMemberDelete failed", { uid, groupId, message: err?.message });
   }
 });
+
+// Maintain a best-effort memberCount on groups/{groupId}.
+// This avoids letting clients update group docs (simpler and safer Firestore rules).
+exports.syncGroupMemberCountOnCreate = onDocumentCreated("groups/{groupId}/members/{uid}", async (event) => {
+  const groupId = event.params.groupId;
+  if (!groupId) return;
+  const nowIso = new Date().toISOString();
+  try {
+    await db.doc(`groups/${groupId}`).set(
+      {
+        memberCount: FieldValue.increment(1),
+        updatedAt: nowIso,
+        updatedAtTs: FieldValue.serverTimestamp()
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.log("syncGroupMemberCountOnCreate failed", { groupId, message: err?.message });
+  }
+});
+
+exports.syncGroupMemberCountOnDelete = onDocumentDeleted("groups/{groupId}/members/{uid}", async (event) => {
+  const groupId = event.params.groupId;
+  if (!groupId) return;
+  const nowIso = new Date().toISOString();
+  try {
+    await db.runTransaction(async (tx) => {
+      const ref = db.doc(`groups/${groupId}`);
+      const snap = await tx.get(ref);
+      const cur = snap.exists ? Number(snap.data()?.memberCount || 0) : 0;
+      const next = Math.max(0, (Number.isFinite(cur) ? cur : 0) - 1);
+      tx.set(
+        ref,
+        {
+          memberCount: next,
+          updatedAt: nowIso,
+          updatedAtTs: FieldValue.serverTimestamp()
+        },
+        { merge: true }
+      );
+    });
+  } catch (err) {
+    console.log("syncGroupMemberCountOnDelete failed", { groupId, message: err?.message });
+  }
+});
+
+// Cascade delete group post subcollections so "delete post" removes its thread.
+exports.cascadeDeleteGroupPost = onDocumentDeleted("groups/{groupId}/posts/{postId}", async (event) => {
+  const groupId = event.params.groupId;
+  const postId = event.params.postId;
+  if (!groupId || !postId) return;
+  const postRef = db.doc(`groups/${groupId}/posts/${postId}`);
+  try {
+    // recursiveDelete is available in newer admin SDKs. Fall back to batch deletes if missing.
+    if (typeof db.recursiveDelete === "function") {
+      await db.recursiveDelete(postRef.collection("comments"));
+      await db.recursiveDelete(postRef.collection("pendingComments"));
+      return;
+    }
+  } catch (err) {
+    // fall through to manual deletion
+  }
+
+  try {
+    const comments = postRef.collection("comments").orderBy("createdAt", "asc");
+    const pending = postRef.collection("pendingComments").orderBy("createdAt", "asc");
+    const commentsDeleted = await deleteQueryInBatches(comments, 350);
+    const pendingDeleted = await deleteQueryInBatches(pending, 350);
+    if (commentsDeleted || pendingDeleted) {
+      console.log("cascadeDeleteGroupPost deleted", { groupId, postId, commentsDeleted, pendingDeleted });
+    }
+  } catch (err) {
+    console.log("cascadeDeleteGroupPost failed", { groupId, postId, message: err?.message });
+  }
+});

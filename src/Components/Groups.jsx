@@ -169,7 +169,8 @@ function Groups() {
         createdAtTs: serverTimestamp(),
         updatedAtTs: serverTimestamp(),
         isPublic: true,
-        memberCount: 1,
+        // memberCount is maintained by Cloud Functions on member create/delete.
+        memberCount: 0,
         accent: accent || "#7afcff",
         nameStyle: nameStyle || "neon",
         avatar: avatar || "",
