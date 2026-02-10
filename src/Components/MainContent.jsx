@@ -15,6 +15,7 @@ const TOP_TTL = 5 * 60 * 1000;
 const LATEST_TTL = 5 * 60 * 1000;
 const DEFAULT_TTL = 5 * 60 * 1000;
 const SEASON_TTL = 5 * 60 * 1000;
+const HOVER_TRAILER_PREF_KEY = "anikodo_hover_trailers";
 const searchCache = new Map();
 const defaultCache = new Map();
 const seasonCache = new Map();
@@ -48,6 +49,15 @@ function MainContent({ mode } = {}) {
   const [isListLoading, setIsListLoading] = useState(false);
   const [viewMode, setViewMode] = useState("grid");
   const [selectedGenre, setSelectedGenre] = useState("All");
+  const [hoverTrailersEnabled, setHoverTrailersEnabled] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem(HOVER_TRAILER_PREF_KEY);
+      if (raw === null) return true;
+      return raw === "1" || raw === "true";
+    } catch (err) {
+      return true;
+    }
+  });
   const [latestEpisodes, setLatestEpisodes] = useState([]);
   const [episodesLoading, setEpisodesLoading] = useState(true);
   const [episodesError, setEpisodesError] = useState("");
@@ -187,6 +197,14 @@ function MainContent({ mode } = {}) {
       }
     }
   }, [currentPage, isSeasonalMode, loadDefaultAnime, loadSeasonalAnime, search]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(HOVER_TRAILER_PREF_KEY, hoverTrailersEnabled ? "1" : "0");
+    } catch (err) {
+      // ignore
+    }
+  }, [hoverTrailersEnabled]);
 
   const searchAnime = useCallback(async (page) => {
     const currentPage = page ?? 1; // default page is 1
@@ -922,6 +940,17 @@ function MainContent({ mode } = {}) {
               </div>
               <button
                 type="button"
+                className={`trailer-toggle ${hoverTrailersEnabled ? "on" : "off"}`}
+                onClick={() => setHoverTrailersEnabled((v) => !v)}
+                aria-pressed={hoverTrailersEnabled}
+                title={hoverTrailersEnabled ? "Trailer preview on (hover cards to play)" : "Trailer preview off"}
+              >
+                <span className="trailer-toggle-dot" aria-hidden="true"></span>
+                <span className="trailer-toggle-label">Trailer preview</span>
+                <span className="trailer-toggle-state">{hoverTrailersEnabled ? "ON" : "OFF"}</span>
+              </button>
+              <button
+                type="button"
                 className="scroll-button"
                 onClick={() => episodesRef.current?.scrollIntoView({ behavior: "smooth" })}
               >
@@ -1037,6 +1066,7 @@ function MainContent({ mode } = {}) {
                     seasonLabel={seasonLabel}
                     fromPath={fromPath}
                     viewMode={viewMode}
+                    hoverTrailersEnabled={hoverTrailersEnabled}
                     isFavorite={favorites.has(String(item.mal_id))}
                     pulse={favoritePulseId === String(item.mal_id)}
                     onToggle={toggleFavorite}
@@ -1133,6 +1163,7 @@ const AnimeCardItem = React.memo(function AnimeCardItem({
   seasonLabel,
   fromPath,
   viewMode,
+  hoverTrailersEnabled,
   isFavorite,
   pulse,
   onToggle,
@@ -1151,6 +1182,13 @@ const AnimeCardItem = React.memo(function AnimeCardItem({
     duration
   } = item;
   const hasTrailer = Boolean(trailer?.embed_url);
+  const canHoverPreview = Boolean(hoverTrailersEnabled && hasTrailer);
+
+  useEffect(() => {
+    if (!canHoverPreview && showTrailer) {
+      setShowTrailer(false);
+    }
+  }, [canHoverPreview, showTrailer]);
 
   const truncateByPercent = (text, percent) => {
     const raw = String(text || "").trim();
@@ -1176,8 +1214,14 @@ const AnimeCardItem = React.memo(function AnimeCardItem({
       <Link to={`/anime/${mal_id}`} state={{ from: fromPath }}>
         <div
           className="media-wrap"
-          onMouseEnter={() => setShowTrailer(true)}
-          onMouseLeave={() => setShowTrailer(false)}
+          onMouseEnter={() => {
+            if (!canHoverPreview) return;
+            setShowTrailer(true);
+          }}
+          onMouseLeave={() => {
+            if (!canHoverPreview) return;
+            setShowTrailer(false);
+          }}
         >
           {cover ? (
             <img src={cover} alt={title} />
@@ -1213,7 +1257,11 @@ const AnimeCardItem = React.memo(function AnimeCardItem({
           <span>Duration: {duration ? duration.replace("ep", "episodes") : "?"}</span>
         </div>
         {hasTrailer ? (
-          <span className="card-callout">Hover the image to preview the trailer.</span>
+          canHoverPreview ? (
+            <span className="card-callout">Hover the image to preview the trailer.</span>
+          ) : (
+            <span className="card-callout muted">Trailer preview is off.</span>
+          )
         ) : (
           <span className="card-callout muted">Trailer not available yet.</span>
         )}

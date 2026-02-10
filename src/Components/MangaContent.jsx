@@ -15,6 +15,7 @@ const TOP_TTL = 5 * 60 * 1000;
 const LATEST_TTL = 5 * 60 * 1000;
 const DEFAULT_TTL = 5 * 60 * 1000;
 const SEASON_TTL = 5 * 60 * 1000;
+const HOVER_TRAILER_PREF_KEY = "anikodo_hover_trailers";
 const searchCache = new Map();
 const defaultCache = new Map();
 const seasonCache = new Map();
@@ -48,6 +49,15 @@ function MangaContent({ mode } = {}) {
   const [isListLoading, setIsListLoading] = useState(false);
   const [viewMode, setViewMode] = useState("grid");
   const [selectedGenre, setSelectedGenre] = useState("All");
+  const [hoverTrailersEnabled, setHoverTrailersEnabled] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem(HOVER_TRAILER_PREF_KEY);
+      if (raw === null) return true;
+      return raw === "1" || raw === "true";
+    } catch (err) {
+      return true;
+    }
+  });
   const { user } = useAuth();
   const [favorites, setFavorites] = useState(new Set());
   const favoritesRef = useRef(new Set());
@@ -181,6 +191,14 @@ function MangaContent({ mode } = {}) {
       }
     }
   }, [currentPage, isSeasonalMode, loadDefaultManga, loadSeasonalManga, search]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(HOVER_TRAILER_PREF_KEY, hoverTrailersEnabled ? "1" : "0");
+    } catch (err) {
+      // ignore
+    }
+  }, [hoverTrailersEnabled]);
 
   const searchManga = useCallback(async (page) => {
     const currentPage = page ?? 1;
@@ -861,6 +879,17 @@ function MangaContent({ mode } = {}) {
                   </svg>
                 </button>
               </div>
+              <button
+                type="button"
+                className={`trailer-toggle ${hoverTrailersEnabled ? "on" : "off"}`}
+                onClick={() => setHoverTrailersEnabled((v) => !v)}
+                aria-pressed={hoverTrailersEnabled}
+                title={hoverTrailersEnabled ? "Trailer preview on (hover cards to play)" : "Trailer preview off"}
+              >
+                <span className="trailer-toggle-dot" aria-hidden="true"></span>
+                <span className="trailer-toggle-label">Trailer preview</span>
+                <span className="trailer-toggle-state">{hoverTrailersEnabled ? "ON" : "OFF"}</span>
+              </button>
               <button
                 type="button"
                 className="scroll-button"
