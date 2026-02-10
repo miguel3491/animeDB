@@ -235,6 +235,10 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isProfileOwner(uid);
 
+      match /pinnedGroups/{groupId} {
+        allow read, write: if isProfileOwner(uid);
+      }
+
       match /bugReportUpdates/{updateId} {
         allow read: if isProfileOwner(uid);
         allow write: if isOwner();

@@ -2790,6 +2790,37 @@ a{
     align-items: center;
     gap: 12px;
 }
+.group-pin-btn {
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+.group-pin-btn:hover {
+    transform: translateY(-1px);
+    border-color: rgba(255, 255, 255, 0.22);
+}
+.group-pin-btn.pinned {
+    border-color: rgba(249, 230, 110, 0.38);
+    background: rgba(249, 230, 110, 0.12);
+}
+.group-pin-icon {
+    font-size: 14px;
+    line-height: 1;
+    color: var(--accent-3);
+}
+.group-pin-btn.pinned .group-pin-icon {
+    color: var(--accent-3);
+}
 .group-card-title.neon .group-name,
 .group-detail-title.neon h2,
 .group-preview-name.neon span {

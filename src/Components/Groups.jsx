@@ -1,20 +1,26 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import ReactPaginate from "react-paginate";
 import {
   collection,
   doc,
+  deleteDoc,
+  getDoc,
   limit,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
   writeBatch
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import "../styles.css";
 
-const GROUP_PAGE_SIZE = 18;
+const GROUP_FETCH_LIMIT = 200;
+const GROUPS_PER_PAGE = 10;
+const PIN_LIMIT = 3;
 
 const safeText = (value) => String(value || "").trim();
 
@@ -36,6 +42,10 @@ function Groups() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("browse");
   const [myGroups, setMyGroups] = useState([]);
+  const [pinned, setPinned] = useState([]);
+  const [pinnedDocs, setPinnedDocs] = useState({});
+  const [browsePage, setBrowsePage] = useState(0);
+  const [minePage, setMinePage] = useState(0);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
@@ -53,7 +63,9 @@ function Groups() {
   useEffect(() => {
     setLoading(true);
     const ref = collection(db, "groups");
-    const q = query(ref, orderBy("updatedAt", "desc"), limit(GROUP_PAGE_SIZE));
+    // Order by memberCount to surface active groups first (better for discovery).
+    // updatedAt provides a stable secondary tie-break.
+    const q = query(ref, orderBy("memberCount", "desc"), orderBy("updatedAt", "desc"), limit(GROUP_FETCH_LIMIT));
     return onSnapshot(
       q,
       (snap) => {
@@ -67,6 +79,24 @@ function Groups() {
       }
     );
   }, []);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setPinned([]);
+      setPinnedDocs({});
+      return;
+    }
+    const ref = collection(db, "users", user.uid, "pinnedGroups");
+    const q = query(ref, orderBy("pinnedAt", "desc"), limit(PIN_LIMIT));
+    return onSnapshot(
+      q,
+      (snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() || {}) }));
+        setPinned(rows);
+      },
+      () => setPinned([])
+    );
+  }, [user?.uid]);
 
   useEffect(() => {
     if (!user?.uid) {
@@ -113,6 +143,59 @@ function Groups() {
       setStatus("");
     }
   }, [createOpen]);
+
+  useEffect(() => {
+    setBrowsePage(0);
+    setMinePage(0);
+  }, [tab]);
+
+  const pinnedIds = useMemo(() => {
+    return pinned.map((p) => String(p.groupId || p.id || "").trim()).filter(Boolean);
+  }, [pinned]);
+
+  const groupsById = useMemo(() => {
+    const map = new Map();
+    groups.forEach((g) => {
+      const id = String(g?.id || "").trim();
+      if (!id) return;
+      map.set(id, g);
+    });
+    return map;
+  }, [groups]);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    if (pinnedIds.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const next = {};
+      await Promise.all(
+        pinnedIds.map(async (gid) => {
+          if (!gid) return;
+          const already = pinnedDocs[gid] || groupsById.get(gid);
+          if (already) {
+            next[gid] = already;
+            return;
+          }
+          try {
+            const snap = await getDoc(doc(db, "groups", gid));
+            if (snap.exists()) {
+              next[gid] = { id: snap.id, ...(snap.data() || {}) };
+            }
+          } catch (err) {
+            // ignore
+          }
+        })
+      );
+      if (cancelled) return;
+      if (Object.keys(next).length > 0) {
+        setPinnedDocs((prev) => ({ ...prev, ...next }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [groupsById, pinnedDocs, pinnedIds, user?.uid]);
 
   const pageTitle = useMemo(() => {
     if (tab === "mine") return "My Groups";
@@ -217,6 +300,32 @@ function Groups() {
     }
   };
 
+  const togglePin = async (gidRaw, isPinned) => {
+    if (!user?.uid) {
+      setStatus("Sign in to pin groups.");
+      return;
+    }
+    const gid = String(gidRaw || "").trim();
+    if (!gid) return;
+    try {
+      if (isPinned) {
+        await deleteDoc(doc(db, "users", user.uid, "pinnedGroups", gid));
+        return;
+      }
+      if (pinnedIds.length >= PIN_LIMIT) {
+        window.alert(`You can pin up to ${PIN_LIMIT} groups.`);
+        return;
+      }
+      await setDoc(
+        doc(db, "users", user.uid, "pinnedGroups", gid),
+        { groupId: gid, pinnedAt: new Date().toISOString(), createdAt: serverTimestamp() },
+        { merge: true }
+      );
+    } catch (err) {
+      // ignore
+    }
+  };
+
   const renderCard = (g, keyPrefix = "g") => {
     const gid = String(g?.id || g?.groupId || "").trim();
     const gName = g?.name || g?.groupName || "Untitled group";
@@ -227,6 +336,7 @@ function Groups() {
     const gCount = Number.isFinite(Number(g?.memberCount)) ? Number(g.memberCount) : null;
     const isOwner = Boolean(user?.uid && g?.ownerId && String(g.ownerId) === String(user.uid));
     const isAdmin = isOwner || String(g?.role || "").toLowerCase() === "admin";
+    const isPinned = Boolean(gid && pinnedIds.includes(gid));
     return (
       <Link
         key={`${keyPrefix}-${gid || gName}`}
@@ -261,6 +371,24 @@ function Groups() {
           <div className="group-card-actions">
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <span className="detail-link">View</span>
+              {gid && (
+                <button
+                  type="button"
+                  className={`group-pin-btn ${isPinned ? "pinned" : ""}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    togglePin(gid, isPinned);
+                  }}
+                  title={isPinned ? "Unpin group" : "Pin group"}
+                  aria-pressed={isPinned}
+                >
+                  <span className="group-pin-icon" aria-hidden="true">
+                    {isPinned ? "★" : "☆"}
+                  </span>
+                  <span className="group-pin-text">{isPinned ? "Pinned" : "Pin"}</span>
+                </button>
+              )}
               {isAdmin && gid && (
                 <button
                   type="button"
@@ -288,6 +416,70 @@ function Groups() {
       </Link>
     );
   };
+
+  const pinnedGroupRows = useMemo(() => {
+    const rows = pinnedIds
+      .map((id) => pinnedDocs[id] || groupsById.get(id))
+      .filter(Boolean)
+      .slice(0, PIN_LIMIT);
+    return rows;
+  }, [groupsById, pinnedDocs, pinnedIds]);
+
+  const browseNonPinned = useMemo(() => {
+    return groups.filter((g) => {
+      const gid = String(g?.id || "").trim();
+      return gid && !pinnedIds.includes(gid);
+    });
+  }, [groups, pinnedIds]);
+
+  const browsePageCount = useMemo(() => {
+    if (browseNonPinned.length <= GROUPS_PER_PAGE) return 0;
+    return Math.max(1, Math.ceil(browseNonPinned.length / GROUPS_PER_PAGE));
+  }, [browseNonPinned.length]);
+
+  const browsePageItems = useMemo(() => {
+    if (browseNonPinned.length === 0) return [];
+    const safe = Math.max(0, Math.min(browsePage, Math.max(0, browsePageCount - 1)));
+    const start = safe * GROUPS_PER_PAGE;
+    return browseNonPinned.slice(start, start + GROUPS_PER_PAGE);
+  }, [browseNonPinned, browsePage, browsePageCount]);
+
+  const minePinned = useMemo(() => {
+    const mineIds = new Set(myGroups.map((g) => String(g?.id || g?.groupId || "").trim()).filter(Boolean));
+    return pinnedGroupRows.filter((g) => mineIds.has(String(g?.id || g?.groupId || "").trim()));
+  }, [myGroups, pinnedGroupRows]);
+
+  const mineNonPinned = useMemo(() => {
+    const pinnedSet = new Set(minePinned.map((g) => String(g?.id || g?.groupId || "").trim()).filter(Boolean));
+    const sorted = [...myGroups];
+    // Best-effort sort: myGroups mirror may not have memberCount; fall back to group doc if we have it.
+    sorted.sort((a, b) => {
+      const aid = String(a?.id || a?.groupId || "").trim();
+      const bid = String(b?.id || b?.groupId || "").trim();
+      const ac = Number(groupsById.get(aid)?.memberCount || a?.memberCount || 0);
+      const bc = Number(groupsById.get(bid)?.memberCount || b?.memberCount || 0);
+      if (bc !== ac) return bc - ac;
+      const au = String(groupsById.get(aid)?.updatedAt || a?.updatedAt || a?.joinedAt || "");
+      const bu = String(groupsById.get(bid)?.updatedAt || b?.updatedAt || b?.joinedAt || "");
+      return bu.localeCompare(au);
+    });
+    return sorted.filter((g) => {
+      const gid = String(g?.id || g?.groupId || "").trim();
+      return gid && !pinnedSet.has(gid);
+    });
+  }, [groupsById, minePinned, myGroups]);
+
+  const minePageCount = useMemo(() => {
+    if (mineNonPinned.length <= GROUPS_PER_PAGE) return 0;
+    return Math.max(1, Math.ceil(mineNonPinned.length / GROUPS_PER_PAGE));
+  }, [mineNonPinned.length]);
+
+  const minePageItems = useMemo(() => {
+    if (mineNonPinned.length === 0) return [];
+    const safe = Math.max(0, Math.min(minePage, Math.max(0, minePageCount - 1)));
+    const start = safe * GROUPS_PER_PAGE;
+    return mineNonPinned.slice(start, start + GROUPS_PER_PAGE);
+  }, [mineNonPinned, minePage, minePageCount]);
 
   return (
     <div className="layout">
@@ -410,16 +602,46 @@ function Groups() {
             {loading ? <p className="muted">Loading groups...</p> : null}
             {!loading && groups.length === 0 ? <p className="muted">No groups yet. Create the first one.</p> : null}
             <div className="groups-grid">
-              {groups.map((g) => renderCard(g, "browse"))}
+              {pinnedGroupRows.map((g) => renderCard(g, "pinned"))}
+              {browsePageItems.map((g) => renderCard(g, "browse"))}
             </div>
+            {browsePageCount > 1 && (
+              <div className="pagination inbox-pagination" style={{ marginTop: 14 }}>
+                <ReactPaginate
+                  previousLabel={"←"}
+                  nextLabel={"→"}
+                  breakLabel={"..."}
+                  pageCount={browsePageCount}
+                  marginPagesDisplayed={1}
+                  pageRangeDisplayed={2}
+                  onPageChange={(selected) => setBrowsePage(selected.selected)}
+                  forcePage={Math.max(0, Math.min(browsePage, browsePageCount - 1))}
+                />
+              </div>
+            )}
           </>
         ) : (
           <>
             {!user ? <p className="muted">Sign in to see your groups.</p> : null}
             {user && myGroups.length === 0 ? <p className="muted">You haven't joined any groups yet.</p> : null}
             <div className="groups-grid">
-              {myGroups.map((g) => renderCard(g, "mine"))}
+              {minePinned.map((g) => renderCard(g, "pinned-mine"))}
+              {minePageItems.map((g) => renderCard(g, "mine"))}
             </div>
+            {minePageCount > 1 && (
+              <div className="pagination inbox-pagination" style={{ marginTop: 14 }}>
+                <ReactPaginate
+                  previousLabel={"←"}
+                  nextLabel={"→"}
+                  breakLabel={"..."}
+                  pageCount={minePageCount}
+                  marginPagesDisplayed={1}
+                  pageRangeDisplayed={2}
+                  onPageChange={(selected) => setMinePage(selected.selected)}
+                  forcePage={Math.max(0, Math.min(minePage, minePageCount - 1))}
+                />
+              </div>
+            )}
           </>
         )}
       </section>
