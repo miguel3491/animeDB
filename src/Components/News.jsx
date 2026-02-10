@@ -111,6 +111,17 @@ function News() {
     }
   }, [viewMode]);
 
+  const checkSourceImagesEnabled = async () => {
+    try {
+      const res = await fetch("/api/ann/thumb/status");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) return false;
+      return Boolean(json?.enabled);
+    } catch (err) {
+      return false;
+    }
+  };
+
   const categories = useMemo(() => {
     const set = new Set();
     items.forEach((item) => item.categories.forEach((cat) => set.add(cat)));
@@ -492,7 +503,21 @@ function News() {
               <button
                 type="button"
                 className={`trailer-toggle ${sourceImagesEnabled ? "on" : "off"}`}
-                onClick={() => setSourceImagesEnabled((v) => !v)}
+                onClick={async () => {
+                  // If the server has this feature disabled, don't let the UI "flicker" on/off.
+                  if (!sourceImagesEnabled) {
+                    const ok = await checkSourceImagesEnabled();
+                    if (!ok) {
+                      setThumbServiceError(
+                        "Source images are disabled on the server. Set NEWS_SOURCE_IMAGES_ENABLED=1 and restart `npm start`."
+                      );
+                      setSourceImagesEnabled(false);
+                      return;
+                    }
+                  }
+                  setThumbServiceError("");
+                  setSourceImagesEnabled((v) => !v);
+                }}
                 aria-pressed={sourceImagesEnabled}
                 title={
                   sourceImagesEnabled
@@ -555,7 +580,7 @@ function News() {
 
           {loading && <p>Loading the latest news…</p>}
           {error && <p>{error}</p>}
-          {sourceImagesEnabled && thumbServiceError && !loading && !error && <p className="muted">{thumbServiceError}</p>}
+          {thumbServiceError && !loading && !error && <p className="muted">{thumbServiceError}</p>}
           {contextCoversEnabled && contextError && !loading && !error && <p className="muted">{contextError}</p>}
 
           {debugEnabled && !loading && !error && (

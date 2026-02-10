@@ -28,6 +28,7 @@ function NewsDetail() {
   const [context, setContext] = useState(null);
   const [contextError, setContextError] = useState("");
   const [related, setRelated] = useState([]);
+  const [relatedContext, setRelatedContext] = useState({});
   const summaryRequestedRef = useRef(false);
   const translationRequestedRef = useRef(false);
   const itemId = item?.id || "";
@@ -143,6 +144,35 @@ function NewsDetail() {
       setRelated([]);
     }
   }, [item?.categories, item?.id, item?.title]);
+
+  useEffect(() => {
+    if (related.length === 0) {
+      setRelatedContext({});
+      return;
+    }
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/news/context", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            items: related.slice(0, 8).map((r) => ({ id: r.id, title: r.title, categories: r.categories }))
+          })
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!active) return;
+        if (!res.ok) return;
+        setRelatedContext(json?.results || {});
+      } catch (err) {
+        if (!active) return;
+        setRelatedContext({});
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [related]);
 
   useEffect(() => {
     if (!itemId) return;
@@ -646,7 +676,11 @@ function NewsDetail() {
                     }}
                     title="Open related story"
                   >
-                    <div className="inbox-avatar placeholder" aria-hidden="true" />
+                    {relatedContext?.[r.id]?.cover ? (
+                      <img className="inbox-thumb" src={relatedContext[r.id].cover} alt={r.title} loading="lazy" />
+                    ) : (
+                      <div className="inbox-thumb placeholder" aria-hidden="true" />
+                    )}
                     <div className="inbox-row-text">
                       <div className="inbox-row-title" style={{ gap: 10 }}>
                         <span style={{ fontWeight: 700 }}>{r.title}</span>

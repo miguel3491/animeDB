@@ -1158,6 +1158,10 @@ app.get("/api/ann/thumb", async (req, res) => {
   }
 });
 
+app.get("/api/ann/thumb/status", (req, res) => {
+  return res.json({ enabled: NEWS_SOURCE_IMAGES_ENABLED });
+});
+
 app.get("/api/img", async (req, res) => {
   if (!NEWS_SOURCE_IMAGES_ENABLED) {
     return res.status(403).json({ error: "Source images disabled" });
