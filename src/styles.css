@@ -289,6 +289,18 @@ a{
     align-items: center;
     gap: 10px;
 }
+.inbox-section-actions .pill {
+    height: 34px;
+    min-width: 34px;
+    padding: 0 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.inbox-section-actions .detail-link {
+    height: 34px;
+    padding: 0 12px;
+}
 .pill-hot {
     background: rgba(255, 107, 156, 0.85);
     color: #0c1324;
