@@ -73,7 +73,7 @@ function NewsDetail() {
         const res = await fetch("/api/news/context", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: [{ id: item.id, title: item.title }] })
+          body: JSON.stringify({ items: [{ id: item.id, title: item.title, categories: item.categories }] })
         });
         const json = await res.json().catch(() => ({}));
         if (!active) return;
@@ -83,7 +83,9 @@ function NewsDetail() {
           }
           throw new Error(String(json?.error || "Context unavailable"));
         }
-        setContext(json?.results?.[item.id] || null);
+        const next = json?.results?.[item.id] || null;
+        setContext(next);
+        if (!next) setContextError("No related title found for this headline.");
       } catch (err) {
         if (!active) return;
         setContext(null);

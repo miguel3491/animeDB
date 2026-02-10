@@ -308,7 +308,7 @@ function News() {
         const res = await fetch("/api/news/context", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: missing.map((it) => ({ id: it.id, title: it.title })) }),
+          body: JSON.stringify({ items: missing.map((it) => ({ id: it.id, title: it.title, categories: it.categories })) }),
           signal: controller.signal
         });
         const json = await res.json().catch(() => ({}));
@@ -319,7 +319,13 @@ function News() {
           throw new Error(String(json?.error || "Context lookup failed"));
         }
         if (cancelled) return;
-        setContext((prev) => ({ ...prev, ...(json?.results || {}) }));
+        const results = json?.results || {};
+        const returnedIds = new Set(Object.keys(results));
+        const nullMarks = {};
+        missingIds.forEach((id) => {
+          if (!returnedIds.has(id)) nullMarks[id] = null;
+        });
+        setContext((prev) => ({ ...prev, ...nullMarks, ...results }));
       } catch (err) {
         if (cancelled) return;
         setContextError(err?.message || "Context covers unavailable right now.");
@@ -648,7 +654,14 @@ function News() {
                     style={placeholderStyle(highlight.id)}
                   >
                     <span className="muted">
-                      {sourceImagesEnabled ? (thumbLoading ? "Loading preview..." : "Preview unavailable") : "Preview unavailable"}
+                      {contextCoversEnabled &&
+                      highlight?.id &&
+                      Object.prototype.hasOwnProperty.call(context, highlight.id) &&
+                      context[highlight.id] === null
+                        ? "No cover match"
+                        : sourceImagesEnabled
+                          ? (thumbLoading ? "Loading preview..." : "Preview unavailable")
+                          : "Preview unavailable"}
                     </span>
                   </div>
                 )}
@@ -689,7 +702,11 @@ function News() {
                       style={placeholderStyle(item.id)}
                     >
                       <span className="muted">
-                        {sourceImagesEnabled ? (thumbLoading ? "Loading preview..." : "Preview unavailable") : "Preview unavailable"}
+                        {contextCoversEnabled && Object.prototype.hasOwnProperty.call(context, item.id) && context[item.id] === null
+                          ? "No cover match"
+                          : sourceImagesEnabled
+                            ? (thumbLoading ? "Loading preview..." : "Preview unavailable")
+                            : "Preview unavailable"}
                       </span>
                     </div>
                   )}

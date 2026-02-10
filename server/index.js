@@ -89,6 +89,94 @@ const normalizeNewsTitleForSearch = (raw) => {
   return text.slice(0, 140);
 };
 
+const newsSearchCandidates = (rawTitle) => {
+  const base = normalizeNewsTitleForSearch(rawTitle);
+  if (!base) return [];
+
+  const cleaned = base
+    .replace(/\s+\((anime|manga|novel|game|film|movie)\)\s*/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const words = cleaned.split(" ").filter(Boolean);
+  const triggers = new Set([
+    "gets",
+    "get",
+    "announces",
+    "announce",
+    "reveals",
+    "reveal",
+    "launches",
+    "launch",
+    "ends",
+    "end",
+    "delays",
+    "delay",
+    "streams",
+    "stream",
+    "releases",
+    "release",
+    "premieres",
+    "premiere",
+    "returns",
+    "return",
+    "opens",
+    "open",
+    "posts",
+    "post",
+    "adds",
+    "add"
+  ]);
+
+  let cutIdx = -1;
+  for (let i = 0; i < words.length; i += 1) {
+    const w = words[i].toLowerCase().replace(/[^a-z]/g, "");
+    if (triggers.has(w)) {
+      cutIdx = i;
+      break;
+    }
+  }
+
+  const candidates = [];
+  candidates.push(cleaned);
+
+  if (cutIdx >= 3) {
+    candidates.push(words.slice(0, cutIdx).join(" "));
+  }
+
+  if (words.length >= 4) {
+    candidates.push(words.slice(0, 6).join(" "));
+  }
+
+  return dedupeByKey(candidates, (c) => String(c || "").trim().toLowerCase());
+};
+
+const normalizeCompare = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\\s]/g, " ")
+    .replace(/\\s+/g, " ")
+    .trim();
+
+const titleMatchScore = (needle, title) => {
+  const a = normalizeCompare(needle);
+  const b = normalizeCompare(title);
+  if (!a || !b) return 0;
+  if (a === b) return 100;
+  if (b.includes(a)) return 70;
+  if (a.includes(b)) return 55;
+  const aTokens = new Set(a.split(" ").filter((t) => t.length >= 3));
+  const bTokens = new Set(b.split(" ").filter((t) => t.length >= 3));
+  if (aTokens.size === 0 || bTokens.size === 0) return 0;
+  let intersect = 0;
+  aTokens.forEach((t) => {
+    if (bTokens.has(t)) intersect += 1;
+  });
+  const union = aTokens.size + bTokens.size - intersect;
+  const j = union ? intersect / union : 0;
+  return Math.floor(j * 50);
+};
+
 const absAnn = (value) => {
   if (!value) return "";
   if (value.startsWith("http://") || value.startsWith("https://")) return value;
@@ -730,16 +818,17 @@ app.post("/api/news/context", async (req, res) => {
     .slice(0, 20)
     .map((it) => ({
       id: String(it?.id || "").trim(),
-      title: String(it?.title || "").trim()
+      title: String(it?.title || "").trim(),
+      categories: Array.isArray(it?.categories) ? it.categories.map((c) => String(c || "").trim()) : []
     }))
     .filter((it) => it.id && it.title);
 
   if (take.length === 0) return res.json({ results: {} });
 
   const query = `
-    query ($search: String) {
-      Page(page: 1, perPage: 1) {
-        media(search: $search, sort: SEARCH_MATCH) {
+    query ($search: String, $type: MediaType, $perPage: Int) {
+      Page(page: 1, perPage: $perPage) {
+        media(search: $search, type: $type, sort: SEARCH_MATCH) {
           id
           idMal
           type
@@ -755,43 +844,75 @@ app.post("/api/news/context", async (req, res) => {
   `;
 
   const resolveOne = async (item) => {
-    const search = normalizeNewsTitleForSearch(item.title);
-    if (!search) return null;
-    const key = `ctx|${search.toLowerCase()}`;
+    const candidates = newsSearchCandidates(item.title);
+    if (candidates.length === 0) return null;
+    const catRaw = item.categories.map((c) => String(c || "").toLowerCase());
+    const preferManga = catRaw.some((c) => c.includes("manga"));
+    const preferAnime = catRaw.some((c) => c.includes("anime"));
+    const preferType = preferManga && !preferAnime ? "MANGA" : preferAnime && !preferManga ? "ANIME" : "";
+
+    const key = `ctx|${preferType || "ANY"}|${candidates[0].toLowerCase()}`;
     const cached = newsContextCache.get(key);
     if (cached && Date.now() - cached.ts < NEWS_CONTEXT_TTL) return cached.data;
 
     return withInflight(newsContextInflight, key, async () => {
-      const response = await fetchAniListWithRetry("https://graphql.anilist.co", {
-        timeoutMs: 12000,
-        retries: 3,
-        init: {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ query, variables: { search } })
+      const tryFetch = async (search, typeEnum) => {
+        const response = await fetchAniListWithRetry("https://graphql.anilist.co", {
+          timeoutMs: 12000,
+          retries: 3,
+          init: {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ query, variables: { search, type: typeEnum || null, perPage: 3 } })
+          }
+        });
+        if (!response || !response.ok) return [];
+        const json = await response.json().catch(() => ({}));
+        return Array.isArray(json?.data?.Page?.media) ? json.data.Page.media : [];
+      };
+
+      let best = null;
+      let bestScore = 0;
+
+      for (const cand of candidates) {
+        // eslint-disable-next-line no-await-in-loop
+        let media = await tryFetch(cand, preferType || null);
+        if (media.length === 0 && preferType) {
+          // eslint-disable-next-line no-await-in-loop
+          media = await tryFetch(cand, null);
         }
-      });
-      if (!response || !response.ok) return null;
-      const json = await response.json().catch(() => ({}));
-      const media = Array.isArray(json?.data?.Page?.media) ? json.data.Page.media : [];
-      const first = media[0] || null;
-      if (!first) {
+        for (const m of media) {
+          const t1 = m?.title?.english || "";
+          const t2 = m?.title?.romaji || "";
+          const sc = Math.max(titleMatchScore(cand, t1), titleMatchScore(cand, t2));
+          if (sc > bestScore) {
+            bestScore = sc;
+            best = m;
+          }
+        }
+        if (bestScore >= 70) break;
+      }
+
+      if (!best || bestScore < 20) {
         cacheSetBounded(newsContextCache, key, { data: null, ts: Date.now() }, MAX_NEWS_CONTEXT_CACHE);
         return null;
       }
-      const cover = String(first?.coverImage?.extraLarge || first?.coverImage?.large || "").trim();
+
+      const cover = String(best?.coverImage?.extraLarge || best?.coverImage?.large || "").trim();
       const payload = {
-        id: first.id || null,
-        idMal: first.idMal || null,
-        type: first.type || "",
-        format: first.format || "",
-        season: first.season || "",
-        seasonYear: first.seasonYear || null,
-        startDate: first.startDate || null,
-        title: first.title || {},
+        id: best.id || null,
+        idMal: best.idMal || null,
+        type: best.type || "",
+        format: best.format || "",
+        season: best.season || "",
+        seasonYear: best.seasonYear || null,
+        startDate: best.startDate || null,
+        title: best.title || {},
         cover,
-        color: String(first?.coverImage?.color || "").trim()
+        color: String(best?.coverImage?.color || "").trim(),
+        matchScore: bestScore
       };
+
       cacheSetBounded(newsContextCache, key, { data: payload, ts: Date.now() }, MAX_NEWS_CONTEXT_CACHE);
       return payload;
     }).catch(() => null);
