@@ -159,6 +159,9 @@ function NewsDetail() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            // Related stories are a "best effort" UI. Use a slightly looser match threshold
+            // so we can show more context covers without affecting the main feed accuracy.
+            minScore: 10,
             items: related.slice(0, 8).map((r) => ({ id: r.id, title: r.title, categories: r.categories }))
           })
         });

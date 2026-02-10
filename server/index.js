@@ -812,6 +812,7 @@ app.get("/api/news/context", (req, res) => {
 
 app.post("/api/news/context", async (req, res) => {
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  const minScore = Math.max(0, Math.min(70, Number(req.body?.minScore) || 20));
   if (items.length === 0) return res.json({ results: {} });
 
   const take = items
@@ -851,7 +852,7 @@ app.post("/api/news/context", async (req, res) => {
     const preferAnime = catRaw.some((c) => c.includes("anime"));
     const preferType = preferManga && !preferAnime ? "MANGA" : preferAnime && !preferManga ? "ANIME" : "";
 
-    const key = `ctx|${preferType || "ANY"}|${candidates[0].toLowerCase()}`;
+    const key = `ctx|${preferType || "ANY"}|min=${minScore}|${candidates[0].toLowerCase()}`;
     const cached = newsContextCache.get(key);
     if (cached && Date.now() - cached.ts < NEWS_CONTEXT_TTL) return cached.data;
 
@@ -893,7 +894,7 @@ app.post("/api/news/context", async (req, res) => {
         if (bestScore >= 70) break;
       }
 
-      if (!best || bestScore < 20) {
+      if (!best || bestScore < minScore) {
         cacheSetBounded(newsContextCache, key, { data: null, ts: Date.now() }, MAX_NEWS_CONTEXT_CACHE);
         return null;
       }
