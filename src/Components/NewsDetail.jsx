@@ -7,6 +7,7 @@ function NewsDetail() {
   const location = useLocation();
   const navigate = useNavigate();
   const decodedId = decodeURIComponent(id || "");
+  const RELATED_LIMIT = 5;
   const [item, setItem] = useState(location.state?.item || null);
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -102,7 +103,7 @@ function NewsDetail() {
         .map((it) => ({ it, s: score(it) }))
         .filter((row) => row.s > 0)
         .sort((a, b) => b.s - a.s)
-        .slice(0, 8)
+        .slice(0, RELATED_LIMIT)
         .map((row) => row.it);
 
       setRelated(candidates);
@@ -127,7 +128,7 @@ function NewsDetail() {
             // Related stories are a "best effort" UI. Use a slightly looser match threshold
             // so we can show more context covers without affecting the main feed accuracy.
             minScore: 10,
-            items: related.slice(0, 8).map((r) => ({ id: r.id, title: r.title, categories: r.categories }))
+            items: related.slice(0, RELATED_LIMIT).map((r) => ({ id: r.id, title: r.title, categories: r.categories }))
           })
         });
         const json = await res.json().catch(() => ({}));
@@ -495,7 +496,7 @@ function NewsDetail() {
   const canTranslate = Boolean(summary?.summary);
 
   return (
-    <div className="layout detail-layout">
+    <div className="layout detail-layout news-detail-layout">
       <div className="news-detail-shell">
         <section className="detail-panel news-detail">
           <div className="detail-header">
@@ -766,7 +767,7 @@ function NewsDetail() {
             <span className="pill">From your feed</span>
           </div>
           <div className="news-related-grid">
-            {related.slice(0, 8).map((r) => {
+            {related.slice(0, RELATED_LIMIT).map((r) => {
               const rid = String(r?.id || "").trim();
               const cover = String(relatedContext?.[rid]?.cover || "").trim();
               const showCover = Boolean(cover) && !brokenRelatedCovers.has(rid);
