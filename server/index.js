@@ -713,6 +713,15 @@ app.post("/api/anilist", async (req, res) => {
   }
 });
 
+// Some browsers/extensions will probe API URLs via GET which can show noisy 404s in the console.
+// The app uses POST for this endpoint; GET returns an empty payload.
+app.get("/api/news/context", (req, res) => {
+  return res.json({
+    results: {},
+    note: "Use POST /api/news/context with JSON: { items: [{ id, title }] }"
+  });
+});
+
 app.post("/api/news/context", async (req, res) => {
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
   if (items.length === 0) return res.json({ results: {} });
