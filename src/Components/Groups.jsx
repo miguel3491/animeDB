@@ -44,7 +44,11 @@ function Groups() {
   const [tab, setTab] = useState("browse");
   const [myGroups, setMyGroups] = useState([]);
   const [pinned, setPinned] = useState([]);
+  // Hydrated group docs: used for pinned groups and for groups referenced by "My Groups" mirror docs.
   const [pinnedDocs, setPinnedDocs] = useState({});
+  const pinnedDocsRef = useRef({});
+  const hydrateInFlightRef = useRef(new Set());
+  const [pinFx, setPinFx] = useState({});
   const [browsePage, setBrowsePage] = useState(0);
   const [minePage, setMinePage] = useState(0);
   const [viewMode, setViewMode] = useState(() => {
@@ -69,6 +73,10 @@ function Groups() {
   const myGroupsBackfilledRef = useRef(false);
 
   const canCreate = Boolean(user?.uid);
+
+  useEffect(() => {
+    pinnedDocsRef.current = pinnedDocs;
+  }, [pinnedDocs]);
 
   useEffect(() => {
     setLoading(true);
@@ -184,6 +192,10 @@ function Groups() {
     return pinned.map((p) => String(p.groupId || p.id || "").trim()).filter(Boolean);
   }, [pinned]);
 
+  const myGroupIds = useMemo(() => {
+    return myGroups.map((g) => String(g?.groupId || g?.id || "").trim()).filter(Boolean);
+  }, [myGroups]);
+
   const groupsById = useMemo(() => {
     const map = new Map();
     groups.forEach((g) => {
@@ -193,6 +205,57 @@ function Groups() {
     });
     return map;
   }, [groups]);
+
+  useEffect(() => {
+    // Ensure group visuals (background/avatar/name) exist for:
+    // - pinned groups
+    // - groups in "My Groups" (mirror docs don't store background)
+    const ids = Array.from(new Set([...pinnedIds, ...myGroupIds])).filter(Boolean);
+    if (ids.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const missing = ids.filter((gid) => {
+        if (!gid) return false;
+        if (groupsById.has(gid)) return false;
+        if (pinnedDocsRef.current?.[gid]) return false;
+        if (hydrateInFlightRef.current.has(gid)) return false;
+        return true;
+      });
+      const slice = missing.slice(0, 25);
+      if (slice.length === 0) return;
+      slice.forEach((gid) => hydrateInFlightRef.current.add(gid));
+      try {
+        const fetched = await Promise.all(
+          slice.map(async (gid) => {
+            try {
+              const snap = await getDoc(doc(db, "groups", gid));
+              if (!snap.exists()) return null;
+              return { id: snap.id, ...(snap.data() || {}) };
+            } catch (err) {
+              return null;
+            } finally {
+              hydrateInFlightRef.current.delete(gid);
+            }
+          })
+        );
+        if (cancelled) return;
+        const next = {};
+        fetched.forEach((row) => {
+          const id = String(row?.id || "").trim();
+          if (!id) return;
+          next[id] = row;
+        });
+        if (Object.keys(next).length > 0) {
+          setPinnedDocs((prev) => ({ ...prev, ...next }));
+        }
+      } catch (err) {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [groupsById, myGroupIds, pinnedIds]);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -341,6 +404,15 @@ function Groups() {
     try {
       if (isPinned) {
         await deleteDoc(doc(db, "users", user.uid, "pinnedGroups", gid));
+        setPinFx((prev) => ({ ...prev, [gid]: "unpin" }));
+        window.setTimeout(() => {
+          setPinFx((prev) => {
+            if (!prev[gid]) return prev;
+            const next = { ...prev };
+            delete next[gid];
+            return next;
+          });
+        }, 700);
         return;
       }
       if (pinnedIds.length >= PIN_LIMIT) {
@@ -352,6 +424,15 @@ function Groups() {
         { groupId: gid, pinnedAt: new Date().toISOString(), createdAt: serverTimestamp() },
         { merge: true }
       );
+      setPinFx((prev) => ({ ...prev, [gid]: "pin" }));
+      window.setTimeout(() => {
+        setPinFx((prev) => {
+          if (!prev[gid]) return prev;
+          const next = { ...prev };
+          delete next[gid];
+          return next;
+        });
+      }, 900);
     } catch (err) {
       // ignore
     }
@@ -359,15 +440,21 @@ function Groups() {
 
   const renderCard = (g, keyPrefix = "g") => {
     const gid = String(g?.id || g?.groupId || "").trim();
-    const gName = g?.name || g?.groupName || "Untitled group";
-    const gAccent = g?.accent || g?.groupAccent || "#7afcff";
-    const gStyle = g?.nameStyle || "neon";
-    const gAvatar = g?.avatar || g?.groupAvatar || "";
-    const gBg = g?.background || "";
-    const gCount = Number.isFinite(Number(g?.memberCount)) ? Number(g.memberCount) : null;
+    const hydrated = (gid && (groupsById.get(gid) || pinnedDocs[gid])) || null;
+    const gName = g?.name || g?.groupName || hydrated?.name || "Untitled group";
+    const gAccent = g?.accent || g?.groupAccent || hydrated?.accent || "#7afcff";
+    const gStyle = g?.nameStyle || hydrated?.nameStyle || "neon";
+    const gAvatar = g?.avatar || g?.groupAvatar || hydrated?.avatar || "";
+    const gBg = g?.background || hydrated?.background || "";
+    const gCount = Number.isFinite(Number(g?.memberCount))
+      ? Number(g.memberCount)
+      : Number.isFinite(Number(hydrated?.memberCount))
+      ? Number(hydrated.memberCount)
+      : null;
     const isOwner = Boolean(user?.uid && g?.ownerId && String(g.ownerId) === String(user.uid));
     const isAdmin = isOwner || String(g?.role || "").toLowerCase() === "admin";
     const isPinned = Boolean(gid && pinnedIds.includes(gid));
+    const fx = gid ? pinFx[gid] : "";
     return (
       <Link
         key={`${keyPrefix}-${gid || gName}`}
@@ -405,7 +492,9 @@ function Groups() {
               {gid && (
                 <button
                   type="button"
-                  className={`group-pin-btn ${isPinned ? "pinned" : ""}`}
+                  className={`group-pin-btn ${isPinned ? "pinned" : ""} ${fx === "pin" ? "pin-fx" : ""} ${
+                    fx === "unpin" ? "unpin-fx" : ""
+                  }`}
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
