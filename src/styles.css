@@ -1428,12 +1428,33 @@ a{
     letter-spacing: 1px;
     text-transform: uppercase;
     color: var(--accent-3);
-    background: transparent;
-    border: none;
-    padding: 0;
+    background: rgba(249, 230, 110, 0.08);
+    border: 1px solid rgba(249, 230, 110, 0.22);
+    padding: 8px 12px;
+    border-radius: 999px;
     font-family: inherit;
     cursor: pointer;
     white-space: nowrap;
+    transition: transform 140ms ease, background 140ms ease, border-color 140ms ease, color 140ms ease;
+    user-select: none;
+}
+.detail-link:hover {
+    transform: translateY(-1px);
+    background: rgba(249, 230, 110, 0.12);
+    border-color: rgba(249, 230, 110, 0.34);
+}
+.detail-link:active {
+    transform: translateY(0px);
+}
+.detail-link:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(249, 230, 110, 0.16);
+}
+.detail-link:disabled,
+.detail-link[aria-disabled="true"] {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
 }
 .card-actions {
     display: flex;
