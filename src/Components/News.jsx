@@ -871,7 +871,7 @@ function News() {
           <div className="sidebar-card">
             <h4>About the Feed</h4>
             <p>
-              AniKodo shows headlines and categories, plus optional AI summaries. We do not
+              AniKumo shows headlines and categories, plus optional AI summaries. We do not
               republish full articles inside the app.
             </p>
           </div>

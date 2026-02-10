@@ -129,7 +129,7 @@ function Header(){
                 <Link className="title-link" to="/">
                     <h1 id="Title">
                         <span className="brand-ani">Ani</span>
-                        <span className="brand-kodo">Kodo</span>
+                        <span className="brand-kodo">Kumo</span>
                     </h1>
                 </Link>
             </div>
