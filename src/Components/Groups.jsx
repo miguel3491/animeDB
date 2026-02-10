@@ -38,6 +38,9 @@ function Groups() {
   const navigate = useNavigate();
   const fromPath = `${location.pathname}${location.search || ""}`;
 
+  const [toast, setToast] = useState("");
+  const toastTimeoutRef = useRef(null);
+
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [groupsError, setGroupsError] = useState("");
@@ -73,6 +76,26 @@ function Groups() {
   const myGroupsBackfilledRef = useRef(false);
 
   const canCreate = Boolean(user?.uid);
+
+  const showToast = (message) => {
+    const msg = String(message || "").trim();
+    if (!msg) return;
+    setToast(msg);
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast("");
+    }, 2400);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     pinnedDocsRef.current = pinnedDocs;
@@ -396,7 +419,7 @@ function Groups() {
 
   const togglePin = async (gidRaw, isPinned) => {
     if (!user?.uid) {
-      setStatus("Sign in to pin groups.");
+      showToast("Sign in to pin groups.");
       return;
     }
     const gid = String(gidRaw || "").trim();
@@ -413,6 +436,7 @@ function Groups() {
             return next;
           });
         }, 700);
+        showToast("Unpinned group.");
         return;
       }
       if (pinnedIds.length >= PIN_LIMIT) {
@@ -432,13 +456,17 @@ function Groups() {
           delete next[gid];
           return next;
         });
-      }, 900);
+        }, 900);
+      showToast("Pinned group.");
     } catch (err) {
-      // ignore
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("Failed to toggle pin:", err);
+      }
+      showToast(err?.message || "Unable to pin group.");
     }
   };
 
-  const renderCard = (g, keyPrefix = "g") => {
+  const renderCard = (g, keyPrefix = "g", opts = {}) => {
     const gid = String(g?.id || g?.groupId || "").trim();
     const hydrated = (gid && (groupsById.get(gid) || pinnedDocs[gid])) || null;
     const gName = g?.name || g?.groupName || hydrated?.name || "Untitled group";
@@ -455,6 +483,7 @@ function Groups() {
     const isAdmin = isOwner || String(g?.role || "").toLowerCase() === "admin";
     const isPinned = Boolean(gid && pinnedIds.includes(gid));
     const fx = gid ? pinFx[gid] : "";
+    const showPinButton = Boolean(opts?.showPinButton && user?.uid && gid);
     return (
       <Link
         key={`${keyPrefix}-${gid || gName}`}
@@ -489,7 +518,7 @@ function Groups() {
           <div className="group-card-actions">
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <span className="detail-link">View</span>
-              {gid && (
+              {showPinButton && (
                 <button
                   type="button"
                   className={`group-pin-btn ${isPinned ? "pinned" : ""} ${fx === "pin" ? "pin-fx" : ""} ${
@@ -771,8 +800,8 @@ function Groups() {
             {!loading && groupsError ? <p className="publish-status error">{groupsError}</p> : null}
             {!loading && groups.length === 0 ? <p className="muted">No groups yet. Create the first one.</p> : null}
             <div className={`groups-grid ${viewMode}`}>
-              {pinnedGroupRows.map((g) => renderCard(g, "pinned"))}
-              {browsePageItems.map((g) => renderCard(g, "browse"))}
+              {pinnedGroupRows.map((g) => renderCard(g, "pinned", { showPinButton: false }))}
+              {browsePageItems.map((g) => renderCard(g, "browse", { showPinButton: false }))}
             </div>
             {browsePageCount > 1 && (
               <div className="pagination inbox-pagination" style={{ marginTop: 14 }}>
@@ -794,8 +823,8 @@ function Groups() {
             {!user ? <p className="muted">Sign in to see your groups.</p> : null}
             {user && myGroups.length === 0 ? <p className="muted">You haven't joined any groups yet.</p> : null}
             <div className={`groups-grid ${viewMode}`}>
-              {minePinned.map((g) => renderCard(g, "pinned-mine"))}
-              {minePageItems.map((g) => renderCard(g, "mine"))}
+              {minePinned.map((g) => renderCard(g, "pinned-mine", { showPinButton: true }))}
+              {minePageItems.map((g) => renderCard(g, "mine", { showPinButton: true }))}
             </div>
             {minePageCount > 1 && (
               <div className="pagination inbox-pagination" style={{ marginTop: 14 }}>
@@ -814,6 +843,7 @@ function Groups() {
           </>
         )}
       </section>
+      {toast && <div className="toast">{toast}</div>}
     </div>
   );
 }
