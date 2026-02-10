@@ -226,8 +226,10 @@ function AnimeDetail() {
             </div>
             <p className="detail-synopsis">{anime.synopsis || "No synopsis available."}</p>
             <div className="tag-row">
-              {anime.genres?.map((genre) => (
-                <span className="tag" key={genre.mal_id}>{genre.name}</span>
+              {anime.genres?.map((genre, idx) => (
+                <span className="tag" key={genre?.mal_id ?? `${genre?.name || "genre"}-${idx}`}>
+                  {genre?.name || "Unknown"}
+                </span>
               ))}
             </div>
           </div>
@@ -302,7 +304,12 @@ function AnimeDetail() {
               <h4>Streaming</h4>
               <div className="detail-links">
                 {anime.streaming.map((stream) => (
-                  <a key={stream.name} href={stream.url} target="_blank" rel="noreferrer">
+                  <a
+                    key={`${stream?.name || "stream"}-${stream?.url || ""}`}
+                    href={stream.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
                     {stream.name}
                   </a>
                 ))}
