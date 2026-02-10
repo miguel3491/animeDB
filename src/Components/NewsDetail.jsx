@@ -613,27 +613,37 @@ function NewsDetail() {
               </div>
               <div className="inbox-list">
                 {related.slice(0, 6).map((r) => (
-                  <div key={`rel-${r.id}`} className="inbox-row" style={{ cursor: "default" }}>
+                  <Link
+                    key={`rel-${r.id}`}
+                    className="inbox-row"
+                    to={`/news/${encodeURIComponent(r.id)}`}
+                    state={{ from: `${location.pathname}${location.search || ""}`, item: r }}
+                    onClick={() => {
+                      try {
+                        sessionStorage.setItem(`news-item-${r.id}`, JSON.stringify(r));
+                      } catch (err) {
+                        // ignore
+                      }
+                    }}
+                    title="Open related story"
+                  >
+                    <div className="inbox-avatar placeholder" aria-hidden="true" />
                     <div className="inbox-row-text">
                       <div className="inbox-row-title" style={{ gap: 10 }}>
                         <span style={{ fontWeight: 700 }}>{r.title}</span>
+                        <span className="pill">OPEN</span>
                       </div>
-                      <Link
-                        className="detail-link"
-                        to={`/news/${encodeURIComponent(r.id)}`}
-                        state={{ from: `${location.pathname}${location.search || ""}`, item: r }}
-                        onClick={() => {
-                          try {
-                            sessionStorage.setItem(`news-item-${r.id}`, JSON.stringify(r));
-                          } catch (err) {
-                            // ignore
-                          }
-                        }}
-                      >
-                        Open
-                      </Link>
+                      {r.pubDate ? (
+                        <p className="muted" style={{ marginTop: 6 }}>
+                          {new Date(r.pubDate).toLocaleDateString()}
+                        </p>
+                      ) : (
+                        <p className="muted" style={{ marginTop: 6 }}>
+                          Similar topic
+                        </p>
+                      )}
                     </div>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </div>
