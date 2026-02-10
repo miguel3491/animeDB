@@ -306,7 +306,10 @@ function News() {
     pageItems.forEach((it) => visible.push(it));
     const inflight = contextInFlightRef.current;
     const missing = visible.filter(
-      (it) => it?.id && !context[it.id] && !inflight.has(it.id)
+      (it) =>
+        it?.id &&
+        !Object.prototype.hasOwnProperty.call(context, it.id) &&
+        !inflight.has(it.id)
     );
     if (missing.length === 0) return;
     const missingIds = missing.map((it) => it.id);
