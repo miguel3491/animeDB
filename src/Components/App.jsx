@@ -15,6 +15,7 @@ import PublicProfile from "./PublicProfile";
 import Inbox from "./Inbox";
 import Groups from "./Groups";
 import GroupDetail from "./GroupDetail";
+import GroupThreads from "./GroupThreads";
 
 function App(){
     return(
@@ -38,6 +39,7 @@ function App(){
                         <Route path="/discussion/:id" element={<DiscussionDetail></DiscussionDetail>} />
                         <Route path="/groups" element={<Groups></Groups>} />
                         <Route path="/groups/:id" element={<GroupDetail></GroupDetail>} />
+                        <Route path="/groups/:id/threads" element={<GroupThreads></GroupThreads>} />
                         <Route path="/profile" element={<Profile></Profile>} />
                         <Route path="/profile/:uid" element={<PublicProfile></PublicProfile>} />
                         <Route path="/inbox" element={<Inbox></Inbox>} />

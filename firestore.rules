@@ -157,8 +157,10 @@ service cloud.firestore {
         allow create: if isGroupMember(groupId)
           && request.auth.uid == request.resource.data.userId;
 
-        // optional: allow author edits only
-        allow update: if signedIn() && request.auth.uid == resource.data.userId;
+        // allow limited author edits only (prevents clients from spoofing counters like likeCount)
+        allow update: if signedIn()
+          && request.auth.uid == resource.data.userId
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(["body", "images", "updatedAt", "updatedAtTs"]);
 
         // author OR officer/admin can delete posts
         allow delete: if signedIn()
@@ -166,6 +168,21 @@ service cloud.firestore {
             request.auth.uid == resource.data.userId
             || isGroupOfficer(groupId)
           );
+
+        // Likes are stored as one doc per user: likes/{uid}
+        // We only allow reading/writing your own like doc to avoid exposing the liker list.
+        match /likes/{uid} {
+          allow get: if signedIn() && isGroupMember(groupId) && request.auth.uid == uid;
+          allow list: if false;
+
+          allow create: if signedIn()
+            && isGroupMember(groupId)
+            && request.auth.uid == uid
+            && request.resource.data.uid == uid;
+
+          allow delete: if signedIn() && isGroupMember(groupId) && request.auth.uid == uid;
+          allow update: if false;
+        }
 
         // Approved comments
         match /comments/{commentId} {
@@ -331,4 +348,3 @@ service cloud.firestore {
     }
   }
 }
-

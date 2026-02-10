@@ -193,6 +193,7 @@ exports.cascadeDeleteGroupPost = onDocumentDeleted("groups/{groupId}/posts/{post
     if (typeof db.recursiveDelete === "function") {
       await db.recursiveDelete(postRef.collection("comments"));
       await db.recursiveDelete(postRef.collection("pendingComments"));
+      await db.recursiveDelete(postRef.collection("likes"));
       return;
     }
   } catch (err) {
@@ -202,12 +203,49 @@ exports.cascadeDeleteGroupPost = onDocumentDeleted("groups/{groupId}/posts/{post
   try {
     const comments = postRef.collection("comments").orderBy("createdAt", "asc");
     const pending = postRef.collection("pendingComments").orderBy("createdAt", "asc");
+    const likes = postRef.collection("likes").orderBy("createdAt", "asc");
     const commentsDeleted = await deleteQueryInBatches(comments, 350);
     const pendingDeleted = await deleteQueryInBatches(pending, 350);
-    if (commentsDeleted || pendingDeleted) {
-      console.log("cascadeDeleteGroupPost deleted", { groupId, postId, commentsDeleted, pendingDeleted });
+    const likesDeleted = await deleteQueryInBatches(likes, 350);
+    if (commentsDeleted || pendingDeleted || likesDeleted) {
+      console.log("cascadeDeleteGroupPost deleted", { groupId, postId, commentsDeleted, pendingDeleted, likesDeleted });
     }
   } catch (err) {
     console.log("cascadeDeleteGroupPost failed", { groupId, postId, message: err?.message });
+  }
+});
+
+// Maintain likeCount on group posts.
+// Clients are not allowed to update likeCount directly (rules restrict post updates),
+// so we derive it from likes/{uid} docs.
+exports.syncGroupPostLikeCountOnCreate = onDocumentCreated("groups/{groupId}/posts/{postId}/likes/{uid}", async (event) => {
+  const groupId = event.params.groupId;
+  const postId = event.params.postId;
+  if (!groupId || !postId) return;
+  try {
+    await db.doc(`groups/${groupId}/posts/${postId}`).set(
+      { likeCount: FieldValue.increment(1) },
+      { merge: true }
+    );
+  } catch (err) {
+    console.log("syncGroupPostLikeCountOnCreate failed", { groupId, postId, message: err?.message });
+  }
+});
+
+exports.syncGroupPostLikeCountOnDelete = onDocumentDeleted("groups/{groupId}/posts/{postId}/likes/{uid}", async (event) => {
+  const groupId = event.params.groupId;
+  const postId = event.params.postId;
+  if (!groupId || !postId) return;
+  const ref = db.doc(`groups/${groupId}/posts/${postId}`);
+  try {
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return;
+      const cur = Number(snap.data()?.likeCount || 0);
+      const next = Math.max(0, (Number.isFinite(cur) ? cur : 0) - 1);
+      tx.set(ref, { likeCount: next }, { merge: true });
+    });
+  } catch (err) {
+    console.log("syncGroupPostLikeCountOnDelete failed", { groupId, postId, message: err?.message });
   }
 });

@@ -2952,6 +2952,171 @@ a{
 .group-thread-panel .publish-card {
     background: rgba(16, 26, 48, 0.55);
 }
+.group-threads .group-feed-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 18px;
+    align-items: start;
+    margin-top: 18px;
+}
+.group-threads .group-feed {
+    display: grid;
+    gap: 14px;
+}
+.group-post-card {
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(16, 26, 48, 0.52);
+    border-radius: 18px;
+    padding: 14px;
+    box-shadow: var(--shadow);
+}
+.group-post-card.open {
+    border-color: rgba(122, 252, 255, 0.34);
+    box-shadow: 0 0 0 1px rgba(122, 252, 255, 0.18), var(--shadow);
+}
+.group-post-head {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    justify-content: space-between;
+}
+.group-post-head-text {
+    flex: 1;
+    min-width: 0;
+}
+.group-post-head-row {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    justify-content: space-between;
+}
+.group-post-date {
+    white-space: nowrap;
+    margin-left: 10px;
+}
+.group-post-subrow {
+    margin-top: 6px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.group-post-head-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+.group-post-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    object-fit: cover;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    flex: 0 0 auto;
+}
+.group-post-avatar.placeholder {
+    display: grid;
+    place-items: center;
+}
+.group-post-body {
+    margin-top: 12px;
+    margin-bottom: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.group-post-images {
+    margin-top: 12px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+.group-post-image {
+    width: 100%;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+}
+.group-post-footer {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-top: 12px;
+}
+.group-like-btn,
+.group-comment-btn {
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    display: inline-flex;
+    gap: 10px;
+    align-items: center;
+    transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+.group-like-btn:hover,
+.group-comment-btn:hover {
+    transform: translateY(-1px);
+    border-color: rgba(122, 252, 255, 0.22);
+    background: rgba(122, 252, 255, 0.08);
+}
+.group-like-btn.liked {
+    border-color: rgba(255, 107, 156, 0.38);
+    background: rgba(255, 107, 156, 0.12);
+    color: rgba(255, 224, 238, 0.98);
+}
+.group-like-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+}
+.group-like-count {
+    font-size: 12px;
+    opacity: 0.9;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.12);
+}
+.group-like-btn.burst {
+    animation: groupLikePop 420ms ease;
+}
+@keyframes groupLikePop {
+    0% { transform: scale(1); }
+    45% { transform: scale(1.12); }
+    100% { transform: scale(1); }
+}
+.group-thread-area {
+    margin-top: 14px;
+}
+.group-threads .group-thread-compose textarea {
+    width: 100%;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text);
+    border-radius: 14px;
+    padding: 10px 12px;
+    font-size: 14px;
+    line-height: 1.3;
+    resize: vertical;
+}
+.group-threads .group-feed-aside {
+    position: sticky;
+    top: 86px;
+}
+@media (max-width: 980px) {
+    .group-threads .group-feed-layout {
+        grid-template-columns: 1fr;
+    }
+    .group-threads .group-feed-aside {
+        position: static;
+    }
+}
 @media (max-width: 980px) {
     .group-thread-split {
         grid-template-columns: 1fr;

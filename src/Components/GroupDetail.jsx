@@ -51,7 +51,7 @@ function GroupDetail() {
   const [myMember, setMyMember] = useState(null);
   const [status, setStatus] = useState("");
   const [memberPage, setMemberPage] = useState(0);
-  const [tab, setTab] = useState("threads"); // threads | members
+  const [tab, setTab] = useState("members"); // legacy: keep state so older thread code can stay gated
 
   const [posts, setPosts] = useState([]);
   const [postsLoading, setPostsLoading] = useState(false);
@@ -132,7 +132,7 @@ function GroupDetail() {
       },
       () => setMembers([])
     );
-  }, [groupId, myMember, user?.uid]);
+  }, [groupId, myMember, tab, user?.uid]);
 
   useEffect(() => {
     setMemberPage(0);
@@ -545,7 +545,7 @@ function GroupDetail() {
   }, [groupId, posts.length]);
 
   useEffect(() => {
-    if (!groupId || !user?.uid || !myMember) {
+    if (tab !== "threads" || !groupId || !user?.uid || !myMember) {
       setPosts([]);
       setPostsLoading(false);
       return;
@@ -567,7 +567,7 @@ function GroupDetail() {
   }, [groupId, myMember, user?.uid]);
 
   useEffect(() => {
-    if (!groupId || !user?.uid || !myMember || !openPostId) {
+    if (tab !== "threads" || !groupId || !user?.uid || !myMember || !openPostId) {
       setComments([]);
       setPendingComments([]);
       return;
@@ -596,7 +596,7 @@ function GroupDetail() {
       unsubApproved();
       if (unsubPending) unsubPending();
     };
-  }, [canManageMembers, commentApprovalEnabled, groupId, myMember, openPostId, user?.uid]);
+  }, [canManageMembers, commentApprovalEnabled, groupId, myMember, openPostId, tab, user?.uid]);
 
   useEffect(() => {
     setCommentPage(0);
@@ -890,7 +890,11 @@ function GroupDetail() {
         )}
 
         <div className="group-tabbar" style={{ marginTop: 18 }}>
-          <button type="button" className={tab === "threads" ? "active" : ""} onClick={() => setTab("threads")}>
+          <button
+            type="button"
+            onClick={() => navigate(`/groups/${groupId}/threads`, { state: { from: fromPath } })}
+            title="Open the dedicated Threads feed"
+          >
             Threads
           </button>
           <button type="button" className={tab === "members" ? "active" : ""} onClick={() => setTab("members")}>
