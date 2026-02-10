@@ -30,6 +30,7 @@ const jikanInflight = new Map();
 const JIKAN_TTL = 2 * 60 * 1000;
 const JIKAN_TOP_TTL = 5 * 60 * 1000;
 const JIKAN_SEASON_TTL = 10 * 60 * 1000;
+const JIKAN_DETAIL_TTL = 12 * 60 * 60 * 1000;
 const STALE_MAX = 15 * 60 * 1000;
 const MAX_JIKAN_CACHE = 1500;
 const anilistCache = new Map();
@@ -49,6 +50,7 @@ const MAX_IMAGE_PROXY_CACHE = 220;
 const ANN_TTL = 5 * 60 * 1000;
 const mangaSeasonLastPageCache = new Map();
 const MANGA_SEASON_LASTPAGE_TTL = 60 * 60 * 1000;
+const CATALOG_PRIMARY = String(process.env.CATALOG_PRIMARY || "anilist").trim().toLowerCase();
 
 const shouldServeStale = (cached, ttl) => {
   if (!cached) return false;
@@ -82,6 +84,19 @@ const absFromBase = (value, baseUrl) => {
 };
 
 const stripTags = (value = "") => String(value).replace(/<[^>]+>/g, "").trim();
+const cleanText = (value = "") =>
+  stripTags(String(value || ""))
+    .replace(/\s+/g, " ")
+    .trim();
+
+const buildTrailerEmbedUrl = (trailer) => {
+  const id = String(trailer?.id || "").trim();
+  const site = String(trailer?.site || "").trim().toLowerCase();
+  if (!id) return "";
+  if (site === "youtube") return `https://www.youtube.com/embed/${id}`;
+  if (site === "dailymotion") return `https://www.dailymotion.com/embed/video/${id}`;
+  return "";
+};
 
 const decodeHtml = (value = "") => {
   // Google Translate v2 returns HTML-escaped strings.
@@ -1107,10 +1122,16 @@ app.get("/api/jikan", async (req, res) => {
   }
 
   const endpoint = type === "manga" ? "manga" : "anime";
-  const base = `https://api.jikan.moe/v4/${endpoint}?q=${encodeURIComponent(trimmed)}&page=${encodeURIComponent(page)}`;
+  const perPage = Math.max(1, Math.min(25, Number(limit) || 20));
+  const pageNum = Math.max(1, Number(page) || 1);
+  const primary = CATALOG_PRIMARY === "jikan" ? "jikan" : "anilist";
+
+  const base = `https://api.jikan.moe/v4/${endpoint}?q=${encodeURIComponent(trimmed)}&page=${encodeURIComponent(pageNum)}`;
   const withFields = fields ? `${base}&fields=${encodeURIComponent(fields)}` : base;
-  const url = limit ? `${withFields}&limit=${encodeURIComponent(limit)}` : withFields;
-  const cached = jikanCache.get(url);
+  const jikanUrl = limit ? `${withFields}&limit=${encodeURIComponent(perPage)}` : withFields;
+  const cacheKey = `catalog-search|primary=${primary}|type=${endpoint}|q=${trimmed}|page=${pageNum}|perPage=${perPage}|fields=${fields || ""}`;
+
+  const cached = jikanCache.get(cacheKey);
   const now = Date.now();
   if (cached && now - cached.ts < JIKAN_TTL) {
     return res.json(cached.data);
@@ -1118,208 +1139,231 @@ app.get("/api/jikan", async (req, res) => {
   if (shouldServeStale(cached, JIKAN_TTL)) {
     res.set("X-Cache", "STALE");
     res.json(cached.data);
-    withInflight(jikanInflight, url, async () => {
-      const response = await fetchJikanWithRetry(url, { timeoutMs: 10000, retries: 3 });
-      if (response && response.ok) {
-        const data = await response.json();
-        cacheSetBounded(jikanCache, url, { data, ts: Date.now() }, MAX_JIKAN_CACHE);
-        return { status: 200, data };
-      }
-
-      // Fallback to AniList search when Jikan is unavailable.
-      const aniQuery = `
-        query ($page: Int, $perPage: Int, $search: String, $type: MediaType) {
-          Page(page: $page, perPage: $perPage) {
-            pageInfo { currentPage lastPage hasNextPage }
-            media(search: $search, type: $type, sort: SEARCH_MATCH) {
-              idMal
-              title { userPreferred english romaji }
-              coverImage { extraLarge large }
-              genres
-              format
-              episodes
-              chapters
-              description(asHtml: false)
-              averageScore
-              duration
-              source
-              status
-              trailer { site id }
+    withInflight(jikanInflight, cacheKey, async () => {
+      const attemptAniList = async () => {
+        const aniQuery = `
+          query ($page: Int, $perPage: Int, $search: String, $type: MediaType) {
+            Page(page: $page, perPage: $perPage) {
+              pageInfo { currentPage lastPage hasNextPage }
+              media(search: $search, type: $type, sort: SEARCH_MATCH) {
+                idMal
+                title { userPreferred english romaji }
+                coverImage { extraLarge large }
+                genres
+                format
+                episodes
+                chapters
+                description(asHtml: false)
+                averageScore
+                duration
+                source
+                status
+                trailer { site id }
+              }
             }
           }
-        }
-      `;
-      const variables = {
-        page: Number(page) || 1,
-        perPage: Number(limit) || 20,
-        search: String(trimmed),
-        type: endpoint === "manga" ? "MANGA" : "ANIME"
-      };
-      const aniResp = await fetchAniListWithRetry("https://graphql.anilist.co", {
-        timeoutMs: 12000,
-        retries: 3,
-        init: {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ query: aniQuery, variables })
-        }
-      });
-      if (!aniResp || !aniResp.ok) {
-        const status = aniResp?.status || response?.status || 502;
-        const err = new Error("Jikan search failed");
-        err.status = status;
-        throw err;
-      }
-      const json = await aniResp.json().catch(() => ({}));
-      const media = json?.data?.Page?.media || [];
-      const pageInfo = json?.data?.Page?.pageInfo || {};
-      const mapped = media.map((item) => {
-        const title =
-          item?.title?.userPreferred ||
-          item?.title?.english ||
-          item?.title?.romaji ||
-          "Unknown title";
-        const image = item?.coverImage?.extraLarge || item?.coverImage?.large || "";
-        const trailerId = item?.trailer?.id;
-        const trailerSite = (item?.trailer?.site || "").toLowerCase();
-        const embedUrl =
-          trailerSite === "youtube" && trailerId
-            ? `https://www.youtube.com/embed/${trailerId}`
-            : trailerSite === "dailymotion" && trailerId
-            ? `https://www.dailymotion.com/embed/video/${trailerId}`
-            : "";
-        return {
-          mal_id: item?.idMal || null,
-          title,
-          images: image
-            ? { jpg: { image_url: image }, webp: { image_url: image } }
-            : { jpg: { image_url: "" }, webp: { image_url: "" } },
-          genres: Array.isArray(item?.genres) ? item.genres.map((name) => ({ name })) : [],
-          type: item?.format || null,
-          episodes: endpoint === "anime" ? item?.episodes ?? null : undefined,
-          chapters: endpoint === "manga" ? item?.chapters ?? null : undefined,
-          synopsis: item?.description || "",
-          score: item?.averageScore ? Number(item.averageScore) / 10 : null,
-          duration: item?.duration ? `${item.duration} min per ep.` : null,
-          source: item?.source || null,
-          status: item?.status || null,
-          trailer: embedUrl ? { embed_url: embedUrl } : null
+        `;
+        const variables = {
+          page: pageNum,
+          perPage,
+          search: String(trimmed),
+          type: endpoint === "manga" ? "MANGA" : "ANIME"
         };
-      });
-      const payload = {
-        data: mapped,
-        pagination: {
-          current_page: pageInfo.currentPage || Number(page) || 1,
-          last_visible_page: pageInfo.lastPage || Number(page) || 1,
-          has_next_page: Boolean(pageInfo.hasNextPage)
-        },
-        fromAniList: true
+        const aniResp = await fetchAniListWithRetry("https://graphql.anilist.co", {
+          timeoutMs: 12000,
+          retries: 3,
+          init: {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ query: aniQuery, variables })
+          }
+        });
+        if (!aniResp || !aniResp.ok) {
+          const err = new Error("AniList search failed");
+          err.status = aniResp?.status || 502;
+          throw err;
+        }
+        const json = await aniResp.json().catch(() => ({}));
+        const media = json?.data?.Page?.media || [];
+        const pageInfo = json?.data?.Page?.pageInfo || {};
+        const mapped = media.map((item) => {
+          const title =
+            item?.title?.userPreferred ||
+            item?.title?.english ||
+            item?.title?.romaji ||
+            "Unknown title";
+          const image = item?.coverImage?.extraLarge || item?.coverImage?.large || "";
+          const embedUrl = buildTrailerEmbedUrl(item?.trailer);
+          return {
+            mal_id: item?.idMal || null,
+            title,
+            images: image
+              ? { jpg: { image_url: image }, webp: { image_url: image } }
+              : { jpg: { image_url: "" }, webp: { image_url: "" } },
+            genres: Array.isArray(item?.genres) ? item.genres.map((name) => ({ name })) : [],
+            type: item?.format || null,
+            episodes: endpoint === "anime" ? item?.episodes ?? null : undefined,
+            chapters: endpoint === "manga" ? item?.chapters ?? null : undefined,
+            synopsis: cleanText(item?.description || ""),
+            score: item?.averageScore ? Number(item.averageScore) / 10 : null,
+            duration: item?.duration ? `${item.duration} min per ep.` : null,
+            source: item?.source || null,
+            status: item?.status || null,
+            trailer: embedUrl ? { embed_url: embedUrl } : null
+          };
+        });
+        return {
+          data: mapped,
+          pagination: {
+            current_page: pageInfo.currentPage || pageNum,
+            last_visible_page: pageInfo.lastPage || pageNum,
+            has_next_page: Boolean(pageInfo.hasNextPage)
+          },
+          fromAniList: true
+        };
       };
-      cacheSetBounded(jikanCache, url, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
+
+      const attemptJikan = async () => {
+        const response = await fetchJikanWithRetry(jikanUrl, { timeoutMs: 10000, retries: 3 });
+        if (!response || !response.ok) {
+          const err = new Error("Jikan search failed");
+          err.status = response?.status || 502;
+          throw err;
+        }
+        return await response.json();
+      };
+
+      let payload;
+      if (primary === "anilist") {
+        try {
+          payload = await attemptAniList();
+        } catch (err) {
+          payload = await attemptJikan();
+        }
+      } else {
+        try {
+          payload = await attemptJikan();
+        } catch (err) {
+          payload = await attemptAniList();
+        }
+      }
+      cacheSetBounded(jikanCache, cacheKey, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
       return { status: 200, data: payload };
     }).catch(() => {});
     return;
   }
 
   try {
-    const result = await withInflight(jikanInflight, url, async () => {
-      const response = await fetchJikanWithRetry(url, { timeoutMs: 10000, retries: 3 });
-      if (response && response.ok) {
-        const data = await response.json();
-        cacheSetBounded(jikanCache, url, { data, ts: Date.now() }, MAX_JIKAN_CACHE);
-        return { status: 200, data };
-      }
-
-      // Fallback to AniList search when Jikan is unavailable.
-      const aniQuery = `
-        query ($page: Int, $perPage: Int, $search: String, $type: MediaType) {
-          Page(page: $page, perPage: $perPage) {
-            pageInfo { currentPage lastPage hasNextPage }
-            media(search: $search, type: $type, sort: SEARCH_MATCH) {
-              idMal
-              title { userPreferred english romaji }
-              coverImage { extraLarge large }
-              genres
-              format
-              episodes
-              chapters
-              description(asHtml: false)
-              averageScore
-              duration
-              source
-              status
-              trailer { site id }
+    const result = await withInflight(jikanInflight, cacheKey, async () => {
+      const attemptAniList = async () => {
+        const aniQuery = `
+          query ($page: Int, $perPage: Int, $search: String, $type: MediaType) {
+            Page(page: $page, perPage: $perPage) {
+              pageInfo { currentPage lastPage hasNextPage }
+              media(search: $search, type: $type, sort: SEARCH_MATCH) {
+                idMal
+                title { userPreferred english romaji }
+                coverImage { extraLarge large }
+                genres
+                format
+                episodes
+                chapters
+                description(asHtml: false)
+                averageScore
+                duration
+                source
+                status
+                trailer { site id }
+              }
             }
           }
-        }
-      `;
-      const variables = {
-        page: Number(page) || 1,
-        perPage: Number(limit) || 20,
-        search: String(trimmed),
-        type: endpoint === "manga" ? "MANGA" : "ANIME"
-      };
-      const aniResp = await fetchAniListWithRetry("https://graphql.anilist.co", {
-        timeoutMs: 12000,
-        retries: 3,
-        init: {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ query: aniQuery, variables })
-        }
-      });
-      if (!aniResp || !aniResp.ok) {
-        const status = aniResp?.status || response?.status || 502;
-        const err = new Error("Jikan search failed");
-        err.status = status;
-        throw err;
-      }
-      const json = await aniResp.json().catch(() => ({}));
-      const media = json?.data?.Page?.media || [];
-      const pageInfo = json?.data?.Page?.pageInfo || {};
-      const mapped = media.map((item) => {
-        const title =
-          item?.title?.userPreferred ||
-          item?.title?.english ||
-          item?.title?.romaji ||
-          "Unknown title";
-        const image = item?.coverImage?.extraLarge || item?.coverImage?.large || "";
-        const trailerId = item?.trailer?.id;
-        const trailerSite = (item?.trailer?.site || "").toLowerCase();
-        const embedUrl =
-          trailerSite === "youtube" && trailerId
-            ? `https://www.youtube.com/embed/${trailerId}`
-            : trailerSite === "dailymotion" && trailerId
-            ? `https://www.dailymotion.com/embed/video/${trailerId}`
-            : "";
-        return {
-          mal_id: item?.idMal || null,
-          title,
-          images: image
-            ? { jpg: { image_url: image }, webp: { image_url: image } }
-            : { jpg: { image_url: "" }, webp: { image_url: "" } },
-          genres: Array.isArray(item?.genres) ? item.genres.map((name) => ({ name })) : [],
-          type: item?.format || null,
-          episodes: endpoint === "anime" ? item?.episodes ?? null : undefined,
-          chapters: endpoint === "manga" ? item?.chapters ?? null : undefined,
-          synopsis: item?.description || "",
-          score: item?.averageScore ? Number(item.averageScore) / 10 : null,
-          duration: item?.duration ? `${item.duration} min per ep.` : null,
-          source: item?.source || null,
-          status: item?.status || null,
-          trailer: embedUrl ? { embed_url: embedUrl } : null
+        `;
+        const variables = {
+          page: pageNum,
+          perPage,
+          search: String(trimmed),
+          type: endpoint === "manga" ? "MANGA" : "ANIME"
         };
-      });
-      const payload = {
-        data: mapped,
-        pagination: {
-          current_page: pageInfo.currentPage || Number(page) || 1,
-          last_visible_page: pageInfo.lastPage || Number(page) || 1,
-          has_next_page: Boolean(pageInfo.hasNextPage)
-        },
-        fromAniList: true
+        const aniResp = await fetchAniListWithRetry("https://graphql.anilist.co", {
+          timeoutMs: 12000,
+          retries: 3,
+          init: {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ query: aniQuery, variables })
+          }
+        });
+        if (!aniResp || !aniResp.ok) {
+          const err = new Error("AniList search failed");
+          err.status = aniResp?.status || 502;
+          throw err;
+        }
+        const json = await aniResp.json().catch(() => ({}));
+        const media = json?.data?.Page?.media || [];
+        const pageInfo = json?.data?.Page?.pageInfo || {};
+        const mapped = media.map((item) => {
+          const title =
+            item?.title?.userPreferred ||
+            item?.title?.english ||
+            item?.title?.romaji ||
+            "Unknown title";
+          const image = item?.coverImage?.extraLarge || item?.coverImage?.large || "";
+          const embedUrl = buildTrailerEmbedUrl(item?.trailer);
+          return {
+            mal_id: item?.idMal || null,
+            title,
+            images: image
+              ? { jpg: { image_url: image }, webp: { image_url: image } }
+              : { jpg: { image_url: "" }, webp: { image_url: "" } },
+            genres: Array.isArray(item?.genres) ? item.genres.map((name) => ({ name })) : [],
+            type: item?.format || null,
+            episodes: endpoint === "anime" ? item?.episodes ?? null : undefined,
+            chapters: endpoint === "manga" ? item?.chapters ?? null : undefined,
+            synopsis: cleanText(item?.description || ""),
+            score: item?.averageScore ? Number(item.averageScore) / 10 : null,
+            duration: item?.duration ? `${item.duration} min per ep.` : null,
+            source: item?.source || null,
+            status: item?.status || null,
+            trailer: embedUrl ? { embed_url: embedUrl } : null
+          };
+        });
+        return {
+          data: mapped,
+          pagination: {
+            current_page: pageInfo.currentPage || pageNum,
+            last_visible_page: pageInfo.lastPage || pageNum,
+            has_next_page: Boolean(pageInfo.hasNextPage)
+          },
+          fromAniList: true
+        };
       };
-      cacheSetBounded(jikanCache, url, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
+
+      const attemptJikan = async () => {
+        const response = await fetchJikanWithRetry(jikanUrl, { timeoutMs: 10000, retries: 3 });
+        if (!response || !response.ok) {
+          const err = new Error("Jikan search failed");
+          err.status = response?.status || 502;
+          throw err;
+        }
+        return await response.json();
+      };
+
+      let payload;
+      if (primary === "anilist") {
+        try {
+          payload = await attemptAniList();
+        } catch (err) {
+          payload = await attemptJikan();
+        }
+      } else {
+        try {
+          payload = await attemptJikan();
+        } catch (err) {
+          payload = await attemptAniList();
+        }
+      }
+
+      cacheSetBounded(jikanCache, cacheKey, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
       return { status: 200, data: payload };
     });
     return res.status(result.status).json(result.data);
@@ -1335,12 +1379,14 @@ app.get("/api/jikan", async (req, res) => {
 app.get("/api/jikan/season", async (req, res) => {
   const limit = Math.max(1, Math.min(20, Number(req.query?.limit) || 10));
   const page = Math.max(1, Number(req.query?.page) || 1);
+  const primary = CATALOG_PRIMARY === "jikan" ? "jikan" : "anilist";
   const fields = "mal_id,title,images,aired";
-  const url = `https://api.jikan.moe/v4/seasons/now?filter=tv&limit=${encodeURIComponent(
+  const jikanUrl = `https://api.jikan.moe/v4/seasons/now?filter=tv&limit=${encodeURIComponent(
     limit
   )}&page=${encodeURIComponent(page)}&fields=${encodeURIComponent(fields)}`;
+  const cacheKey = `catalog-season-now|primary=${primary}|limit=${limit}|page=${page}`;
 
-  const cached = jikanCache.get(url);
+  const cached = jikanCache.get(cacheKey);
   const now = Date.now();
   if (cached && now - cached.ts < JIKAN_SEASON_TTL) {
     return res.json(cached.data);
@@ -1348,89 +1394,189 @@ app.get("/api/jikan/season", async (req, res) => {
   if (shouldServeStale(cached, JIKAN_SEASON_TTL)) {
     res.set("X-Cache", "STALE");
     res.json(cached.data);
-    withInflight(jikanInflight, url, async () => {
-      const response = await fetchJikanWithRetry(url, { timeoutMs: 10000, retries: 3 });
-      if (response && response.ok) {
+    withInflight(jikanInflight, cacheKey, async () => {
+      const attemptAniList = async () => {
+        const nowDate = new Date();
+        const seasonYear = nowDate.getFullYear();
+        const season = seasonFromMonth(nowDate.getMonth() + 1);
+        const aniQuery = `
+          query ($page: Int, $perPage: Int, $season: MediaSeason, $seasonYear: Int) {
+            Page(page: $page, perPage: $perPage) {
+              pageInfo { currentPage lastPage hasNextPage }
+              media(type: ANIME, season: $season, seasonYear: $seasonYear, sort: POPULARITY_DESC) {
+                idMal
+                title { userPreferred english romaji }
+                coverImage { extraLarge large }
+                startDate { year month day }
+              }
+            }
+          }
+        `;
+        const variables = { page: 1, perPage: limit, season, seasonYear };
+        const aniResp = await fetchAniListWithRetry("https://graphql.anilist.co", {
+          timeoutMs: 12000,
+          retries: 3,
+          init: {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ query: aniQuery, variables })
+          }
+        });
+        if (!aniResp || !aniResp.ok) {
+          const err = new Error("Seasonal feed unavailable");
+          err.status = aniResp?.status || 502;
+          throw err;
+        }
+        const json = await aniResp.json().catch(() => ({}));
+        const media = json?.data?.Page?.media || [];
+        const mapped = media.map((item) => {
+          const title =
+            item?.title?.userPreferred ||
+            item?.title?.english ||
+            item?.title?.romaji ||
+            "Unknown title";
+          const image = item?.coverImage?.extraLarge || item?.coverImage?.large || "";
+          const start = item?.startDate || {};
+          const from = toIsoDate(start.year, start.month, start.day);
+          return {
+            mal_id: item?.idMal || null,
+            title,
+            images: image
+              ? { jpg: { image_url: image }, webp: { image_url: image } }
+              : { jpg: { image_url: "" }, webp: { image_url: "" } },
+            aired: from ? { from } : { from: null }
+          };
+        });
+        return {
+          data: mapped.filter((item) => isoToYear(item?.aired?.from) >= 2025),
+          fromAniList: true
+        };
+      };
+
+      const attemptJikan = async () => {
+        const response = await fetchJikanWithRetry(jikanUrl, { timeoutMs: 10000, retries: 3 });
+        if (!response || !response.ok) {
+          const err = new Error("Seasonal feed unavailable");
+          err.status = response?.status || 502;
+          throw err;
+        }
         const data = await response.json();
         if (Array.isArray(data?.data)) {
           data.data = data.data.filter((item) => isoToYear(item?.aired?.from) >= 2025);
         }
-        cacheSetBounded(jikanCache, url, { data, ts: Date.now() }, MAX_JIKAN_CACHE);
-        return { status: 200, data };
+        return data;
+      };
+
+      let payload;
+      if (primary === "anilist") {
+        try {
+          payload = await attemptAniList();
+        } catch (err) {
+          payload = await attemptJikan();
+        }
+      } else {
+        try {
+          payload = await attemptJikan();
+        } catch (err) {
+          payload = await attemptAniList();
+        }
       }
-      throw new Error("stale-refresh-failed");
+
+      cacheSetBounded(jikanCache, cacheKey, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
+      return { status: 200, data: payload };
     }).catch(() => {});
     return;
   }
 
   try {
-    const result = await withInflight(jikanInflight, url, async () => {
-      const response = await fetchJikanWithRetry(url, { timeoutMs: 10000, retries: 3 });
-      if (response && response.ok) {
+    const result = await withInflight(jikanInflight, cacheKey, async () => {
+      const attemptAniList = async () => {
+        const nowDate = new Date();
+        const seasonYear = nowDate.getFullYear();
+        const season = seasonFromMonth(nowDate.getMonth() + 1);
+        const aniQuery = `
+          query ($page: Int, $perPage: Int, $season: MediaSeason, $seasonYear: Int) {
+            Page(page: $page, perPage: $perPage) {
+              pageInfo { currentPage lastPage hasNextPage }
+              media(type: ANIME, season: $season, seasonYear: $seasonYear, sort: POPULARITY_DESC) {
+                idMal
+                title { userPreferred english romaji }
+                coverImage { extraLarge large }
+                startDate { year month day }
+              }
+            }
+          }
+        `;
+        const variables = { page: 1, perPage: limit, season, seasonYear };
+        const aniResp = await fetchAniListWithRetry("https://graphql.anilist.co", {
+          timeoutMs: 12000,
+          retries: 3,
+          init: {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ query: aniQuery, variables })
+          }
+        });
+        if (!aniResp || !aniResp.ok) {
+          const err = new Error("Seasonal feed unavailable");
+          err.status = aniResp?.status || 502;
+          throw err;
+        }
+        const json = await aniResp.json().catch(() => ({}));
+        const media = json?.data?.Page?.media || [];
+        const mapped = media.map((item) => {
+          const title =
+            item?.title?.userPreferred ||
+            item?.title?.english ||
+            item?.title?.romaji ||
+            "Unknown title";
+          const image = item?.coverImage?.extraLarge || item?.coverImage?.large || "";
+          const start = item?.startDate || {};
+          const from = toIsoDate(start.year, start.month, start.day);
+          return {
+            mal_id: item?.idMal || null,
+            title,
+            images: image
+              ? { jpg: { image_url: image }, webp: { image_url: image } }
+              : { jpg: { image_url: "" }, webp: { image_url: "" } },
+            aired: from ? { from } : { from: null }
+          };
+        });
+        return {
+          data: mapped.filter((item) => isoToYear(item?.aired?.from) >= 2025),
+          fromAniList: true
+        };
+      };
+
+      const attemptJikan = async () => {
+        const response = await fetchJikanWithRetry(jikanUrl, { timeoutMs: 10000, retries: 3 });
+        if (!response || !response.ok) {
+          const err = new Error("Seasonal feed unavailable");
+          err.status = response?.status || 502;
+          throw err;
+        }
         const data = await response.json();
         if (Array.isArray(data?.data)) {
           data.data = data.data.filter((item) => isoToYear(item?.aired?.from) >= 2025);
         }
-        cacheSetBounded(jikanCache, url, { data, ts: Date.now() }, MAX_JIKAN_CACHE);
-        return { status: 200, data };
-      }
-
-      const nowDate = new Date();
-      const seasonYear = nowDate.getFullYear();
-      const season = seasonFromMonth(nowDate.getMonth() + 1);
-      const aniQuery = `
-        query ($page: Int, $perPage: Int, $season: MediaSeason, $seasonYear: Int) {
-          Page(page: $page, perPage: $perPage) {
-            pageInfo { currentPage lastPage hasNextPage }
-            media(type: ANIME, season: $season, seasonYear: $seasonYear, sort: POPULARITY_DESC) {
-              idMal
-              title { userPreferred english romaji }
-              coverImage { extraLarge large }
-              startDate { year month day }
-            }
-          }
-        }
-      `;
-      const variables = { page: 1, perPage: limit, season, seasonYear };
-      const aniResp = await fetchAniListWithRetry("https://graphql.anilist.co", {
-        timeoutMs: 12000,
-        retries: 3,
-        init: {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ query: aniQuery, variables })
-        }
-      });
-      if (!aniResp || !aniResp.ok) {
-        const err = new Error("Seasonal feed unavailable");
-        err.status = aniResp?.status || response?.status || 502;
-        throw err;
-      }
-      const json = await aniResp.json().catch(() => ({}));
-      const media = json?.data?.Page?.media || [];
-      const mapped = media.map((item) => {
-        const title =
-          item?.title?.userPreferred ||
-          item?.title?.english ||
-          item?.title?.romaji ||
-          "Unknown title";
-        const image = item?.coverImage?.extraLarge || item?.coverImage?.large || "";
-        const start = item?.startDate || {};
-        const from = toIsoDate(start.year, start.month, start.day);
-        return {
-          mal_id: item?.idMal || null,
-          title,
-          images: image
-            ? { jpg: { image_url: image }, webp: { image_url: image } }
-            : { jpg: { image_url: "" }, webp: { image_url: "" } },
-          aired: from ? { from } : { from: null }
-        };
-      });
-      const payload = {
-        data: mapped.filter((item) => isoToYear(item?.aired?.from) >= 2025),
-        fromAniList: true
+        return data;
       };
-      cacheSetBounded(jikanCache, url, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
+
+      let payload;
+      if (primary === "anilist") {
+        try {
+          payload = await attemptAniList();
+        } catch (err) {
+          payload = await attemptJikan();
+        }
+      } else {
+        try {
+          payload = await attemptJikan();
+        } catch (err) {
+          payload = await attemptAniList();
+        }
+      }
+      cacheSetBounded(jikanCache, cacheKey, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
       return { status: 200, data: payload };
     });
     return res.status(result.status).json(result.data);
@@ -1448,6 +1594,7 @@ app.get("/api/jikan/anime/seasonal", async (req, res) => {
   const season = normalizeSeason(req.query?.season);
   const limit = Math.max(1, Math.min(25, Number(req.query?.limit) || 20));
   const page = Math.max(1, Number(req.query?.page) || 1);
+  const primary = CATALOG_PRIMARY === "jikan" ? "jikan" : "anilist";
 
   if (!year || year < 2025) {
     return res.status(400).json({ error: "year must be 2025 or later" });
@@ -1457,13 +1604,14 @@ app.get("/api/jikan/anime/seasonal", async (req, res) => {
   }
 
   const fields = "mal_id,title,images,aired";
-  const url = `https://api.jikan.moe/v4/seasons/${encodeURIComponent(
+  const jikanUrl = `https://api.jikan.moe/v4/seasons/${encodeURIComponent(
     year
   )}/${encodeURIComponent(season)}?filter=tv&limit=${encodeURIComponent(
     limit
   )}&page=${encodeURIComponent(page)}&fields=${encodeURIComponent(fields)}`;
+  const cacheKey = `catalog-anime-seasonal|primary=${primary}|year=${year}|season=${season}|page=${page}|limit=${limit}`;
 
-  const cached = jikanCache.get(url);
+  const cached = jikanCache.get(cacheKey);
   const now = Date.now();
   if (cached && now - cached.ts < JIKAN_SEASON_TTL) {
     return res.json(cached.data);
@@ -1471,100 +1619,212 @@ app.get("/api/jikan/anime/seasonal", async (req, res) => {
   if (shouldServeStale(cached, JIKAN_SEASON_TTL)) {
     res.set("X-Cache", "STALE");
     res.json(cached.data);
-    withInflight(jikanInflight, url, async () => {
-      const response = await fetchJikanWithRetry(url, { timeoutMs: 10000, retries: 3 });
-      if (response && response.ok) {
+    withInflight(jikanInflight, cacheKey, async () => {
+      const attemptAniList = async () => {
+        const aniQuery = `
+          query ($page: Int, $perPage: Int, $season: MediaSeason, $seasonYear: Int) {
+            Page(page: $page, perPage: $perPage) {
+              pageInfo { currentPage lastPage hasNextPage }
+              media(type: ANIME, season: $season, seasonYear: $seasonYear, sort: POPULARITY_DESC) {
+                idMal
+                title { userPreferred english romaji }
+                coverImage { extraLarge large }
+                startDate { year month day }
+              }
+            }
+          }
+        `;
+        const variables = {
+          page,
+          perPage: limit,
+          season: season.toUpperCase(),
+          seasonYear: year
+        };
+        const aniResp = await fetchAniListWithRetry("https://graphql.anilist.co", {
+          timeoutMs: 12000,
+          retries: 3,
+          init: {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ query: aniQuery, variables })
+          }
+        });
+        if (!aniResp || !aniResp.ok) {
+          const err = new Error("Seasonal feed unavailable");
+          err.status = aniResp?.status || 502;
+          throw err;
+        }
+
+        const json = await aniResp.json().catch(() => ({}));
+        const media = json?.data?.Page?.media || [];
+        const pageInfo = json?.data?.Page?.pageInfo || {};
+        const mapped = media
+          .map((item) => {
+            const title =
+              item?.title?.userPreferred ||
+              item?.title?.english ||
+              item?.title?.romaji ||
+              "Unknown title";
+            const image = item?.coverImage?.extraLarge || item?.coverImage?.large || "";
+            const start = item?.startDate || {};
+            const from = toIsoDate(start.year, start.month, start.day);
+            return {
+              mal_id: item?.idMal || null,
+              title,
+              images: image
+                ? { jpg: { image_url: image }, webp: { image_url: image } }
+                : { jpg: { image_url: "" }, webp: { image_url: "" } },
+              aired: from ? { from } : { from: null }
+            };
+          })
+          .filter((item) => isoToYear(item?.aired?.from) >= 2025);
+        return {
+          data: mapped,
+          pagination: {
+            current_page: pageInfo.currentPage || page,
+            last_visible_page: pageInfo.lastPage || page,
+            has_next_page: Boolean(pageInfo.hasNextPage)
+          },
+          fromAniList: true
+        };
+      };
+
+      const attemptJikan = async () => {
+        const response = await fetchJikanWithRetry(jikanUrl, { timeoutMs: 10000, retries: 3 });
+        if (!response || !response.ok) {
+          const err = new Error("Seasonal feed unavailable");
+          err.status = response?.status || 502;
+          throw err;
+        }
         const data = await response.json();
         if (Array.isArray(data?.data)) {
           data.data = data.data.filter((item) => isoToYear(item?.aired?.from) >= 2025);
         }
-        cacheSetBounded(jikanCache, url, { data, ts: Date.now() }, MAX_JIKAN_CACHE);
-        return { status: 200, data };
+        return data;
+      };
+
+      let payload;
+      if (primary === "anilist") {
+        try {
+          payload = await attemptAniList();
+        } catch (err) {
+          payload = await attemptJikan();
+        }
+      } else {
+        try {
+          payload = await attemptJikan();
+        } catch (err) {
+          payload = await attemptAniList();
+        }
       }
-      throw new Error("stale-refresh-failed");
+
+      cacheSetBounded(jikanCache, cacheKey, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
+      return { status: 200, data: payload };
     }).catch(() => {});
     return;
   }
 
   try {
-    const result = await withInflight(jikanInflight, url, async () => {
-      const response = await fetchJikanWithRetry(url, { timeoutMs: 10000, retries: 3 });
-      if (response && response.ok) {
+    const result = await withInflight(jikanInflight, cacheKey, async () => {
+      const attemptAniList = async () => {
+        const aniQuery = `
+          query ($page: Int, $perPage: Int, $season: MediaSeason, $seasonYear: Int) {
+            Page(page: $page, perPage: $perPage) {
+              pageInfo { currentPage lastPage hasNextPage }
+              media(type: ANIME, season: $season, seasonYear: $seasonYear, sort: POPULARITY_DESC) {
+                idMal
+                title { userPreferred english romaji }
+                coverImage { extraLarge large }
+                startDate { year month day }
+              }
+            }
+          }
+        `;
+        const variables = {
+          page,
+          perPage: limit,
+          season: season.toUpperCase(),
+          seasonYear: year
+        };
+        const aniResp = await fetchAniListWithRetry("https://graphql.anilist.co", {
+          timeoutMs: 12000,
+          retries: 3,
+          init: {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ query: aniQuery, variables })
+          }
+        });
+        if (!aniResp || !aniResp.ok) {
+          const err = new Error("Seasonal feed unavailable");
+          err.status = aniResp?.status || 502;
+          throw err;
+        }
+
+        const json = await aniResp.json().catch(() => ({}));
+        const media = json?.data?.Page?.media || [];
+        const pageInfo = json?.data?.Page?.pageInfo || {};
+        const mapped = media
+          .map((item) => {
+            const title =
+              item?.title?.userPreferred ||
+              item?.title?.english ||
+              item?.title?.romaji ||
+              "Unknown title";
+            const image = item?.coverImage?.extraLarge || item?.coverImage?.large || "";
+            const start = item?.startDate || {};
+            const from = toIsoDate(start.year, start.month, start.day);
+            return {
+              mal_id: item?.idMal || null,
+              title,
+              images: image
+                ? { jpg: { image_url: image }, webp: { image_url: image } }
+                : { jpg: { image_url: "" }, webp: { image_url: "" } },
+              aired: from ? { from } : { from: null }
+            };
+          })
+          .filter((item) => isoToYear(item?.aired?.from) >= 2025);
+        return {
+          data: mapped,
+          pagination: {
+            current_page: pageInfo.currentPage || page,
+            last_visible_page: pageInfo.lastPage || page,
+            has_next_page: Boolean(pageInfo.hasNextPage)
+          },
+          fromAniList: true
+        };
+      };
+
+      const attemptJikan = async () => {
+        const response = await fetchJikanWithRetry(jikanUrl, { timeoutMs: 10000, retries: 3 });
+        if (!response || !response.ok) {
+          const err = new Error("Seasonal feed unavailable");
+          err.status = response?.status || 502;
+          throw err;
+        }
         const data = await response.json();
         if (Array.isArray(data?.data)) {
           data.data = data.data.filter((item) => isoToYear(item?.aired?.from) >= 2025);
         }
-        cacheSetBounded(jikanCache, url, { data, ts: Date.now() }, MAX_JIKAN_CACHE);
-        return { status: 200, data };
+        return data;
+      };
+
+      let payload;
+      if (primary === "anilist") {
+        try {
+          payload = await attemptAniList();
+        } catch (err) {
+          payload = await attemptJikan();
+        }
+      } else {
+        try {
+          payload = await attemptJikan();
+        } catch (err) {
+          payload = await attemptAniList();
+        }
       }
 
-      const aniQuery = `
-        query ($page: Int, $perPage: Int, $season: MediaSeason, $seasonYear: Int) {
-          Page(page: $page, perPage: $perPage) {
-            pageInfo { currentPage lastPage hasNextPage }
-            media(type: ANIME, season: $season, seasonYear: $seasonYear, sort: POPULARITY_DESC) {
-              idMal
-              title { userPreferred english romaji }
-              coverImage { extraLarge large }
-              startDate { year month day }
-            }
-          }
-        }
-      `;
-      const variables = {
-        page,
-        perPage: limit,
-        season: season.toUpperCase(),
-        seasonYear: year
-      };
-      const aniResp = await fetchAniListWithRetry("https://graphql.anilist.co", {
-        timeoutMs: 12000,
-        retries: 3,
-        init: {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ query: aniQuery, variables })
-        }
-      });
-      if (!aniResp || !aniResp.ok) {
-        const err = new Error("Seasonal feed unavailable");
-        err.status = aniResp?.status || response?.status || 502;
-        throw err;
-      }
-
-      const json = await aniResp.json().catch(() => ({}));
-      const media = json?.data?.Page?.media || [];
-      const pageInfo = json?.data?.Page?.pageInfo || {};
-      const mapped = media
-        .map((item) => {
-          const title =
-            item?.title?.userPreferred ||
-            item?.title?.english ||
-            item?.title?.romaji ||
-            "Unknown title";
-          const image = item?.coverImage?.extraLarge || item?.coverImage?.large || "";
-          const start = item?.startDate || {};
-          const from = toIsoDate(start.year, start.month, start.day);
-          return {
-            mal_id: item?.idMal || null,
-            title,
-            images: image
-              ? { jpg: { image_url: image }, webp: { image_url: image } }
-              : { jpg: { image_url: "" }, webp: { image_url: "" } },
-            aired: from ? { from } : { from: null }
-          };
-        })
-        .filter((item) => isoToYear(item?.aired?.from) >= 2025);
-      const payload = {
-        data: mapped,
-        pagination: {
-          current_page: pageInfo.currentPage || page,
-          last_visible_page: pageInfo.lastPage || page,
-          has_next_page: Boolean(pageInfo.hasNextPage)
-        },
-        fromAniList: true
-      };
-      cacheSetBounded(jikanCache, url, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
+      cacheSetBounded(jikanCache, cacheKey, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
       return { status: 200, data: payload };
     });
     return res.status(result.status).json(result.data);
@@ -1815,8 +2075,11 @@ app.get("/api/jikan/manga/seasonal", async (req, res) => {
 app.get("/api/jikan/top", async (req, res) => {
   const { type = "anime", page = "1" } = req.query || {};
   const endpoint = type === "manga" ? "manga" : "anime";
-  const url = `https://api.jikan.moe/v4/top/${endpoint}?page=${encodeURIComponent(page)}`;
-  const cached = jikanCache.get(url);
+  const pageNum = Math.max(1, Number(page) || 1);
+  const primary = CATALOG_PRIMARY === "jikan" ? "jikan" : "anilist";
+  const jikanUrl = `https://api.jikan.moe/v4/top/${endpoint}?page=${encodeURIComponent(pageNum)}`;
+  const cacheKey = `catalog-top|primary=${primary}|type=${endpoint}|page=${pageNum}`;
+  const cached = jikanCache.get(cacheKey);
   const now = Date.now();
   if (cached && now - cached.ts < JIKAN_TOP_TTL) {
     return res.json(cached.data);
@@ -1824,53 +2087,309 @@ app.get("/api/jikan/top", async (req, res) => {
   if (shouldServeStale(cached, JIKAN_TOP_TTL)) {
     res.set("X-Cache", "STALE");
     res.json(cached.data);
-    withInflight(jikanInflight, url, async () => {
-      const response = await fetchJikanWithRetry(url, { timeoutMs: 10000, retries: 3 });
-      if (response && response.ok) {
-        const data = await response.json();
-        cacheSetBounded(jikanCache, url, { data, ts: Date.now() }, MAX_JIKAN_CACHE);
-        return { status: 200, data };
+    withInflight(jikanInflight, cacheKey, async () => {
+      const attemptAniList = async () => {
+        const aniQuery = `
+          query ($page: Int, $perPage: Int, $type: MediaType) {
+            Page(page: $page, perPage: $perPage) {
+              pageInfo { currentPage lastPage hasNextPage }
+              media(type: $type, sort: TRENDING_DESC) {
+                idMal
+                title { userPreferred english romaji }
+                coverImage { extraLarge large }
+                genres
+                format
+                episodes
+                chapters
+                description(asHtml: false)
+                averageScore
+                duration
+                source
+                status
+                trailer { site id }
+              }
+            }
+          }
+        `;
+        const variables = {
+          page: pageNum,
+          perPage: 20,
+          type: endpoint === "manga" ? "MANGA" : "ANIME"
+        };
+        const aniResp = await fetchAniListWithRetry("https://graphql.anilist.co", {
+          timeoutMs: 12000,
+          retries: 3,
+          init: {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ query: aniQuery, variables })
+          }
+        });
+        if (!aniResp || !aniResp.ok) {
+          const err = new Error("AniList top failed");
+          err.status = aniResp?.status || 502;
+          throw err;
+        }
+        const json = await aniResp.json().catch(() => ({}));
+        const media = json?.data?.Page?.media || [];
+        const pageInfo = json?.data?.Page?.pageInfo || {};
+        const mapped = media.map((item) => {
+          const title =
+            item?.title?.userPreferred ||
+            item?.title?.english ||
+            item?.title?.romaji ||
+            "Unknown title";
+          const image = item?.coverImage?.extraLarge || item?.coverImage?.large || "";
+          const embedUrl = buildTrailerEmbedUrl(item?.trailer);
+          return {
+            mal_id: item?.idMal || null,
+            title,
+            images: image
+              ? { jpg: { image_url: image }, webp: { image_url: image } }
+              : { jpg: { image_url: "" }, webp: { image_url: "" } },
+            genres: Array.isArray(item?.genres) ? item.genres.map((name) => ({ name })) : [],
+            type: item?.format || null,
+            episodes: endpoint === "anime" ? item?.episodes ?? null : undefined,
+            chapters: endpoint === "manga" ? item?.chapters ?? null : undefined,
+            synopsis: cleanText(item?.description || ""),
+            score: item?.averageScore ? Number(item.averageScore) / 10 : null,
+            duration: item?.duration ? `${item.duration} min per ep.` : null,
+            source: item?.source || null,
+            status: item?.status || null,
+            trailer: embedUrl ? { embed_url: embedUrl } : null
+          };
+        });
+        return {
+          data: mapped,
+          pagination: {
+            current_page: pageInfo.currentPage || pageNum,
+            last_visible_page: pageInfo.lastPage || pageNum,
+            has_next_page: Boolean(pageInfo.hasNextPage)
+          },
+          fromAniList: true
+        };
+      };
+
+      const attemptJikan = async () => {
+        const response = await fetchJikanWithRetry(jikanUrl, { timeoutMs: 10000, retries: 3 });
+        if (!response || !response.ok) {
+          const err = new Error("Jikan top failed");
+          err.status = response?.status || 502;
+          throw err;
+        }
+        return await response.json();
+      };
+
+      let payload;
+      if (primary === "anilist") {
+        try {
+          payload = await attemptAniList();
+        } catch (err) {
+          payload = await attemptJikan();
+        }
+      } else {
+        try {
+          payload = await attemptJikan();
+        } catch (err) {
+          payload = await attemptAniList();
+        }
       }
-      throw new Error("stale-refresh-failed");
+      cacheSetBounded(jikanCache, cacheKey, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
+      return { status: 200, data: payload };
     }).catch(() => {});
     return;
   }
   try {
-    const result = await withInflight(jikanInflight, url, async () => {
-      const response = await fetchJikanWithRetry(url, { timeoutMs: 10000, retries: 3 });
+    const result = await withInflight(jikanInflight, cacheKey, async () => {
+      const attemptAniList = async () => {
+        const aniQuery = `
+          query ($page: Int, $perPage: Int, $type: MediaType) {
+            Page(page: $page, perPage: $perPage) {
+              pageInfo { currentPage lastPage hasNextPage }
+              media(type: $type, sort: TRENDING_DESC) {
+                idMal
+                title { userPreferred english romaji }
+                coverImage { extraLarge large }
+                genres
+                format
+                episodes
+                chapters
+                description(asHtml: false)
+                averageScore
+                duration
+                source
+                status
+                trailer { site id }
+              }
+            }
+          }
+        `;
+        const variables = {
+          page: pageNum,
+          perPage: 20,
+          type: endpoint === "manga" ? "MANGA" : "ANIME"
+        };
+        const aniResp = await fetchAniListWithRetry("https://graphql.anilist.co", {
+          timeoutMs: 12000,
+          retries: 3,
+          init: {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ query: aniQuery, variables })
+          }
+        });
+        if (!aniResp || !aniResp.ok) {
+          const err = new Error("AniList top failed");
+          err.status = aniResp?.status || 502;
+          throw err;
+        }
+        const json = await aniResp.json().catch(() => ({}));
+        const media = json?.data?.Page?.media || [];
+        const pageInfo = json?.data?.Page?.pageInfo || {};
+        const mapped = media.map((item) => {
+          const title =
+            item?.title?.userPreferred ||
+            item?.title?.english ||
+            item?.title?.romaji ||
+            "Unknown title";
+          const image = item?.coverImage?.extraLarge || item?.coverImage?.large || "";
+          const embedUrl = buildTrailerEmbedUrl(item?.trailer);
+          return {
+            mal_id: item?.idMal || null,
+            title,
+            images: image
+              ? { jpg: { image_url: image }, webp: { image_url: image } }
+              : { jpg: { image_url: "" }, webp: { image_url: "" } },
+            genres: Array.isArray(item?.genres) ? item.genres.map((name) => ({ name })) : [],
+            type: item?.format || null,
+            episodes: endpoint === "anime" ? item?.episodes ?? null : undefined,
+            chapters: endpoint === "manga" ? item?.chapters ?? null : undefined,
+            synopsis: cleanText(item?.description || ""),
+            score: item?.averageScore ? Number(item.averageScore) / 10 : null,
+            duration: item?.duration ? `${item.duration} min per ep.` : null,
+            source: item?.source || null,
+            status: item?.status || null,
+            trailer: embedUrl ? { embed_url: embedUrl } : null
+          };
+        });
+        return {
+          data: mapped,
+          pagination: {
+            current_page: pageInfo.currentPage || pageNum,
+            last_visible_page: pageInfo.lastPage || pageNum,
+            has_next_page: Boolean(pageInfo.hasNextPage)
+          },
+          fromAniList: true
+        };
+      };
+
+      const attemptJikan = async () => {
+        const response = await fetchJikanWithRetry(jikanUrl, { timeoutMs: 10000, retries: 3 });
+        if (!response || !response.ok) {
+          const err = new Error("Jikan top failed");
+          err.status = response?.status || 502;
+          throw err;
+        }
+        return await response.json();
+      };
+
+      let payload;
+      if (primary === "anilist") {
+        try {
+          payload = await attemptAniList();
+        } catch (err) {
+          payload = await attemptJikan();
+        }
+      } else {
+        try {
+          payload = await attemptJikan();
+        } catch (err) {
+          payload = await attemptAniList();
+        }
+      }
+
+      cacheSetBounded(jikanCache, cacheKey, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
+      return { status: 200, data: payload };
+    });
+    return res.status(result.status).json(result.data);
+  } catch (err) {
+    if (cached) {
+      res.set("X-Cache", "STALE");
+      return res.json(cached.data);
+    }
+    return res.status(err?.status || 502).json({ error: "Jikan top failed" });
+  }
+});
+
+// Detail proxy endpoints.
+// These keep the UI stable (it expects Jikan's "full" schema) while letting us:
+// - apply caching
+// - use our retry/throttle logic
+// - optionally fall back to AniList when Jikan is down/rate-limited
+app.get("/api/jikan/full", async (req, res) => {
+  const endpoint = String(req.query?.type || "anime") === "manga" ? "manga" : "anime";
+  const id = String(req.query?.id || "").trim();
+  const malId = Number(id);
+  if (!Number.isInteger(malId) || malId <= 0) {
+    return res.status(400).json({ error: "Missing id" });
+  }
+  const cacheKey = `jikan-full|${endpoint}|${malId}`;
+  const cached = jikanCache.get(cacheKey);
+  const now = Date.now();
+  if (cached && now - cached.ts < JIKAN_DETAIL_TTL) {
+    return res.json(cached.data);
+  }
+  if (shouldServeStale(cached, JIKAN_DETAIL_TTL)) {
+    res.set("X-Cache", "STALE");
+    res.json(cached.data);
+    withInflight(jikanInflight, cacheKey, async () => {
+      const url = `https://api.jikan.moe/v4/${endpoint}/${encodeURIComponent(malId)}/full`;
+      const response = await fetchJikanWithRetry(url, { timeoutMs: 12000, retries: 3 });
       if (response && response.ok) {
         const data = await response.json();
-        cacheSetBounded(jikanCache, url, { data, ts: Date.now() }, MAX_JIKAN_CACHE);
+        cacheSetBounded(jikanCache, cacheKey, { data, ts: Date.now() }, MAX_JIKAN_CACHE);
+      }
+    }).catch(() => {});
+    return;
+  }
+  try {
+    const result = await withInflight(jikanInflight, cacheKey, async () => {
+      const url = `https://api.jikan.moe/v4/${endpoint}/${encodeURIComponent(malId)}/full`;
+      const response = await fetchJikanWithRetry(url, { timeoutMs: 12000, retries: 3 });
+      if (response && response.ok) {
+        const data = await response.json();
+        cacheSetBounded(jikanCache, cacheKey, { data, ts: Date.now() }, MAX_JIKAN_CACHE);
         return { status: 200, data };
       }
 
+      // Fallback: minimal AniList details mapped into a Jikan-ish shape.
       const aniQuery = `
-        query ($page: Int, $perPage: Int, $type: MediaType) {
-          Page(page: $page, perPage: $perPage) {
-            pageInfo { currentPage lastPage hasNextPage }
-            media(type: $type, sort: TRENDING_DESC) {
-              idMal
-              title { userPreferred english romaji }
-              coverImage { extraLarge large }
-              genres
-              format
-              episodes
-              chapters
-              description(asHtml: false)
-              averageScore
-              duration
-              source
-              status
-              trailer { site id }
-            }
+        query ($idMal: Int, $type: MediaType) {
+          Media(idMal: $idMal, type: $type) {
+            idMal
+            title { userPreferred english romaji }
+            coverImage { extraLarge large }
+            description(asHtml: false)
+            format
+            status
+            season
+            seasonYear
+            startDate { year month day }
+            endDate { year month day }
+            episodes
+            duration
+            chapters
+            volumes
+            averageScore
+            genres
+            source
+            trailer { site id }
+            studios(isMain: true) { nodes { name } }
+            popularity
           }
         }
       `;
-      const variables = {
-        page: Number(page) || 1,
-        perPage: 20,
-        type: endpoint === "manga" ? "MANGA" : "ANIME"
-      };
+      const variables = { idMal: malId, type: endpoint === "manga" ? "MANGA" : "ANIME" };
       const aniResp = await fetchAniListWithRetry("https://graphql.anilist.co", {
         timeoutMs: 12000,
         retries: 3,
@@ -1881,56 +2400,59 @@ app.get("/api/jikan/top", async (req, res) => {
         }
       });
       if (!aniResp || !aniResp.ok) {
-        const err = new Error("Jikan top failed");
+        const err = new Error("Detail fetch failed");
         err.status = aniResp?.status || response?.status || 502;
         throw err;
       }
       const json = await aniResp.json().catch(() => ({}));
-      const media = json?.data?.Page?.media || [];
-      const pageInfo = json?.data?.Page?.pageInfo || {};
-      const mapped = media.map((item) => {
-        const title =
-          item?.title?.userPreferred ||
-          item?.title?.english ||
-          item?.title?.romaji ||
-          "Unknown title";
-        const image = item?.coverImage?.extraLarge || item?.coverImage?.large || "";
-        const trailerId = item?.trailer?.id;
-        const trailerSite = (item?.trailer?.site || "").toLowerCase();
-        const embedUrl =
-          trailerSite === "youtube" && trailerId
-            ? `https://www.youtube.com/embed/${trailerId}`
-            : trailerSite === "dailymotion" && trailerId
-            ? `https://www.dailymotion.com/embed/video/${trailerId}`
-            : "";
-        return {
-          mal_id: item?.idMal || null,
-          title,
-          images: image
-            ? { jpg: { image_url: image }, webp: { image_url: image } }
-            : { jpg: { image_url: "" }, webp: { image_url: "" } },
-          genres: Array.isArray(item?.genres) ? item.genres.map((name) => ({ name })) : [],
-          type: item?.format || null,
-          episodes: endpoint === "anime" ? item?.episodes ?? null : undefined,
-          chapters: endpoint === "manga" ? item?.chapters ?? null : undefined,
-          synopsis: item?.description || "",
-          score: item?.averageScore ? Number(item.averageScore) / 10 : null,
-          duration: item?.duration ? `${item.duration} min per ep.` : null,
-          source: item?.source || null,
-          status: item?.status || null,
-          trailer: embedUrl ? { embed_url: embedUrl } : null
-        };
-      });
+      const media = json?.data?.Media;
+      if (!media?.idMal) {
+        const err = new Error("Not found");
+        err.status = 404;
+        throw err;
+      }
+      const trailerEmbed = buildTrailerEmbedUrl(media?.trailer);
       const payload = {
-        data: mapped,
-        pagination: {
-          current_page: pageInfo.currentPage || Number(page) || 1,
-          last_visible_page: pageInfo.lastPage || Number(page) || 1,
-          has_next_page: Boolean(pageInfo.hasNextPage)
+        data: {
+          mal_id: media.idMal,
+          title: media?.title?.userPreferred || media?.title?.english || media?.title?.romaji || "Unknown title",
+          title_english: media?.title?.english || "",
+          images: {
+            jpg: { image_url: media?.coverImage?.extraLarge || media?.coverImage?.large || "" },
+            webp: { image_url: media?.coverImage?.extraLarge || media?.coverImage?.large || "" }
+          },
+          synopsis: cleanText(media?.description || ""),
+          type: media?.format || null,
+          status: media?.status || null,
+          season: String(media?.season || "").toLowerCase() || "",
+          year: media?.seasonYear || null,
+          aired:
+            endpoint === "anime"
+              ? { string: "", from: toIsoDate(media?.startDate?.year, media?.startDate?.month, media?.startDate?.day) || null }
+              : undefined,
+          published:
+            endpoint === "manga"
+              ? { string: "", from: toIsoDate(media?.startDate?.year, media?.startDate?.month, media?.startDate?.day) || null }
+              : undefined,
+          episodes: endpoint === "anime" ? media?.episodes ?? null : undefined,
+          duration: endpoint === "anime" && media?.duration ? `${media.duration} min per ep.` : null,
+          chapters: endpoint === "manga" ? media?.chapters ?? null : undefined,
+          volumes: endpoint === "manga" ? media?.volumes ?? null : undefined,
+          score: media?.averageScore ? Number(media.averageScore) / 10 : null,
+          genres: Array.isArray(media?.genres) ? media.genres.map((name) => ({ name })) : [],
+          source: media?.source || null,
+          studios: Array.isArray(media?.studios?.nodes) ? media.studios.nodes.map((s) => ({ name: s.name })) : [],
+          trailer: trailerEmbed ? { embed_url: trailerEmbed } : null,
+          popularity: media?.popularity ?? null,
+          producers: [],
+          licensors: [],
+          demographics: [],
+          streaming: [],
+          rating: ""
         },
         fromAniList: true
       };
-      cacheSetBounded(jikanCache, url, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
+      cacheSetBounded(jikanCache, cacheKey, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
       return { status: 200, data: payload };
     });
     return res.status(result.status).json(result.data);
@@ -1939,7 +2461,89 @@ app.get("/api/jikan/top", async (req, res) => {
       res.set("X-Cache", "STALE");
       return res.json(cached.data);
     }
-    return res.status(err?.status || 502).json({ error: "Jikan top failed" });
+    return res.status(err?.status || 502).json({ error: "Detail fetch failed" });
+  }
+});
+
+app.get("/api/jikan/characters", async (req, res) => {
+  const id = String(req.query?.id || "").trim();
+  const malId = Number(id);
+  if (!Number.isInteger(malId) || malId <= 0) {
+    return res.status(400).json({ error: "Missing id" });
+  }
+  const cacheKey = `jikan-characters|anime|${malId}`;
+  const cached = jikanCache.get(cacheKey);
+  const now = Date.now();
+  if (cached && now - cached.ts < JIKAN_DETAIL_TTL) {
+    return res.json(cached.data);
+  }
+  try {
+    const result = await withInflight(jikanInflight, cacheKey, async () => {
+      const url = `https://api.jikan.moe/v4/anime/${encodeURIComponent(malId)}/characters`;
+      const response = await fetchJikanWithRetry(url, { timeoutMs: 12000, retries: 3 });
+      if (response && response.ok) {
+        const data = await response.json();
+        cacheSetBounded(jikanCache, cacheKey, { data, ts: Date.now() }, MAX_JIKAN_CACHE);
+        return { status: 200, data };
+      }
+
+      // Fallback: AniList key characters
+      const aniQuery = `
+        query ($idMal: Int) {
+          Media(idMal: $idMal, type: ANIME) {
+            characters(perPage: 10, sort: [FAVOURITES_DESC]) {
+              edges {
+                role
+                node {
+                  id
+                  name { full }
+                  image { large }
+                }
+              }
+            }
+          }
+        }
+      `;
+      const variables = { idMal: malId };
+      const aniResp = await fetchAniListWithRetry("https://graphql.anilist.co", {
+        timeoutMs: 12000,
+        retries: 3,
+        init: {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ query: aniQuery, variables })
+        }
+      });
+      if (!aniResp || !aniResp.ok) {
+        const err = new Error("Characters unavailable");
+        err.status = aniResp?.status || response?.status || 502;
+        throw err;
+      }
+      const json = await aniResp.json().catch(() => ({}));
+      const edges = json?.data?.Media?.characters?.edges || [];
+      const mapped = edges
+        .map((e) => ({
+          role: e?.role || "Supporting",
+          character: {
+            mal_id: e?.node?.id || null,
+            name: e?.node?.name?.full || "",
+            images: {
+              jpg: { image_url: e?.node?.image?.large || "" }
+            }
+          }
+        }))
+        .filter((x) => x.character?.name);
+      const payload = { data: mapped, fromAniList: true };
+      cacheSetBounded(jikanCache, cacheKey, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
+      return { status: 200, data: payload };
+    });
+    return res.status(result.status).json(result.data);
+  } catch (err) {
+    if (cached) {
+      res.set("X-Cache", "STALE");
+      return res.json(cached.data);
+    }
+    return res.status(err?.status || 502).json({ error: "Characters unavailable" });
   }
 });
 

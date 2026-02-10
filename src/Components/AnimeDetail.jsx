@@ -23,7 +23,7 @@ function AnimeDetail() {
     let isMounted = true;
     const fetchAnime = async () => {
       try {
-        const response = await fetch(`https://api.jikan.moe/v4/anime/${id}/full`);
+        const response = await fetch(`/api/jikan/full?type=anime&id=${encodeURIComponent(id)}`);
         const data = await response.json();
         if (isMounted) {
           setAnime(data.data);
@@ -51,7 +51,7 @@ function AnimeDetail() {
       setCharactersLoading(true);
       setCharactersError("");
       try {
-        const response = await fetch(`https://api.jikan.moe/v4/anime/${id}/characters`);
+        const response = await fetch(`/api/jikan/characters?id=${encodeURIComponent(id)}`);
         const data = await response.json();
         if (isMounted) {
           const list = Array.isArray(data?.data) ? data.data : [];

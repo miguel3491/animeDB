@@ -1183,6 +1183,13 @@ const AnimeCardItem = React.memo(function AnimeCardItem({
   } = item;
   const hasTrailer = Boolean(trailer?.embed_url);
   const canHoverPreview = Boolean(hoverTrailersEnabled && hasTrailer);
+  const trailerPreviewSrc = useMemo(() => {
+    if (!trailer?.embed_url) return "";
+    const base = String(trailer.embed_url);
+    const join = base.includes("?") ? "&" : "?";
+    // Keep autoplay scoped to the hover preview only.
+    return `${base}${join}autoplay=1&mute=1&playsinline=1`;
+  }, [trailer?.embed_url]);
 
   useEffect(() => {
     if (!canHoverPreview && showTrailer) {
@@ -1234,7 +1241,7 @@ const AnimeCardItem = React.memo(function AnimeCardItem({
           {hasTrailer && showTrailer && (
             <iframe
               className="trailer-frame"
-              src={trailer.embed_url}
+              src={trailerPreviewSrc || trailer.embed_url}
               title={`${title} trailer`}
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen

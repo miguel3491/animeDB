@@ -18,7 +18,7 @@ function MangaDetail() {
     let isMounted = true;
     const fetchManga = async () => {
       try {
-        const response = await fetch(`https://api.jikan.moe/v4/manga/${id}/full`);
+        const response = await fetch(`/api/jikan/full?type=manga&id=${encodeURIComponent(id)}`);
         const data = await response.json();
         if (isMounted) {
           setManga(data.data);
