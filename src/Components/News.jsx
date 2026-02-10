@@ -313,13 +313,16 @@ function News() {
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
+          if (res.status === 404) {
+            throw new Error("Context endpoint missing. Restart `npm start` so the server picks up the latest API routes.");
+          }
           throw new Error(String(json?.error || "Context lookup failed"));
         }
         if (cancelled) return;
         setContext((prev) => ({ ...prev, ...(json?.results || {}) }));
       } catch (err) {
         if (cancelled) return;
-        setContextError("Context covers unavailable right now.");
+        setContextError(err?.message || "Context covers unavailable right now.");
       } finally {
         missingIds.forEach((id) => inflight.delete(id));
       }

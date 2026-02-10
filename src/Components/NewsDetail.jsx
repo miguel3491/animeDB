@@ -41,16 +41,28 @@ function NewsDetail() {
   ];
 
   useEffect(() => {
-    if (item || !decodedId) return;
+    // When navigating between /news/:id links, this component stays mounted.
+    // So we must refresh item state when the URL param changes.
+    if (!decodedId) return;
+    const stateItem = location.state?.item || null;
+    if (stateItem && String(stateItem.id || "") === String(decodedId)) {
+      setItem(stateItem);
+      return;
+    }
+    setItem(null);
     try {
       const stored = sessionStorage.getItem(`news-item-${decodedId}`);
-      if (stored) {
-        setItem(JSON.parse(stored));
-      }
+      if (stored) setItem(JSON.parse(stored));
     } catch (err) {
       // ignore storage errors
     }
-  }, [decodedId, item]);
+  }, [decodedId, location.state]);
+
+  useEffect(() => {
+    if (!decodedId) return;
+    // Keep detail navigation feeling intentional.
+    window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+  }, [decodedId]);
 
   useEffect(() => {
     if (!item?.id || !item?.title) return;
@@ -65,12 +77,17 @@ function NewsDetail() {
         });
         const json = await res.json().catch(() => ({}));
         if (!active) return;
-        if (!res.ok) throw new Error(String(json?.error || "Context unavailable"));
+        if (!res.ok) {
+          if (res.status === 404) {
+            throw new Error("Context endpoint missing. Restart `npm start` to reload the server.");
+          }
+          throw new Error(String(json?.error || "Context unavailable"));
+        }
         setContext(json?.results?.[item.id] || null);
       } catch (err) {
         if (!active) return;
         setContext(null);
-        setContextError("Context unavailable.");
+        setContextError(err?.message || "Context unavailable.");
       }
     })();
     return () => {
