@@ -6,6 +6,7 @@ import "../styles.css";
 function News() {
   const location = useLocation();
   const fromPath = `${location.pathname}${location.search || ""}`;
+  const NEWS_WINDOW_DAYS = 14;
   const [sourceImagesEnabled, setSourceImagesEnabled] = useState(() => {
     try {
       return localStorage.getItem("news-source-images") === "1";
@@ -54,16 +55,6 @@ function News() {
   const [search, setSearch] = useState("");
   const [timeFilter, setTimeFilter] = useState("all");
   const [genreFilter, setGenreFilter] = useState("all");
-  const [windowDays, setWindowDays] = useState(() => {
-    try {
-      const qs = new URLSearchParams(location.search || "");
-      const raw = Number(qs.get("days") || "");
-      if (Number.isFinite(raw) && raw > 0) return Math.max(1, Math.min(180, raw));
-    } catch (err) {
-      // ignore
-    }
-    return 14;
-  });
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -88,6 +79,14 @@ function News() {
   const contextInFlightRef = useRef(new Set());
   const [brokenContextCovers, setBrokenContextCovers] = useState(() => new Set());
   const [contextImgErrorUrls, setContextImgErrorUrls] = useState({});
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem("news-last-path", fromPath);
+    } catch (err) {
+      // ignore
+    }
+  }, [fromPath]);
 
   useEffect(() => {
     try {
@@ -156,7 +155,7 @@ function News() {
 
   useEffect(() => {
     setPage(0);
-  }, [search, timeFilter, genreFilter, windowDays, viewMode]);
+  }, [search, timeFilter, genreFilter, viewMode]);
 
   const proxiedImage = (url) => {
     const raw = String(url || "").trim();
@@ -172,7 +171,7 @@ function News() {
       setError("");
       try {
         // Pull a larger window (server enforces cutoffs + caching). We paginate client-side.
-        const response = await fetch(`/api/ann/news?days=${encodeURIComponent(windowDays)}&limit=200`);
+        const response = await fetch(`/api/ann/news?days=${encodeURIComponent(NEWS_WINDOW_DAYS)}&limit=200`);
         if (!response.ok) {
           throw new Error("Failed to load news");
         }
@@ -195,7 +194,7 @@ function News() {
     };
 
     load();
-  }, [windowDays]);
+  }, [NEWS_WINDOW_DAYS]);
 
   const highlight = filtered[0];
   const nonHighlight = useMemo(() => filtered.slice(1), [filtered]);
@@ -297,7 +296,7 @@ function News() {
       controller.abort();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageItems, page, highlight, windowDays, debugEnabled, sourceImagesEnabled]);
+  }, [pageItems, page, highlight, debugEnabled, sourceImagesEnabled]);
 
   useEffect(() => {
     if (!contextCoversEnabled) return;
@@ -468,7 +467,6 @@ function News() {
           <div className="results-bar">
             <h3>Latest Headlines</h3>
             <div className="results-controls">
-              <span className="pill">{filtered.length} stories</span>
               <div className="view-toggle">
                 <button
                   type="button"
@@ -555,18 +553,6 @@ function News() {
                 <span className="trailer-toggle-label">Context covers</span>
                 <span className="trailer-toggle-state">{contextCoversEnabled ? "ON" : "OFF"}</span>
               </button>
-              <label className="genre-filter">
-                <span className="genre-label">Window</span>
-                <select
-                  value={windowDays}
-                  onChange={(e) => setWindowDays(Number(e.target.value) || 14)}
-                  aria-label="News window"
-                >
-                  <option value={14}>Last 14 days</option>
-                  <option value={30}>Last 30 days</option>
-                  <option value={60}>Last 60 days</option>
-                </select>
-              </label>
               <label className="genre-filter">
                 <span className="genre-label">Category</span>
                 <select value={genreFilter} onChange={(e) => setGenreFilter(e.target.value)}>

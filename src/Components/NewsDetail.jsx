@@ -29,6 +29,7 @@ function NewsDetail() {
   const [contextError, setContextError] = useState("");
   const [related, setRelated] = useState([]);
   const [relatedContext, setRelatedContext] = useState({});
+  const [brokenRelatedCovers, setBrokenRelatedCovers] = useState(() => new Set());
   const summaryRequestedRef = useRef(false);
   const translationRequestedRef = useRef(false);
   const itemId = item?.id || "";
@@ -148,6 +149,7 @@ function NewsDetail() {
   useEffect(() => {
     if (related.length === 0) {
       setRelatedContext({});
+      setBrokenRelatedCovers(new Set());
       return;
     }
     let active = true;
@@ -173,6 +175,25 @@ function NewsDetail() {
       active = false;
     };
   }, [related]);
+
+  const isNewsFeedPath = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return false;
+    // Feed is /news (optionally with query params). Detail is /news/:id.
+    return raw.startsWith("/news") && !raw.startsWith("/news/");
+  };
+
+  const feedPath = (() => {
+    const from = location.state?.from;
+    if (isNewsFeedPath(from)) return from;
+    try {
+      const stored = sessionStorage.getItem("news-last-path");
+      if (isNewsFeedPath(stored)) return stored;
+    } catch (err) {
+      // ignore
+    }
+    return "/news";
+  })();
 
   useEffect(() => {
     if (!itemId) return;
@@ -474,16 +495,7 @@ function NewsDetail() {
   };
 
   const goBack = () => {
-    const from = location.state?.from;
-    if (typeof from === "string" && from.length > 0) {
-      navigate(from);
-      return;
-    }
-    if (window.history.length > 1) {
-      navigate(-1);
-      return;
-    }
-    navigate("/news");
+    navigate(feedPath);
   };
 
   if (!item) {
@@ -529,13 +541,182 @@ function NewsDetail() {
             </button>
           </div>
 
+          <div className="news-ai-inline">
+            <div className="news-summary news-summary--inline">
+              <div className="news-summary-head">
+                <h4>AI Summary</h4>
+                {!summary?.summary && (
+                  <button
+                    type="button"
+                    className="favorite-button news-ai-button"
+                    onClick={generateSummary}
+                    disabled={summaryLoading || summaryUsed || summarySessionDisabled}
+                    title={
+                      summarySessionDisabled
+                        ? "AI summary disabled for this session"
+                        : summaryUsed
+                          ? "Summary already generated for this article"
+                          : "Generate one summary per article"
+                    }
+                  >
+                    {summaryUsed ? "Used" : summaryLoading ? "Generating..." : "Generate"}
+                  </button>
+                )}
+              </div>
+
+              {summaryLoading && !summary?.summary && (
+                <div className="news-ai-skeleton" aria-label="Generating summary">
+                  <div className="skeleton-line" />
+                  <div className="skeleton-line" />
+                  <div className="skeleton-line short" />
+                </div>
+              )}
+
+              {summarySessionDisabled && !summary?.summary && (
+                <div className="news-ai-disabled">
+                  <p className="muted" style={{ marginTop: 0 }}>
+                    AI summary is currently disabled for this session.
+                  </p>
+                  <button type="button" className="detail-link" onClick={reenableSummary}>
+                    Re-enable
+                  </button>
+                </div>
+              )}
+
+              {!summarySessionDisabled && summaryError && !summary?.summary && (
+                <p className="publish-status error">{summaryError}</p>
+              )}
+
+              {!summary?.summary && !summaryLoading && !summaryError && summaryNotice && (
+                <p className="muted">{summaryNotice}</p>
+              )}
+
+              {summary?.summary ? (
+                <p className="muted" style={{ marginTop: 0 }}>
+                  Summary ready {summary?.keyPoints?.length ? `(${summary.keyPoints.length} key points)` : ""}. Cached in your browser.
+                </p>
+              ) : (
+                <p className="muted" style={{ marginTop: 0 }}>Generate a summary for this article.</p>
+              )}
+            </div>
+
+            <div className="news-summary news-summary--inline news-translate">
+              <div className="news-summary-head">
+                <h4>Translation</h4>
+                <label className="genre-filter" style={{ marginLeft: "auto" }}>
+                  <span className="genre-label">Language</span>
+                  <select
+                    value={targetLang}
+                    onChange={(e) => {
+                      setTargetLang(e.target.value);
+                      setShowTranslated(false);
+                      setTranslationError("");
+                      setTranslationNotice("");
+                      setTranslation(null);
+                    }}
+                    aria-label="Translation language"
+                    disabled={translationLoading || translationSessionDisabled}
+                  >
+                    {languageOptions.map((opt) => (
+                      <option key={`lang-${opt.code}`} value={opt.code}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              {!translation?.content && (
+                <button
+                  type="button"
+                  className="favorite-button news-ai-button"
+                  onClick={() => translateToTarget(targetLang)}
+                  disabled={translationLoading || translationSessionDisabled || !canTranslate}
+                  title={
+                    translationSessionDisabled
+                      ? "Translation disabled for this session"
+                      : !canTranslate
+                      ? "Generate an AI summary first"
+                      : "Translate"
+                  }
+                  style={{ width: "100%" }}
+                >
+                  {translationLoading ? "Translating..." : "Translate"}
+                </button>
+              )}
+
+              {translationSessionDisabled && !translation?.content && (
+                <div className="news-ai-disabled">
+                  <p className="muted" style={{ marginTop: 0 }}>
+                    Translation is currently disabled for this session (server key missing).
+                  </p>
+                  <button type="button" className="detail-link" onClick={reenableTranslation}>
+                    Re-enable
+                  </button>
+                </div>
+              )}
+
+              {!translationSessionDisabled && translationError && !translation?.content && (
+                <p className="publish-status error">{translationError}</p>
+              )}
+
+              {!translation?.content && !translationLoading && !translationError && translationNotice && (
+                <p className="muted">{translationNotice}</p>
+              )}
+
+              {translation?.content && (
+                <>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <span className="pill muted">
+                      {translation.sourceLang || "?"} → {translation.targetLang || "en"}
+                    </span>
+                    {translation.usedApi ? (
+                      <span className="pill muted">
+                        {Number(translation.chars || 0).toLocaleString()} chars
+                      </span>
+                    ) : (
+                      <span className="pill muted">0 chars</span>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      className={`detail-link ${!showTranslated ? "active" : ""}`}
+                      onClick={() => setShowTranslated(false)}
+                    >
+                      Original
+                    </button>
+                    <button
+                      type="button"
+                      className={`detail-link ${showTranslated ? "active" : ""}`}
+                      onClick={() => setShowTranslated(true)}
+                    >
+                      {languageOptions.find((opt) => opt.code === (translation?.targetLang || targetLang))?.label || "Translated"}
+                    </button>
+                  </div>
+                  <p className="muted" style={{ marginBottom: 0 }}>
+                    Translation is cached in your browser to reduce quota usage.
+                  </p>
+                </>
+              )}
+
+              {!translation?.content && !translationLoading && !translationError && !translationNotice && (
+                <p className="muted" style={{ marginTop: 10 }}>
+                  {canTranslate
+                    ? "Translate the AI summary on demand (cached per language)."
+                    : "Generate an AI summary first to translate it."}
+                </p>
+              )}
+            </div>
+          </div>
+
           <div className="news-body">
             <p className="muted" style={{ marginTop: 0 }}>
               This view shows the headline and an optional AI-generated summary. For the full article, open the original source.
             </p>
             {!summary?.summary ? (
               <p className="muted">
-                Generate an AI summary on the right to read a short recap here.
+                Generate an AI summary above to read a short recap here.
               </p>
             ) : showTranslated && translatedBody ? (
               <>
@@ -663,29 +844,40 @@ function NewsDetail() {
                 <h4>Related Stories</h4>
               </div>
               <div className="inbox-list">
-                {related.slice(0, 6).map((r) => (
+                {related.slice(0, 6).map((r) => {
+                  const rid = String(r?.id || "").trim();
+                  const cover = String(relatedContext?.[rid]?.cover || "").trim();
+                  const showCover = Boolean(cover) && !brokenRelatedCovers.has(rid);
+                  return (
                   <Link
-                    key={`rel-${r.id}`}
+                    key={`rel-${rid}`}
                     className="inbox-row"
-                    to={`/news/${encodeURIComponent(r.id)}`}
-                    state={{ from: `${location.pathname}${location.search || ""}`, item: r }}
+                    to={`/news/${encodeURIComponent(rid)}`}
+                    state={{ from: feedPath, item: r }}
                     onClick={() => {
                       try {
-                        sessionStorage.setItem(`news-item-${r.id}`, JSON.stringify(r));
+                        sessionStorage.setItem(`news-item-${rid}`, JSON.stringify(r));
                       } catch (err) {
                         // ignore
                       }
                     }}
                     title="Open related story"
                   >
-                    {relatedContext?.[r.id]?.cover ? (
+                    {showCover ? (
                       <img
                         className="inbox-thumb"
-                        src={relatedContext[r.id].cover}
+                        src={cover}
                         alt={r.title}
                         loading="lazy"
                         decoding="async"
                         referrerPolicy="no-referrer"
+                        onError={() =>
+                          setBrokenRelatedCovers((prev) => {
+                            const next = new Set(prev);
+                            next.add(rid);
+                            return next;
+                          })
+                        }
                       />
                     ) : (
                       <div className="inbox-thumb placeholder" aria-hidden="true" />
@@ -706,199 +898,11 @@ function NewsDetail() {
                       )}
                     </div>
                   </Link>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
-
-          <div className="news-summary news-summary--side">
-            <div className="news-summary-head">
-              <h4>AI Summary</h4>
-              {!summary?.summary && (
-                <button
-                  type="button"
-                  className="favorite-button news-ai-button"
-                  onClick={generateSummary}
-                  disabled={summaryLoading || summaryUsed || summarySessionDisabled}
-                  title={
-                    summarySessionDisabled
-                      ? "AI summary disabled for this session"
-                      : summaryUsed
-                        ? "Summary already generated for this article"
-                        : "Generate one summary per article"
-                  }
-                >
-                  {summaryUsed ? "Used" : summaryLoading ? "Generating..." : "Generate"}
-                </button>
-              )}
-            </div>
-
-            {summaryLoading && !summary?.summary && (
-              <div className="news-ai-skeleton" aria-label="Generating summary">
-                <div className="skeleton-line" />
-                <div className="skeleton-line" />
-                <div className="skeleton-line short" />
-              </div>
-            )}
-
-            {summarySessionDisabled && !summary?.summary && (
-              <div className="news-ai-disabled">
-                <p className="muted" style={{ marginTop: 0 }}>
-                  AI summary is currently disabled for this session.
-                </p>
-                <button type="button" className="detail-link" onClick={reenableSummary}>
-                  Re-enable
-                </button>
-              </div>
-            )}
-
-            {!summarySessionDisabled && summaryError && !summary?.summary && (
-              <p className="publish-status error">{summaryError}</p>
-            )}
-
-            {!summary?.summary && !summaryLoading && !summaryError && summaryNotice && (
-              <p className="muted">{summaryNotice}</p>
-            )}
-
-            {summary?.summary && showTranslated && translatedBody ? (
-              <>
-                {translatedTextBlocks.slice(0, 6).map((line, idx) => (
-                  <p key={`news-ai-translate-${item.id}-${idx}`}>{line}</p>
-                ))}
-                {translatedBullets.length > 0 && (
-                  <ul className="news-points">
-                    {translatedBullets.slice(0, 8).map((line, idx) => (
-                      <li key={`news-ai-translate-bullet-${item.id}-${idx}`}>{line.replace(/^-\\s*/, "")}</li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            ) : summary?.summary ? (
-              <>
-                <p>{summary.summary}</p>
-                {summary?.keyPoints?.length > 0 && (
-                  <ul className="news-points">
-                    {summary.keyPoints.map((point, index) => (
-                      <li key={`${item.id}-point-${index}`}>{point}</li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            ) : null}
-
-            {!summary?.summary && !summaryLoading && !summaryError && !summaryNotice && (
-              <p className="muted">Generate a summary for this article.</p>
-            )}
-          </div>
-
-          <div className="news-summary news-summary--side news-translate">
-            <div className="news-summary-head">
-              <h4>Translation</h4>
-              <label className="genre-filter" style={{ marginLeft: "auto" }}>
-                <span className="genre-label">Language</span>
-                <select
-                  value={targetLang}
-                  onChange={(e) => {
-                    setTargetLang(e.target.value);
-                    setShowTranslated(false);
-                    setTranslationError("");
-                    setTranslationNotice("");
-                    setTranslation(null);
-                  }}
-                  aria-label="Translation language"
-                  disabled={translationLoading || translationSessionDisabled}
-                >
-                  {languageOptions.map((opt) => (
-                    <option key={`lang-${opt.code}`} value={opt.code}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            {!translation?.content && (
-              <button
-                type="button"
-                className="favorite-button news-ai-button"
-                onClick={() => translateToTarget(targetLang)}
-                disabled={translationLoading || translationSessionDisabled || !canTranslate}
-                title={
-                  translationSessionDisabled
-                    ? "Translation disabled for this session"
-                    : !canTranslate
-                    ? "Generate an AI summary first"
-                    : "Translate"
-                }
-                style={{ width: "100%" }}
-              >
-                {translationLoading ? "Translating..." : "Translate"}
-              </button>
-            )}
-
-            {translationSessionDisabled && !translation?.content && (
-              <div className="news-ai-disabled">
-                <p className="muted" style={{ marginTop: 0 }}>
-                  Translation is currently disabled for this session (server key missing).
-                </p>
-                <button type="button" className="detail-link" onClick={reenableTranslation}>
-                  Re-enable
-                </button>
-              </div>
-            )}
-
-            {!translationSessionDisabled && translationError && !translation?.content && (
-              <p className="publish-status error">{translationError}</p>
-            )}
-
-            {!translation?.content && !translationLoading && !translationError && translationNotice && (
-              <p className="muted">{translationNotice}</p>
-            )}
-
-            {translation?.content && (
-              <>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  <span className="pill muted">
-                    {translation.sourceLang || "?"} → {translation.targetLang || "en"}
-                  </span>
-                  {translation.usedApi ? (
-                    <span className="pill muted">
-                      {Number(translation.chars || 0).toLocaleString()} chars
-                    </span>
-                  ) : (
-                    <span className="pill muted">0 chars</span>
-                  )}
-                </div>
-                <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    className={`detail-link ${!showTranslated ? "active" : ""}`}
-                    onClick={() => setShowTranslated(false)}
-                  >
-                    Original
-                  </button>
-                  <button
-                    type="button"
-                    className={`detail-link ${showTranslated ? "active" : ""}`}
-                    onClick={() => setShowTranslated(true)}
-                  >
-                    {languageOptions.find((opt) => opt.code === (translation?.targetLang || targetLang))?.label || "Translated"}
-                  </button>
-                </div>
-                <p className="muted" style={{ marginBottom: 0 }}>
-                  Translation is generated on demand and cached in your browser to reduce quota usage.
-                </p>
-              </>
-            )}
-
-            {!translation?.content && !translationLoading && !translationError && !translationNotice && (
-              <p className="muted">
-                {canTranslate
-                  ? "Translate the AI summary on demand (cached per language)."
-                  : "Generate an AI summary first to translate it."}
-              </p>
-            )}
-          </div>
         </aside>
       </div>
     </div>
