@@ -628,6 +628,8 @@ function NewsDetail() {
                       border: "1px solid rgba(255,255,255,0.08)"
                     }}
                     loading="lazy"
+                    decoding="async"
+                    referrerPolicy="no-referrer"
                   />
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 800 }}>
@@ -677,7 +679,14 @@ function NewsDetail() {
                     title="Open related story"
                   >
                     {relatedContext?.[r.id]?.cover ? (
-                      <img className="inbox-thumb" src={relatedContext[r.id].cover} alt={r.title} loading="lazy" />
+                      <img
+                        className="inbox-thumb"
+                        src={relatedContext[r.id].cover}
+                        alt={r.title}
+                        loading="lazy"
+                        decoding="async"
+                        referrerPolicy="no-referrer"
+                      />
                     ) : (
                       <div className="inbox-thumb placeholder" aria-hidden="true" />
                     )}

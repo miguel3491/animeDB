@@ -86,6 +86,8 @@ function News() {
   const [context, setContext] = useState({});
   const [contextError, setContextError] = useState("");
   const contextInFlightRef = useRef(new Set());
+  const [brokenContextCovers, setBrokenContextCovers] = useState(() => new Set());
+  const [contextImgErrorUrls, setContextImgErrorUrls] = useState({});
 
   useEffect(() => {
     try {
@@ -384,6 +386,8 @@ function News() {
       const raw = item.image || thumbs[item.id] || "";
       const proxied = raw ? proxiedImage(raw) : "";
       const dbg = thumbDebug[item.id] || null;
+      const ctx = context?.[item.id] || null;
+      const ctxCover = ctx?.cover || "";
       return {
         id: item.id,
         title: item.title,
@@ -392,10 +396,14 @@ function News() {
         proxied,
         errorUrl: imgErrorUrls[item.id] || "",
         thumbStatus: dbg?.status ?? null,
-        thumbHasImage: dbg?.hasImage ?? null
+        thumbHasImage: dbg?.hasImage ?? null,
+        ctxHasCover: Boolean(String(ctxCover || "").trim()),
+        ctxBroken: brokenContextCovers.has(item.id),
+        ctxCover,
+        ctxErrorUrl: contextImgErrorUrls[item.id] || ""
       };
     });
-  }, [filtered, thumbs, brokenThumbs, imgErrorUrls, thumbDebug]);
+  }, [filtered, thumbs, brokenThumbs, imgErrorUrls, thumbDebug, context, brokenContextCovers, contextImgErrorUrls]);
 
   return (
     <div>
@@ -603,7 +611,19 @@ function News() {
                         {row.thumbStatus ? <span className="pill muted">thumb:{row.thumbStatus}</span> : null}
                         {row.thumbHasImage === false ? <span className="pill muted">empty</span> : null}
                         {row.isBroken ? <span className="pill pill-hot">broken</span> : null}
+                        {row.ctxHasCover ? <span className="pill">ctx</span> : <span className="pill muted">ctx:none</span>}
+                        {row.ctxBroken ? <span className="pill pill-hot">ctx:broken</span> : null}
                       </div>
+                      {row.ctxCover ? (
+                        <p className="muted" style={{ wordBreak: "break-all" }}>
+                          ctx: <code>{row.ctxCover}</code>
+                        </p>
+                      ) : null}
+                      {row.ctxErrorUrl ? (
+                        <p className="muted" style={{ wordBreak: "break-all" }}>
+                          ctx onError: <code>{row.ctxErrorUrl}</code>
+                        </p>
+                      ) : null}
                       {row.errorUrl ? (
                         <p className="muted" style={{ wordBreak: "break-all" }}>
                           onError: <code>{row.errorUrl}</code>
@@ -670,8 +690,24 @@ function News() {
                       });
                     }}
                   />
-                ) : contextCoversEnabled && context?.[highlight.id]?.cover ? (
-                  <img className="news-highlight-image" src={context[highlight.id].cover} alt={highlight.title} loading="lazy" />
+                ) : contextCoversEnabled && context?.[highlight.id]?.cover && !brokenContextCovers.has(highlight.id) ? (
+                  <img
+                    className="news-highlight-image"
+                    src={context[highlight.id].cover}
+                    alt={highlight.title}
+                    loading="lazy"
+                    decoding="async"
+                    referrerPolicy="no-referrer"
+                    onError={() => {
+                      const failing = String(context?.[highlight.id]?.cover || "").trim();
+                      setContextImgErrorUrls((prev) => ({ ...prev, [highlight.id]: failing }));
+                      setBrokenContextCovers((prev) => {
+                        const next = new Set(prev);
+                        next.add(highlight.id);
+                        return next;
+                      });
+                    }}
+                  />
                 ) : (
                   <div
                     className="news-highlight-image news-card-image-placeholder"
@@ -684,6 +720,8 @@ function News() {
                       Object.prototype.hasOwnProperty.call(context, highlight.id) &&
                       context[highlight.id] === null
                         ? "No cover match"
+                        : contextCoversEnabled && brokenContextCovers.has(highlight.id)
+                          ? "Cover blocked"
                         : sourceImagesEnabled
                           ? (thumbLoading ? "Loading preview..." : "Preview unavailable")
                           : "Preview unavailable"}
@@ -718,8 +756,24 @@ function News() {
                         });
                       }}
                     />
-                  ) : contextCoversEnabled && context?.[item.id]?.cover ? (
-                    <img className="news-card-image" src={context[item.id].cover} alt={item.title} loading="lazy" />
+                  ) : contextCoversEnabled && context?.[item.id]?.cover && !brokenContextCovers.has(item.id) ? (
+                    <img
+                      className="news-card-image"
+                      src={context[item.id].cover}
+                      alt={item.title}
+                      loading="lazy"
+                      decoding="async"
+                      referrerPolicy="no-referrer"
+                      onError={() => {
+                        const failing = String(context?.[item.id]?.cover || "").trim();
+                        setContextImgErrorUrls((prev) => ({ ...prev, [item.id]: failing }));
+                        setBrokenContextCovers((prev) => {
+                          const next = new Set(prev);
+                          next.add(item.id);
+                          return next;
+                        });
+                      }}
+                    />
                   ) : (
                     <div
                       className="news-card-image news-card-image-placeholder"
@@ -729,6 +783,8 @@ function News() {
                       <span className="muted">
                         {contextCoversEnabled && Object.prototype.hasOwnProperty.call(context, item.id) && context[item.id] === null
                           ? "No cover match"
+                          : contextCoversEnabled && brokenContextCovers.has(item.id)
+                            ? "Cover blocked"
                           : sourceImagesEnabled
                             ? (thumbLoading ? "Loading preview..." : "Preview unavailable")
                             : "Preview unavailable"}
