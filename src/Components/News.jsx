@@ -6,6 +6,13 @@ import "../styles.css";
 function News() {
   const location = useLocation();
   const fromPath = `${location.pathname}${location.search || ""}`;
+  const [sourceImagesEnabled, setSourceImagesEnabled] = useState(() => {
+    try {
+      return localStorage.getItem("news-source-images") === "1";
+    } catch (err) {
+      return false;
+    }
+  });
   const truncateByPercent = (text, percent) => {
     const raw = String(text || "").trim();
     if (!raw) return "";
@@ -67,6 +74,14 @@ function News() {
   const [imgErrorUrls, setImgErrorUrls] = useState({});
   const [thumbDebug, setThumbDebug] = useState({});
   const thumbInFlightRef = useRef(new Set());
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("news-source-images", sourceImagesEnabled ? "1" : "0");
+    } catch (err) {
+      // ignore
+    }
+  }, [sourceImagesEnabled]);
 
   useEffect(() => {
     try {
@@ -165,6 +180,7 @@ function News() {
 
   useEffect(() => {
     // Resolve previews only for the visible content (highlight on page 1 + current page items).
+    if (!sourceImagesEnabled) return;
     const visible = [];
     if (page === 0 && highlight) visible.push(highlight);
     pageItems.forEach((it) => visible.push(it));
@@ -188,6 +204,11 @@ function News() {
         if (!response.ok) {
           if (response.status === 404) {
             setThumbServiceError("Preview service is unavailable. Make sure `npm start` is running (client + server).");
+          } else if (response.status === 403) {
+            setThumbServiceError(
+              "Source images are disabled on the server. Set NEWS_SOURCE_IMAGES_ENABLED=1 and restart `npm start`."
+            );
+            setSourceImagesEnabled(false);
           } else if (!thumbServiceError) {
             setThumbServiceError(`Preview service error (${response.status}).`);
           }
@@ -238,7 +259,25 @@ function News() {
       controller.abort();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageItems, page, highlight, windowDays, debugEnabled]);
+  }, [pageItems, page, highlight, windowDays, debugEnabled, sourceImagesEnabled]);
+
+  const hashHue = (seed) => {
+    const str = String(seed || "");
+    let h = 0;
+    for (let i = 0; i < str.length; i += 1) {
+      h = (h * 31 + str.charCodeAt(i)) % 360;
+    }
+    return h;
+  };
+
+  const placeholderStyle = (seed) => {
+    const h1 = hashHue(seed);
+    const h2 = (h1 + 28) % 360;
+    return {
+      backgroundImage: `linear-gradient(135deg, hsla(${h1}, 85%, 55%, 0.42), hsla(${h2}, 85%, 52%, 0.16))`
+    };
+  };
+
   const persistItem = (item) => {
     if (typeof window === "undefined") return;
     try {
@@ -319,7 +358,7 @@ function News() {
           <div className="hero news-hero">
             <h2>Japan Anime News</h2>
             <p>
-              Curated updates from trusted sources, translated to English when needed.
+              Curated headlines with optional AI summaries. Open the original source for full articles.
             </p>
           </div>
 
@@ -369,6 +408,21 @@ function News() {
                   </svg>
                 </button>
               </div>
+              <button
+                type="button"
+                className={`trailer-toggle ${sourceImagesEnabled ? "on" : "off"}`}
+                onClick={() => setSourceImagesEnabled((v) => !v)}
+                aria-pressed={sourceImagesEnabled}
+                title={
+                  sourceImagesEnabled
+                    ? "Source images ON (may be restricted by publishers)."
+                    : "Source images OFF (safer for monetization)."
+                }
+              >
+                <span className="trailer-toggle-dot" aria-hidden="true"></span>
+                <span className="trailer-toggle-label">Source images</span>
+                <span className="trailer-toggle-state">{sourceImagesEnabled ? "ON" : "OFF"}</span>
+              </button>
               <label className="genre-filter">
                 <span className="genre-label">Window</span>
                 <select
@@ -405,7 +459,7 @@ function News() {
 
           {loading && <p>Loading the latest news…</p>}
           {error && <p>{error}</p>}
-          {thumbServiceError && !loading && !error && <p className="muted">{thumbServiceError}</p>}
+          {sourceImagesEnabled && thumbServiceError && !loading && !error && <p className="muted">{thumbServiceError}</p>}
 
           {debugEnabled && !loading && !error && (
             <div className="publish-card" style={{ marginTop: 12 }}>
@@ -475,7 +529,7 @@ function News() {
                 </Link>
               </div>
 		              <div className="news-meta">
-		                {(highlight.image || thumbs[highlight.id]) && !brokenThumbs.has(highlight.id) && (
+		                {sourceImagesEnabled && (highlight.image || thumbs[highlight.id]) && !brokenThumbs.has(highlight.id) && (
 		                  <img
 		                    className="news-highlight-image"
 		                    src={proxiedImage(highlight.image || thumbs[highlight.id])}
@@ -495,11 +549,17 @@ function News() {
 		                    }}
 		                  />
 		                )}
-		                {!brokenThumbs.has(highlight.id) && !(highlight.image || thumbs[highlight.id]) && (
-		                  <div className="news-highlight-image news-card-image-placeholder" aria-label="Preview unavailable">
-		                    <span className="muted">{thumbLoading ? "Loading preview..." : "Preview unavailable"}</span>
-		                  </div>
-		                )}
+		                {(!sourceImagesEnabled || brokenThumbs.has(highlight.id) || !(highlight.image || thumbs[highlight.id])) && (
+                      <div
+                        className="news-highlight-image news-card-image-placeholder"
+                        aria-label="Preview unavailable"
+                        style={placeholderStyle(highlight.id)}
+                      >
+                        <span className="muted">
+                          {sourceImagesEnabled ? (thumbLoading ? "Loading preview..." : "Preview unavailable") : "Source images off"}
+                        </span>
+                      </div>
+                    )}
 		                <span>{highlight.pubDate ? new Date(highlight.pubDate).toLocaleString() : ""}</span>
 		                <span>{highlight.categories.join(", ")}</span>
               </div>
@@ -509,7 +569,7 @@ function News() {
 	          <div className={`news-grid ${viewMode}`}>
 	            {pageItems.map((item) => (
 		              <article className="news-card" key={item.id}>
-		                {(item.image || thumbs[item.id]) && !brokenThumbs.has(item.id) ? (
+		                {sourceImagesEnabled && (item.image || thumbs[item.id]) && !brokenThumbs.has(item.id) ? (
 		                  <img
 		                    className="news-card-image"
 		                    src={proxiedImage(item.image || thumbs[item.id])}
@@ -529,8 +589,14 @@ function News() {
                     }}
                   />
 	                ) : (
-	                  <div className="news-card-image news-card-image-placeholder" aria-label="Preview unavailable">
-	                    <span className="muted">{thumbLoading ? "Loading preview..." : "Preview unavailable"}</span>
+	                  <div
+                      className="news-card-image news-card-image-placeholder"
+                      aria-label="Preview unavailable"
+                      style={placeholderStyle(item.id)}
+                    >
+	                    <span className="muted">
+                        {sourceImagesEnabled ? (thumbLoading ? "Loading preview..." : "Preview unavailable") : "Source images off"}
+                      </span>
 		                  </div>
 		                )}
                   <div className="news-card-body">
@@ -624,8 +690,8 @@ function News() {
           <div className="sidebar-card">
             <h4>About the Feed</h4>
             <p>
-              This news view aggregates anime news and translates any Japanese text to
-              English automatically when possible.
+              AniKodo shows headlines and categories, plus optional AI summaries. We do not
+              republish full articles inside the app.
             </p>
           </div>
         </div>

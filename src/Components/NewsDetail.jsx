@@ -8,12 +8,9 @@ function NewsDetail() {
   const navigate = useNavigate();
   const decodedId = decodeURIComponent(id || "");
   const [item, setItem] = useState(location.state?.item || null);
-  const [article, setArticle] = useState(null);
-  const [articleLoading, setArticleLoading] = useState(false);
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState("");
-  const [brokenImages, setBrokenImages] = useState(() => new Set());
   const [summaryNotice, setSummaryNotice] = useState("");
   const [summaryUsed, setSummaryUsed] = useState(false);
   const [summarySessionDisabled, setSummarySessionDisabled] = useState(
@@ -200,7 +197,7 @@ function NewsDetail() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: item.title,
-          content: item.content || item.summary || item.description || ""
+          content: item.summary || item.description || ""
         })
       });
 
@@ -253,36 +250,6 @@ function NewsDetail() {
     setTranslationNotice("");
   };
 
-  useEffect(() => {
-    if (!item?.link) return;
-    let cancelled = false;
-    const load = async () => {
-      setArticleLoading(true);
-      try {
-        const response = await fetch(`/api/ann/article?url=${encodeURIComponent(item.link)}`);
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(data?.error || "Article unavailable");
-        }
-        if (!cancelled) {
-          setArticle(data);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setArticle(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setArticleLoading(false);
-        }
-      }
-    };
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [item?.link]);
-
   const translateToTarget = async (target) => {
     if (!item) return;
     if (translationLoading) return;
@@ -291,9 +258,12 @@ function NewsDetail() {
 
     const safeTarget = String(target || "en").trim() || "en";
     const localKey = `news-translation-${safeTarget}-${item.id}`;
-    // Use the best available plain-text payload to avoid translating HTML.
+    // Monetization-safe: only translate our AI summary (and headline), not publisher full text.
     const title = item.displayTitle || item.title || "";
-    const content = article?.contentText || item.displayBody || item.content || item.summary || item.description || "";
+    const summaryText = summary?.summary
+      ? `Summary:\n${summary.summary}\n\nKey points:\n${(summary.keyPoints || []).map((p) => `- ${p}`).join("\n")}`
+      : "";
+    const content = summaryText;
 
     try {
       const cached = localStorage.getItem(localKey);
@@ -406,20 +376,18 @@ function NewsDetail() {
   }
 
   const displayTitle = item.displayTitle || item.title;
-  const displayBody = item.displayBody || item.content || item.summary || "No summary available.";
-  const bodyHtml = article?.contentHtml || "";
 
   const translatedTitle = translation?.title || "";
   const translatedBody = translation?.content || "";
   const effectiveTitle = showTranslated && translatedTitle ? translatedTitle : displayTitle;
 
-  const heroImage = article?.image || item.image || "";
-  const inlineImages = Array.isArray(article?.inlineImages) ? article.inlineImages : [];
-  const galleryImages = [heroImage, ...inlineImages.map((img) => img.url)]
-    .filter(Boolean)
-    .filter((value, index, arr) => arr.indexOf(value) === index)
-    .slice(0, 8);
-  const externalCount = Number(article?.externalImageCount || 0);
+  const translatedLines = String(translatedBody || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const translatedBullets = translatedLines.filter((line) => line.startsWith("-"));
+  const translatedTextBlocks = translatedLines.filter((line) => !line.startsWith("-"));
+  const canTranslate = Boolean(summary?.summary);
 
   return (
     <div className="layout detail-layout">
@@ -436,77 +404,38 @@ function NewsDetail() {
             </button>
           </div>
 
-          {galleryImages.length > 0 && (
-            <div className="news-media">
-              {!brokenImages.has(heroImage) && heroImage && (
-                <img
-                  className="news-detail-image"
-                  src={heroImage}
-                  alt={displayTitle}
-                  loading="lazy"
-                  referrerPolicy="no-referrer"
-                  onError={() => {
-                    setBrokenImages((prev) => new Set(prev).add(heroImage));
-                  }}
-                />
-              )}
-              {brokenImages.has(heroImage) && heroImage && (
-                <a className="detail-link" href={heroImage} target="_blank" rel="noreferrer">
-                  Open image
-                </a>
-              )}
-              {galleryImages.length > 1 && (
-                <div className="news-media-grid">
-                  {galleryImages.slice(1).map((src) => {
-                    const broken = brokenImages.has(src);
-                    return (
-                      <a
-                        key={`news-media-${src}`}
-                        className="news-media-thumb"
-                        href={src}
-                        target="_blank"
-                        rel="noreferrer"
-                        title="Open image"
-                      >
-                        {broken ? (
-                          <span className="news-media-broken">Open image</span>
-                        ) : (
-                          <img
-                            src={src}
-                            alt=""
-                            loading="lazy"
-                            referrerPolicy="no-referrer"
-                            onError={() => {
-                              setBrokenImages((prev) => new Set(prev).add(src));
-                            }}
-                          />
-                        )}
-                      </a>
-                    );
-                  })}
-                </div>
-              )}
-              {externalCount > 0 && (
-                <p className="muted news-media-note">
-                  Some images are hosted by third-party sites and may block embedding. Click a thumbnail to open it directly.
-                </p>
-              )}
-            </div>
-          )}
-
           <div className="news-body">
-            {articleLoading ? (
-              <p className="muted">Loading the full article...</p>
+            <p className="muted" style={{ marginTop: 0 }}>
+              This view shows the headline and an optional AI-generated summary. For the full article, open the original source.
+            </p>
+            {!summary?.summary ? (
+              <p className="muted">
+                Generate an AI summary on the right to read a short recap here.
+              </p>
             ) : showTranslated && translatedBody ? (
-              translatedBody
-                .split(/\n{2,}/)
-                .map((block, idx) => (
-                  <p key={`news-translate-${item.id}-${idx}`}>{block.trim()}</p>
-                ))
-            ) : bodyHtml ? (
-              <div dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+              <>
+                {translatedTextBlocks.slice(0, 6).map((line, idx) => (
+                  <p key={`news-translate-${item.id}-${idx}`}>{line}</p>
+                ))}
+                {translatedBullets.length > 0 && (
+                  <ul className="news-points">
+                    {translatedBullets.slice(0, 8).map((line, idx) => (
+                      <li key={`news-translate-bullet-${item.id}-${idx}`}>{line.replace(/^-\\s*/, "")}</li>
+                    ))}
+                  </ul>
+                )}
+              </>
             ) : (
-              <p>{displayBody}</p>
+              <>
+                <p>{summary.summary}</p>
+                {summary?.keyPoints?.length > 0 && (
+                  <ul className="news-points">
+                    {summary.keyPoints.map((point, index) => (
+                      <li key={`${item.id}-point-inline-${index}`}>{point}</li>
+                    ))}
+                  </ul>
+                )}
+              </>
             )}
           </div>
 
@@ -577,15 +506,31 @@ function NewsDetail() {
               <p className="muted">{summaryNotice}</p>
             )}
 
-            {summary?.summary && <p>{summary.summary}</p>}
-
-            {summary?.keyPoints?.length > 0 && (
-              <ul className="news-points">
-                {summary.keyPoints.map((point, index) => (
-                  <li key={`${item.id}-point-${index}`}>{point}</li>
+            {summary?.summary && showTranslated && translatedBody ? (
+              <>
+                {translatedTextBlocks.slice(0, 6).map((line, idx) => (
+                  <p key={`news-ai-translate-${item.id}-${idx}`}>{line}</p>
                 ))}
-              </ul>
-            )}
+                {translatedBullets.length > 0 && (
+                  <ul className="news-points">
+                    {translatedBullets.slice(0, 8).map((line, idx) => (
+                      <li key={`news-ai-translate-bullet-${item.id}-${idx}`}>{line.replace(/^-\\s*/, "")}</li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            ) : summary?.summary ? (
+              <>
+                <p>{summary.summary}</p>
+                {summary?.keyPoints?.length > 0 && (
+                  <ul className="news-points">
+                    {summary.keyPoints.map((point, index) => (
+                      <li key={`${item.id}-point-${index}`}>{point}</li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            ) : null}
 
             {!summary?.summary && !summaryLoading && !summaryError && !summaryNotice && (
               <p className="muted">Generate a summary for this article.</p>
@@ -623,8 +568,14 @@ function NewsDetail() {
                 type="button"
                 className="favorite-button news-ai-button"
                 onClick={() => translateToTarget(targetLang)}
-                disabled={translationLoading || translationSessionDisabled}
-                title={translationSessionDisabled ? "Translation disabled for this session" : "Translate"}
+                disabled={translationLoading || translationSessionDisabled || !canTranslate}
+                title={
+                  translationSessionDisabled
+                    ? "Translation disabled for this session"
+                    : !canTranslate
+                    ? "Generate an AI summary first"
+                    : "Translate"
+                }
                 style={{ width: "100%" }}
               >
                 {translationLoading ? "Translating..." : "Translate"}
@@ -687,7 +638,11 @@ function NewsDetail() {
             )}
 
             {!translation?.content && !translationLoading && !translationError && !translationNotice && (
-              <p className="muted">Translate this story on demand (cached per language).</p>
+              <p className="muted">
+                {canTranslate
+                  ? "Translate the AI summary on demand (cached per language)."
+                  : "Generate an AI summary first to translate it."}
+              </p>
             )}
           </div>
         </aside>
