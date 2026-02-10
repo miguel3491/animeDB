@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import "../styles.css";
 
 function NewsDetail() {
@@ -25,6 +25,9 @@ function NewsDetail() {
   );
   const [targetLang, setTargetLang] = useState("en");
   const [showTranslated, setShowTranslated] = useState(false);
+  const [context, setContext] = useState(null);
+  const [contextError, setContextError] = useState("");
+  const [related, setRelated] = useState([]);
   const summaryRequestedRef = useRef(false);
   const translationRequestedRef = useRef(false);
   const itemId = item?.id || "";
@@ -48,6 +51,79 @@ function NewsDetail() {
       // ignore storage errors
     }
   }, [decodedId, item]);
+
+  useEffect(() => {
+    if (!item?.id || !item?.title) return;
+    let active = true;
+    (async () => {
+      try {
+        setContextError("");
+        const res = await fetch("/api/news/context", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: [{ id: item.id, title: item.title }] })
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!active) return;
+        if (!res.ok) throw new Error(String(json?.error || "Context unavailable"));
+        setContext(json?.results?.[item.id] || null);
+      } catch (err) {
+        if (!active) return;
+        setContext(null);
+        setContextError("Context unavailable.");
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [item?.id, item?.title]);
+
+  useEffect(() => {
+    if (!item?.id) return;
+    try {
+      const cached = sessionStorage.getItem("news-feed-cache");
+      if (!cached) return;
+      const parsed = JSON.parse(cached);
+      const feed = Array.isArray(parsed?.items) ? parsed.items : [];
+      if (feed.length === 0) return;
+      const mineCats = new Set(Array.isArray(item?.categories) ? item.categories : []);
+      const titleTokens = String(item?.title || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9\\s]/g, " ")
+        .split(/\\s+/)
+        .filter((t) => t.length >= 4 && !["anime", "manga", "announces", "reveals", "release", "releases"].includes(t));
+      const tokenSet = new Set(titleTokens);
+
+      const score = (it) => {
+        let s = 0;
+        const cats = Array.isArray(it?.categories) ? it.categories : [];
+        cats.forEach((c) => {
+          if (mineCats.has(c)) s += 3;
+        });
+        const otherTokens = String(it?.title || "")
+          .toLowerCase()
+          .replace(/[^a-z0-9\\s]/g, " ")
+          .split(/\\s+/)
+          .filter((t) => t.length >= 4);
+        otherTokens.forEach((t) => {
+          if (tokenSet.has(t)) s += 1;
+        });
+        return s;
+      };
+
+      const candidates = feed
+        .filter((it) => it && it.id && String(it.id) !== String(item.id))
+        .map((it) => ({ it, s: score(it) }))
+        .filter((row) => row.s > 0)
+        .sort((a, b) => b.s - a.s)
+        .slice(0, 8)
+        .map((row) => row.it);
+
+      setRelated(candidates);
+    } catch (err) {
+      setRelated([]);
+    }
+  }, [item?.categories, item?.id, item?.title]);
 
   useEffect(() => {
     if (!itemId) return;
@@ -439,6 +515,34 @@ function NewsDetail() {
             )}
           </div>
 
+          {(summary?.whatHappened || summary?.whyItMatters || (summary?.entities || []).length > 0) && (
+            <div className="publish-card" style={{ marginTop: 16 }}>
+              <div className="results-bar" style={{ marginBottom: 8 }}>
+                <h3 style={{ margin: 0 }}>Story Snapshot</h3>
+                <span className="pill">AI</span>
+              </div>
+              {summary?.whatHappened && (
+                <p className="muted" style={{ marginTop: 0 }}>
+                  <strong>What happened:</strong> {summary.whatHappened}
+                </p>
+              )}
+              {summary?.whyItMatters && (
+                <p className="muted">
+                  <strong>Why it matters:</strong> {summary.whyItMatters}
+                </p>
+              )}
+              {Array.isArray(summary?.entities) && summary.entities.length > 0 && (
+                <div className="news-tags" style={{ justifyContent: "flex-start" }}>
+                  {summary.entities.slice(0, 8).map((e, idx) => (
+                    <span key={`entity-${item.id}-${idx}`} className="tag">
+                      {e}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {item.categories?.length > 0 && (
             <div className="news-tags">
               {item.categories.map((cat) => (
@@ -457,6 +561,84 @@ function NewsDetail() {
         </section>
 
         <aside className="news-ai-rail">
+          {(context?.cover || contextError) && (
+            <div className="news-summary news-summary--side">
+              <div className="news-summary-head">
+                <h4>Context</h4>
+              </div>
+              {context?.cover ? (
+                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                  <img
+                    src={context.cover}
+                    alt={context?.title?.romaji || context?.title?.english || "Cover"}
+                    style={{
+                      width: 64,
+                      height: 92,
+                      borderRadius: 14,
+                      objectFit: "cover",
+                      border: "1px solid rgba(255,255,255,0.08)"
+                    }}
+                    loading="lazy"
+                  />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 800 }}>
+                      {context?.title?.english || context?.title?.romaji || context?.title?.native || "Related title"}
+                    </div>
+                    <p className="muted" style={{ marginTop: 6 }}>
+                      {context.type ? String(context.type).toUpperCase() : "MEDIA"}
+                      {context.format ? ` • ${String(context.format).replaceAll("_", " ")}` : ""}
+                      {context.seasonYear ? ` • ${context.seasonYear}` : ""}
+                    </p>
+                    {context?.idMal ? (
+                      <Link
+                        className="detail-link"
+                        to={context.type === "MANGA" ? `/manga/${context.idMal}` : `/anime/${context.idMal}`}
+                        state={{ from: `${location.pathname}${location.search || ""}` }}
+                      >
+                        View details
+                      </Link>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <p className="muted">{contextError || "No related title found."}</p>
+              )}
+            </div>
+          )}
+
+          {related.length > 0 && (
+            <div className="news-summary news-summary--side" style={{ marginTop: 14 }}>
+              <div className="news-summary-head">
+                <h4>Related Stories</h4>
+              </div>
+              <div className="inbox-list">
+                {related.slice(0, 6).map((r) => (
+                  <div key={`rel-${r.id}`} className="inbox-row" style={{ cursor: "default" }}>
+                    <div className="inbox-row-text">
+                      <div className="inbox-row-title" style={{ gap: 10 }}>
+                        <span style={{ fontWeight: 700 }}>{r.title}</span>
+                      </div>
+                      <Link
+                        className="detail-link"
+                        to={`/news/${encodeURIComponent(r.id)}`}
+                        state={{ from: `${location.pathname}${location.search || ""}`, item: r }}
+                        onClick={() => {
+                          try {
+                            sessionStorage.setItem(`news-item-${r.id}`, JSON.stringify(r));
+                          } catch (err) {
+                            // ignore
+                          }
+                        }}
+                      >
+                        Open
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="news-summary news-summary--side">
             <div className="news-summary-head">
               <h4>AI Summary</h4>

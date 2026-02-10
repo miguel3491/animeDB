@@ -74,6 +74,18 @@ function News() {
   const [imgErrorUrls, setImgErrorUrls] = useState({});
   const [thumbDebug, setThumbDebug] = useState({});
   const thumbInFlightRef = useRef(new Set());
+  const [contextCoversEnabled, setContextCoversEnabled] = useState(() => {
+    try {
+      const raw = localStorage.getItem("news-context-covers");
+      if (raw === "0") return false;
+    } catch (err) {
+      // ignore
+    }
+    return true;
+  });
+  const [context, setContext] = useState({});
+  const [contextError, setContextError] = useState("");
+  const contextInFlightRef = useRef(new Set());
 
   useEffect(() => {
     try {
@@ -82,6 +94,14 @@ function News() {
       // ignore
     }
   }, [sourceImagesEnabled]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("news-context-covers", contextCoversEnabled ? "1" : "0");
+    } catch (err) {
+      // ignore
+    }
+  }, [contextCoversEnabled]);
 
   useEffect(() => {
     try {
@@ -146,6 +166,11 @@ function News() {
         const json = await response.json();
         const next = Array.isArray(json?.items) ? json.items : [];
         setItems(next);
+        try {
+          sessionStorage.setItem("news-feed-cache", JSON.stringify({ ts: Date.now(), items: next }));
+        } catch (err) {
+          // ignore
+        }
         if (next.length === 0) {
           setError("No news items available right now.");
         }
@@ -260,6 +285,53 @@ function News() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageItems, page, highlight, windowDays, debugEnabled, sourceImagesEnabled]);
+
+  useEffect(() => {
+    if (!contextCoversEnabled) return;
+    const visible = [];
+    if (page === 0 && highlight) visible.push(highlight);
+    pageItems.forEach((it) => visible.push(it));
+    const inflight = contextInFlightRef.current;
+    const missing = visible.filter(
+      (it) => it?.id && !context[it.id] && !inflight.has(it.id)
+    );
+    if (missing.length === 0) return;
+    const missingIds = missing.map((it) => it.id);
+
+    let cancelled = false;
+    const controller = new AbortController();
+
+    const load = async () => {
+      try {
+        setContextError("");
+        missingIds.forEach((id) => inflight.add(id));
+        const res = await fetch("/api/news/context", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: missing.map((it) => ({ id: it.id, title: it.title })) }),
+          signal: controller.signal
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(String(json?.error || "Context lookup failed"));
+        }
+        if (cancelled) return;
+        setContext((prev) => ({ ...prev, ...(json?.results || {}) }));
+      } catch (err) {
+        if (cancelled) return;
+        setContextError("Context covers unavailable right now.");
+      } finally {
+        missingIds.forEach((id) => inflight.delete(id));
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+      controller.abort();
+      missingIds.forEach((id) => inflight.delete(id));
+    };
+  }, [contextCoversEnabled, context, highlight, page, pageItems]);
 
   const hashHue = (seed) => {
     const str = String(seed || "");
@@ -423,6 +495,21 @@ function News() {
                 <span className="trailer-toggle-label">Source images</span>
                 <span className="trailer-toggle-state">{sourceImagesEnabled ? "ON" : "OFF"}</span>
               </button>
+              <button
+                type="button"
+                className={`trailer-toggle ${contextCoversEnabled ? "on" : "off"}`}
+                onClick={() => setContextCoversEnabled((v) => !v)}
+                aria-pressed={contextCoversEnabled}
+                title={
+                  contextCoversEnabled
+                    ? "Context covers ON (uses AniList cover art)."
+                    : "Context covers OFF."
+                }
+              >
+                <span className="trailer-toggle-dot" aria-hidden="true"></span>
+                <span className="trailer-toggle-label">Context covers</span>
+                <span className="trailer-toggle-state">{contextCoversEnabled ? "ON" : "OFF"}</span>
+              </button>
               <label className="genre-filter">
                 <span className="genre-label">Window</span>
                 <select
@@ -460,6 +547,7 @@ function News() {
           {loading && <p>Loading the latest news…</p>}
           {error && <p>{error}</p>}
           {sourceImagesEnabled && thumbServiceError && !loading && !error && <p className="muted">{thumbServiceError}</p>}
+          {contextCoversEnabled && contextError && !loading && !error && <p className="muted">{contextError}</p>}
 
           {debugEnabled && !loading && !error && (
             <div className="publish-card" style={{ marginTop: 12 }}>
@@ -528,77 +616,80 @@ function News() {
                   Read more
                 </Link>
               </div>
-		              <div className="news-meta">
-		                {sourceImagesEnabled && (highlight.image || thumbs[highlight.id]) && !brokenThumbs.has(highlight.id) && (
-		                  <img
-		                    className="news-highlight-image"
-		                    src={proxiedImage(highlight.image || thumbs[highlight.id])}
-		                    alt={highlight.title}
-		                    loading="lazy"
-		                    onError={() => {
-                          const failing = proxiedImage(highlight.image || thumbs[highlight.id]);
-                          if (process.env.NODE_ENV !== "production") {
-                            console.warn("News highlight image failed:", failing);
-                          }
-                          setImgErrorUrls((prev) => ({ ...prev, [highlight.id]: failing }));
-		                      setBrokenThumbs((prev) => {
-		                        const next = new Set(prev);
-		                        next.add(highlight.id);
-		                        return next;
-		                      });
-		                    }}
-		                  />
-		                )}
-		                {(!sourceImagesEnabled || brokenThumbs.has(highlight.id) || !(highlight.image || thumbs[highlight.id])) && (
-                      <div
-                        className="news-highlight-image news-card-image-placeholder"
-                        aria-label="Preview unavailable"
-                        style={placeholderStyle(highlight.id)}
-                      >
-                        <span className="muted">
-                          {sourceImagesEnabled ? (thumbLoading ? "Loading preview..." : "Preview unavailable") : "Source images off"}
-                        </span>
-                      </div>
-                    )}
-		                <span>{highlight.pubDate ? new Date(highlight.pubDate).toLocaleString() : ""}</span>
-		                <span>{highlight.categories.join(", ")}</span>
+              <div className="news-meta">
+                {sourceImagesEnabled && (highlight.image || thumbs[highlight.id]) && !brokenThumbs.has(highlight.id) ? (
+                  <img
+                    className="news-highlight-image"
+                    src={proxiedImage(highlight.image || thumbs[highlight.id])}
+                    alt={highlight.title}
+                    loading="lazy"
+                    onError={() => {
+                      const failing = proxiedImage(highlight.image || thumbs[highlight.id]);
+                      if (process.env.NODE_ENV !== "production") {
+                        console.warn("News highlight image failed:", failing);
+                      }
+                      setImgErrorUrls((prev) => ({ ...prev, [highlight.id]: failing }));
+                      setBrokenThumbs((prev) => {
+                        const next = new Set(prev);
+                        next.add(highlight.id);
+                        return next;
+                      });
+                    }}
+                  />
+                ) : contextCoversEnabled && context?.[highlight.id]?.cover ? (
+                  <img className="news-highlight-image" src={context[highlight.id].cover} alt={highlight.title} loading="lazy" />
+                ) : (
+                  <div
+                    className="news-highlight-image news-card-image-placeholder"
+                    aria-label="Preview unavailable"
+                    style={placeholderStyle(highlight.id)}
+                  >
+                    <span className="muted">
+                      {sourceImagesEnabled ? (thumbLoading ? "Loading preview..." : "Preview unavailable") : "Preview unavailable"}
+                    </span>
+                  </div>
+                )}
+                <span>{highlight.pubDate ? new Date(highlight.pubDate).toLocaleString() : ""}</span>
+                <span>{highlight.categories.join(", ")}</span>
               </div>
             </div>
           )}
 
 	          <div className={`news-grid ${viewMode}`}>
-	            {pageItems.map((item) => (
-		              <article className="news-card" key={item.id}>
-		                {sourceImagesEnabled && (item.image || thumbs[item.id]) && !brokenThumbs.has(item.id) ? (
-		                  <img
-		                    className="news-card-image"
-		                    src={proxiedImage(item.image || thumbs[item.id])}
-		                    alt={item.title}
-		                    loading="lazy"
-		                    onError={() => {
-                          const failing = proxiedImage(item.image || thumbs[item.id]);
-                          if (process.env.NODE_ENV !== "production") {
-                            console.warn("News card image failed:", failing);
-                          }
-                          setImgErrorUrls((prev) => ({ ...prev, [item.id]: failing }));
-		                      setBrokenThumbs((prev) => {
-		                        const next = new Set(prev);
-		                        next.add(item.id);
-                        return next;
-                      });
-                    }}
-                  />
-	                ) : (
-	                  <div
+              {pageItems.map((item) => (
+                <article className="news-card" key={item.id}>
+                  {sourceImagesEnabled && (item.image || thumbs[item.id]) && !brokenThumbs.has(item.id) ? (
+                    <img
+                      className="news-card-image"
+                      src={proxiedImage(item.image || thumbs[item.id])}
+                      alt={item.title}
+                      loading="lazy"
+                      onError={() => {
+                        const failing = proxiedImage(item.image || thumbs[item.id]);
+                        if (process.env.NODE_ENV !== "production") {
+                          console.warn("News card image failed:", failing);
+                        }
+                        setImgErrorUrls((prev) => ({ ...prev, [item.id]: failing }));
+                        setBrokenThumbs((prev) => {
+                          const next = new Set(prev);
+                          next.add(item.id);
+                          return next;
+                        });
+                      }}
+                    />
+                  ) : contextCoversEnabled && context?.[item.id]?.cover ? (
+                    <img className="news-card-image" src={context[item.id].cover} alt={item.title} loading="lazy" />
+                  ) : (
+                    <div
                       className="news-card-image news-card-image-placeholder"
                       aria-label="Preview unavailable"
                       style={placeholderStyle(item.id)}
                     >
-	                    <span className="muted">
-                        {sourceImagesEnabled ? (thumbLoading ? "Loading preview..." : "Preview unavailable") : "Source images off"}
+                      <span className="muted">
+                        {sourceImagesEnabled ? (thumbLoading ? "Loading preview..." : "Preview unavailable") : "Preview unavailable"}
                       </span>
-		                  </div>
-		                )}
+                    </div>
+                  )}
                   <div className="news-card-body">
                     <div className="news-card-header">
                       <span className="news-source">{item.sourceName}</span>

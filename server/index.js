@@ -47,6 +47,8 @@ const ANILIST_TTL = 5 * 60 * 1000;
 const MAX_ANILIST_CACHE = 1200;
 const ANN_FEED_URL = "https://www.animenewsnetwork.com/news/rss.xml";
 const annCache = new Map();
+const newsContextCache = new Map();
+const newsContextInflight = new Map();
 const translateCache = new Map();
 const TRANSLATE_TTL = 30 * 24 * 60 * 60 * 1000;
 const MAX_TRANSLATE_CACHE = 400;
@@ -56,6 +58,8 @@ const imageProxyInflight = new Map();
 const IMAGE_PROXY_TTL = 24 * 60 * 60 * 1000;
 const MAX_IMAGE_PROXY_CACHE = 220;
 const ANN_TTL = 5 * 60 * 1000;
+const NEWS_CONTEXT_TTL = 7 * 24 * 60 * 60 * 1000;
+const MAX_NEWS_CONTEXT_CACHE = 1400;
 const mangaSeasonLastPageCache = new Map();
 const MANGA_SEASON_LASTPAGE_TTL = 60 * 60 * 1000;
 const CATALOG_PRIMARY = String(process.env.CATALOG_PRIMARY || "anilist").trim().toLowerCase();
@@ -71,6 +75,18 @@ const shouldServeStale = (cached, ttl) => {
 const buildCacheKey = (title, content) => {
   const base = `${title || ""}\n${content || ""}`.trim();
   return base.slice(0, 2000);
+};
+
+const normalizeNewsTitleForSearch = (raw) => {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  const quoted = text.match(/["“]([^"”]{3,80})["”]/);
+  if (quoted && quoted[1]) return String(quoted[1]).trim();
+  const splitDash = text.split(" - ").map((s) => s.trim()).filter(Boolean);
+  if (splitDash.length > 1 && splitDash[0].length >= 8) return splitDash[0];
+  const splitColon = text.split(":").map((s) => s.trim()).filter(Boolean);
+  if (splitColon.length > 1 && splitColon[0].length >= 8) return splitColon[0];
+  return text.slice(0, 140);
 };
 
 const absAnn = (value) => {
@@ -482,9 +498,10 @@ app.post("/api/summary", async (req, res) => {
         {
           role: "system",
           content:
-            "You are a news summarizer. Return JSON with keys summary and keyPoints. " +
+            "You are a news summarizer. Return JSON with keys: summary, keyPoints, whatHappened, whyItMatters, entities. " +
             "summary must be 2-3 original sentences in English that do not copy or closely paraphrase the source. " +
-            "keyPoints must be an array of 3-5 short bullets."
+            "keyPoints must be an array of 3-5 short bullets. " +
+            "whatHappened must be one sentence. whyItMatters must be one sentence. entities must be an array of 2-6 short proper nouns."
         },
         {
           role: "user",
@@ -503,7 +520,10 @@ app.post("/api/summary", async (req, res) => {
 
     const payload = {
       summary: typeof parsed.summary === "string" ? parsed.summary : "",
-      keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints : []
+      keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints : [],
+      whatHappened: typeof parsed.whatHappened === "string" ? parsed.whatHappened : "",
+      whyItMatters: typeof parsed.whyItMatters === "string" ? parsed.whyItMatters : "",
+      entities: Array.isArray(parsed.entities) ? parsed.entities.filter((v) => typeof v === "string") : []
     };
 
     summaryCache.set(cacheKey, payload);
@@ -690,6 +710,94 @@ app.post("/api/anilist", async (req, res) => {
       return res.json(cached.data);
     }
     return res.status(500).json({ error: "AniList proxy failed" });
+  }
+});
+
+app.post("/api/news/context", async (req, res) => {
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  if (items.length === 0) return res.json({ results: {} });
+
+  const take = items
+    .slice(0, 20)
+    .map((it) => ({
+      id: String(it?.id || "").trim(),
+      title: String(it?.title || "").trim()
+    }))
+    .filter((it) => it.id && it.title);
+
+  if (take.length === 0) return res.json({ results: {} });
+
+  const query = `
+    query ($search: String) {
+      Page(page: 1, perPage: 1) {
+        media(search: $search, sort: SEARCH_MATCH) {
+          id
+          idMal
+          type
+          format
+          season
+          seasonYear
+          startDate { year month day }
+          title { romaji english native }
+          coverImage { large extraLarge color }
+        }
+      }
+    }
+  `;
+
+  const resolveOne = async (item) => {
+    const search = normalizeNewsTitleForSearch(item.title);
+    if (!search) return null;
+    const key = `ctx|${search.toLowerCase()}`;
+    const cached = newsContextCache.get(key);
+    if (cached && Date.now() - cached.ts < NEWS_CONTEXT_TTL) return cached.data;
+
+    return withInflight(newsContextInflight, key, async () => {
+      const response = await fetchAniListWithRetry("https://graphql.anilist.co", {
+        timeoutMs: 12000,
+        retries: 3,
+        init: {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ query, variables: { search } })
+        }
+      });
+      if (!response || !response.ok) return null;
+      const json = await response.json().catch(() => ({}));
+      const media = Array.isArray(json?.data?.Page?.media) ? json.data.Page.media : [];
+      const first = media[0] || null;
+      if (!first) {
+        cacheSetBounded(newsContextCache, key, { data: null, ts: Date.now() }, MAX_NEWS_CONTEXT_CACHE);
+        return null;
+      }
+      const cover = String(first?.coverImage?.extraLarge || first?.coverImage?.large || "").trim();
+      const payload = {
+        id: first.id || null,
+        idMal: first.idMal || null,
+        type: first.type || "",
+        format: first.format || "",
+        season: first.season || "",
+        seasonYear: first.seasonYear || null,
+        startDate: first.startDate || null,
+        title: first.title || {},
+        cover,
+        color: String(first?.coverImage?.color || "").trim()
+      };
+      cacheSetBounded(newsContextCache, key, { data: payload, ts: Date.now() }, MAX_NEWS_CONTEXT_CACHE);
+      return payload;
+    }).catch(() => null);
+  };
+
+  try {
+    const results = {};
+    for (const it of take) {
+      // eslint-disable-next-line no-await-in-loop
+      const ctx = await resolveOne(it);
+      if (ctx) results[it.id] = ctx;
+    }
+    return res.json({ results });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to resolve context" });
   }
 });
 
