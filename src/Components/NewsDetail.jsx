@@ -127,7 +127,8 @@ function NewsDetail() {
           body: JSON.stringify({
             // Related stories are a "best effort" UI. Use a slightly looser match threshold
             // so we can show more context covers without affecting the main feed accuracy.
-            minScore: 10,
+            // Slightly looser matching improves cover hit-rate without affecting the main story.
+            minScore: 6,
             items: related.slice(0, RELATED_LIMIT).map((r) => ({ id: r.id, title: r.title, categories: r.categories }))
           })
         });

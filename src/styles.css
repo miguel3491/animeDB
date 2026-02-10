@@ -2661,6 +2661,10 @@ a{
     flex-wrap: wrap;
     gap: 6px;
 }
+.news-tags + .detail-link {
+    display: inline-flex;
+    margin-top: 12px;
+}
 .news-card-bottom {
     margin-top: auto;
     display: grid;
