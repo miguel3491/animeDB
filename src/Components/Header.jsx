@@ -174,8 +174,11 @@ function Header(){
                                             Close
                                         </button>
                                     </div>
-                                    <Link className="detail-link" to="/profile" onClick={() => setOpen(false)}>
-                                        Open profile page
+                                    <Link className="profile-menu-item" to="/profile" onClick={() => setOpen(false)}>
+                                        <span>Profile Page</span>
+                                        <span className="profile-menu-chevron" aria-hidden="true">
+                                            →
+                                        </span>
                                     </Link>
                                     <label>
                                         Display name
