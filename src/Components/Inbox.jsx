@@ -545,7 +545,17 @@ function Inbox() {
             </div>
 
             {unseenCommentThreads.length === 0 ? (
-              <p className="muted">No new comments.</p>
+              <div className="inbox-list">
+                <div className="inbox-row inbox-row--empty" style={{ cursor: "default" }}>
+                  <div className="inbox-thumb placeholder" aria-hidden="true"></div>
+                  <div className="inbox-row-text">
+                    <div className="inbox-row-title">
+                      <span>No new comments</span>
+                    </div>
+                    <p className="muted">You're all caught up.</p>
+                  </div>
+                </div>
+              </div>
             ) : (
               <div className="inbox-list">
                 {commentPageItems.map((t) => (
