@@ -222,6 +222,9 @@ function AnimeDetail() {
   const premiered = anime.season ? `${anime.season} ${anime.year || ""}`.trim() : "N/A";
   const aired = anime.aired?.string || "N/A";
   const broadcast = anime.broadcast?.string || "N/A";
+  const fallbackGenres = Array.isArray(anime?.genres)
+    ? anime.genres.map((g) => String(g?.name || "").trim()).filter(Boolean)
+    : [];
   const toggleFavorite = async () => {
     if (!user) {
       return;
@@ -365,8 +368,16 @@ function AnimeDetail() {
                           </span>
                         ))}
                       </div>
+                    ) : fallbackGenres.length > 0 ? (
+                      <div className="detail-recs-tags">
+                        {fallbackGenres.slice(0, 2).map((g) => (
+                          <span key={`anime-rec-fallback-tag-${anime.mal_id}-${r.mal_id}-${g}`} className="tag">
+                            {g}
+                          </span>
+                        ))}
+                      </div>
                     ) : (
-                      <div className="detail-recs-meta muted">Related title</div>
+                      <div className="detail-recs-meta muted">Genres unavailable</div>
                     )}
                   </div>
                 </button>

@@ -187,6 +187,9 @@ function MangaDetail() {
   const formatList = (items) =>
     items && items.length ? items.map((item) => item.name).join(", ") : "None listed";
   const published = manga.published?.string || "N/A";
+  const fallbackGenres = Array.isArray(manga?.genres)
+    ? manga.genres.map((g) => String(g?.name || "").trim()).filter(Boolean)
+    : [];
 
   return (
     <div className="layout detail-layout">
@@ -272,8 +275,16 @@ function MangaDetail() {
                           </span>
                         ))}
                       </div>
+                    ) : fallbackGenres.length > 0 ? (
+                      <div className="detail-recs-tags">
+                        {fallbackGenres.slice(0, 2).map((g) => (
+                          <span key={`manga-rec-fallback-tag-${manga.mal_id}-${r.mal_id}-${g}`} className="tag">
+                            {g}
+                          </span>
+                        ))}
+                      </div>
                     ) : (
-                      <div className="detail-recs-meta muted">Related title</div>
+                      <div className="detail-recs-meta muted">Genres unavailable</div>
                     )}
                   </div>
                 </button>
