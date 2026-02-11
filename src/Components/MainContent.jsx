@@ -1235,9 +1235,7 @@ const AnimeCardItem = React.memo(function AnimeCardItem({
           ) : (
             <div className="media-placeholder" aria-label={`${title} cover unavailable`}></div>
           )}
-          {hasTrailer && (
-            <span className="trailer-badge">Trailer Available</span>
-          )}
+          {hasTrailer && <span className="pill trailer-pill">Trailer available</span>}
           {hasTrailer && showTrailer && (
             <iframe
               className="trailer-frame"

@@ -1872,7 +1872,7 @@ app.get("/api/jikan/anime/seasonal", async (req, res) => {
     return res.status(400).json({ error: "season must be winter|spring|summer|fall" });
   }
 
-  const fields = "mal_id,title,images,aired";
+  const fields = "mal_id,title,images,aired,trailer,type,synopsis,episodes,source,score,duration";
   const jikanUrl = `https://api.jikan.moe/v4/seasons/${encodeURIComponent(
     year
   )}/${encodeURIComponent(season)}?filter=tv&limit=${encodeURIComponent(
@@ -1899,6 +1899,13 @@ app.get("/api/jikan/anime/seasonal", async (req, res) => {
                 title { userPreferred english romaji }
                 coverImage { extraLarge large }
                 startDate { year month day }
+                trailer { id site }
+                format
+                episodes
+                source
+                averageScore
+                duration
+                description(asHtml: false)
               }
             }
           }
@@ -1937,13 +1944,21 @@ app.get("/api/jikan/anime/seasonal", async (req, res) => {
             const image = item?.coverImage?.extraLarge || item?.coverImage?.large || "";
             const start = item?.startDate || {};
             const from = toIsoDate(start.year, start.month, start.day);
+            const trailerEmbed = buildTrailerEmbedUrl(item?.trailer);
             return {
               mal_id: item?.idMal || null,
               title,
               images: image
                 ? { jpg: { image_url: image }, webp: { image_url: image } }
                 : { jpg: { image_url: "" }, webp: { image_url: "" } },
-              aired: from ? { from } : { from: null }
+              aired: from ? { from } : { from: null },
+              trailer: trailerEmbed ? { embed_url: trailerEmbed } : { embed_url: "" },
+              type: item?.format ? String(item.format).replaceAll("_", " ") : "",
+              episodes: Number.isFinite(Number(item?.episodes)) ? Number(item.episodes) : null,
+              source: item?.source ? String(item.source).replaceAll("_", " ") : "",
+              score: Number.isFinite(Number(item?.averageScore)) ? Math.round(Number(item.averageScore) / 10) : null,
+              duration: Number.isFinite(Number(item?.duration)) ? `${item.duration} min per ep.` : "",
+              synopsis: cleanText(item?.description || "")
             };
           })
           .filter((item) => isoToYear(item?.aired?.from) >= 2025);
