@@ -15,6 +15,9 @@ function AnimeDetail() {
   const [characters, setCharacters] = useState([]);
   const [charactersLoading, setCharactersLoading] = useState(true);
   const [charactersError, setCharactersError] = useState("");
+  const [recs, setRecs] = useState([]);
+  const [recsLoading, setRecsLoading] = useState(true);
+  const [recsError, setRecsError] = useState("");
   const { user } = useAuth();
   const [isFavorite, setIsFavorite] = useState(false);
   const [aniCover, setAniCover] = useState("");
@@ -73,6 +76,65 @@ function AnimeDetail() {
     fetchCharacters();
     return () => {
       isMounted = false;
+    };
+  }, [id]);
+
+  useEffect(() => {
+    let active = true;
+    const cacheKey = `anime-recs-${String(id || "")}`;
+    try {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) {
+          setRecs(parsed);
+          setRecsLoading(false);
+          return () => {
+            active = false;
+          };
+        }
+      }
+    } catch (err) {
+      // ignore
+    }
+
+    (async () => {
+      setRecsLoading(true);
+      setRecsError("");
+      try {
+        const res = await fetch(`/api/jikan/recommendations?type=anime&id=${encodeURIComponent(id)}`);
+        const json = await res.json().catch(() => ({}));
+        if (!active) return;
+        if (!res.ok) throw new Error(String(json?.error || "Recommendations unavailable."));
+        const rows = Array.isArray(json?.data) ? json.data : [];
+        const clean = rows
+          .map((r) => ({
+            mal_id: r?.mal_id ?? null,
+            title: r?.title || "",
+            image: r?.image || "",
+            votes: r?.votes ?? 0
+          }))
+          .filter((r) => Number.isFinite(Number(r.mal_id)) && r.title)
+          .sort((a, b) => (Number(b.votes) || 0) - (Number(a.votes) || 0))
+          .slice(0, 6);
+        setRecs(clean);
+        try {
+          sessionStorage.setItem(cacheKey, JSON.stringify(clean));
+        } catch (err) {
+          // ignore
+        }
+      } catch (err) {
+        if (!active) return;
+        setRecs([]);
+        setRecsError(err?.message || "Recommendations unavailable.");
+      } finally {
+        if (!active) return;
+        setRecsLoading(false);
+      }
+    })();
+
+    return () => {
+      active = false;
     };
   }, [id]);
 
@@ -257,6 +319,46 @@ function AnimeDetail() {
                     <span className="muted">{entry.role || "Supporting"}</span>
                   </div>
                 </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="detail-recs">
+          <div className="results-bar" style={{ margin: "8px 0 12px" }}>
+            <h3 style={{ margin: 0 }}>Related Recommendations</h3>
+            <span className="pill">Jikan</span>
+          </div>
+          {recsLoading ? (
+            <p className="muted">Loading recommendations...</p>
+          ) : recsError ? (
+            <p className="muted">{recsError}</p>
+          ) : recs.length === 0 ? (
+            <p className="muted">No recommendations available for this title.</p>
+          ) : (
+            <div className="detail-recs-grid">
+              {recs.map((r) => (
+                <button
+                  key={`anime-rec-${anime.mal_id}-${r.mal_id}`}
+                  type="button"
+                  className="detail-recs-card"
+                  onClick={() =>
+                    navigate(`/anime/${r.mal_id}`, {
+                      state: { from: location.state?.from || `${location.pathname}${location.search || ""}` }
+                    })
+                  }
+                  title="View details"
+                >
+                  {r.image ? (
+                    <img className="detail-recs-thumb" src={r.image} alt={r.title} loading="lazy" />
+                  ) : (
+                    <div className="detail-recs-thumb placeholder" aria-hidden="true" />
+                  )}
+                  <div className="detail-recs-text">
+                    <div className="detail-recs-title">{r.title}</div>
+                    <div className="detail-recs-meta muted">{Number(r.votes || 0)} votes</div>
+                  </div>
+                </button>
               ))}
             </div>
           )}

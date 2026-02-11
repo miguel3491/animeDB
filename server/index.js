@@ -2981,6 +2981,55 @@ app.get("/api/jikan/characters", async (req, res) => {
   }
 });
 
+app.get("/api/jikan/recommendations", async (req, res) => {
+  const endpoint = String(req.query.type || "").trim().toLowerCase();
+  const malId = Number(req.query.id);
+  if (!["anime", "manga"].includes(endpoint) || !Number.isFinite(malId) || malId <= 0) {
+    return res.status(400).json({ error: "Invalid request" });
+  }
+
+  const cacheKey = `jikan-recs|${endpoint}|${malId}`;
+  const ttl = 12 * 60 * 60 * 1000;
+  const cached = jikanCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < ttl) {
+    res.set("X-Cache", "HIT");
+    return res.json(cached.data);
+  }
+
+  try {
+    const result = await withInflight(jikanInflight, cacheKey, async () => {
+      const url = `https://api.jikan.moe/v4/${endpoint}/${encodeURIComponent(malId)}/recommendations`;
+      const response = await fetchJikanWithRetry(url, { timeoutMs: 12000, retries: 3 });
+      if (!response) return { status: 502, data: { error: "Recommendations unavailable" } };
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        return { status: response.status, data: { error: String(json?.message || "Recommendations unavailable") } };
+      }
+
+      const rows = Array.isArray(json?.data) ? json.data : [];
+      const mapped = rows
+        .map((r) => ({
+          mal_id: r?.entry?.mal_id ?? null,
+          title: r?.entry?.title || "",
+          image: r?.entry?.images?.jpg?.image_url || r?.entry?.images?.webp?.image_url || "",
+          votes: r?.votes ?? 0
+        }))
+        .filter((r) => Number.isFinite(Number(r.mal_id)) && r.title);
+
+      const payload = { data: mapped };
+      cacheSetBounded(jikanCache, cacheKey, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
+      return { status: 200, data: payload };
+    });
+    return res.status(result.status).json(result.data);
+  } catch (err) {
+    if (cached) {
+      res.set("X-Cache", "STALE");
+      return res.json(cached.data);
+    }
+    return res.status(502).json({ error: "Recommendations unavailable" });
+  }
+});
+
 app.listen(port, () => {
   console.log(`News summary server running on http://localhost:${port}`);
 });
