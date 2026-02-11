@@ -51,6 +51,7 @@ function Inbox() {
   const [commentsPage, setCommentsPage] = useState(0);
   const [mentionsPage, setMentionsPage] = useState(0);
   const [bugsPage, setBugsPage] = useState(0);
+  const [groupsPage, setGroupsPage] = useState(0);
 
   const sendTestNotification = async () => {
     if (!user?.uid) return;
@@ -106,7 +107,9 @@ function Inbox() {
             mediaTitle: data.mediaTitle || "",
             mediaImage: data.mediaImage || "",
             reportId: data.reportId || "",
-            reportTitle: data.reportTitle || ""
+            reportTitle: data.reportTitle || "",
+            groupId: data.groupId || "",
+            groupName: data.groupName || ""
           };
         });
         setEvents(rows);
@@ -140,11 +143,11 @@ function Inbox() {
       const q = query(ref, orderBy("clientAt", "desc"), startAfter(cursor), limit(PAGE_SIZE));
       const snap = await getDocs(q);
       const rows = snap.docs.map((docItem) => {
-        const data = docItem.data() || {};
-        return {
-          id: docItem.id,
-          type: data.type || "unknown",
-          seen: Boolean(data.seen),
+          const data = docItem.data() || {};
+          return {
+            id: docItem.id,
+            type: data.type || "unknown",
+            seen: Boolean(data.seen),
           clientAt: isoFromFirestore(data.clientAt),
           fromUid: data.fromUid || "",
           fromName: data.fromName || "",
@@ -153,12 +156,14 @@ function Inbox() {
           commentId: data.commentId || "",
           excerpt: data.excerpt || "",
           mediaType: data.mediaType || "",
-          mediaTitle: data.mediaTitle || "",
-          mediaImage: data.mediaImage || "",
-          reportId: data.reportId || "",
-          reportTitle: data.reportTitle || ""
-        };
-      });
+            mediaTitle: data.mediaTitle || "",
+            mediaImage: data.mediaImage || "",
+            reportId: data.reportId || "",
+            reportTitle: data.reportTitle || "",
+            groupId: data.groupId || "",
+            groupName: data.groupName || ""
+          };
+        });
 
       // Older pages can overlap as new events arrive; dedupe by id.
       setEvents((prev) => {
@@ -235,6 +240,15 @@ function Inbox() {
     [events]
   );
 
+  const groupEvents = useMemo(
+    () => events.filter((e) => e.type === "groupEliminated"),
+    [events]
+  );
+  const unseenGroupEvents = useMemo(
+    () => groupEvents.filter((e) => !e.seen),
+    [groupEvents]
+  );
+
   const recentCommentThreads = useMemo(() => {
     const map = new Map();
     events.forEach((e) => {
@@ -304,6 +318,17 @@ function Inbox() {
     return bugEvents.slice(start, start + SECTION_PAGE_SIZE);
   }, [bugEvents, bugsPage, bugsPageCount]);
 
+  const groupsPageCount = useMemo(() => {
+    if (groupEvents.length === 0) return 0;
+    return Math.max(1, Math.ceil(groupEvents.length / SECTION_PAGE_SIZE));
+  }, [groupEvents.length]);
+  const groupPageItems = useMemo(() => {
+    if (groupEvents.length === 0) return [];
+    const safe = Math.max(0, Math.min(groupsPage, Math.max(0, groupsPageCount - 1)));
+    const start = safe * SECTION_PAGE_SIZE;
+    return groupEvents.slice(start, start + SECTION_PAGE_SIZE);
+  }, [groupEvents, groupsPage, groupsPageCount]);
+
   useEffect(() => {
     setFollowsPage(0);
   }, [followEvents.length]);
@@ -319,6 +344,10 @@ function Inbox() {
   useEffect(() => {
     setBugsPage(0);
   }, [bugEvents.length]);
+
+  useEffect(() => {
+    setGroupsPage(0);
+  }, [groupEvents.length]);
 
   useEffect(() => {
     const missing = new Set();
@@ -398,7 +427,7 @@ function Inbox() {
         </div>
 
         <p className="muted inbox-intro">
-          Inbox includes: mentions, new comments on your discussion posts, new followers, and bug report updates.
+          Inbox includes: mentions, new comments on your discussion posts, new followers, group updates, and bug report updates.
         </p>
 
         {process.env.NODE_ENV !== "production" && isOwner && (
@@ -663,6 +692,66 @@ function Inbox() {
                   pageRangeDisplayed={2}
                   onPageChange={(selected) => setMentionsPage(selected.selected)}
                   forcePage={Math.max(0, Math.min(mentionsPage, mentionsPageCount - 1))}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="inbox-section">
+            <div className="inbox-section-head">
+              <h3>Group updates</h3>
+              <div className="inbox-section-actions">
+                <span className={`pill ${unseenGroupEvents.length > 0 ? "pill-hot" : ""}`}>
+                  {unseenGroupEvents.length > 99 ? "+99" : unseenGroupEvents.length}
+                </span>
+                <button
+                  type="button"
+                  className="detail-link"
+                  onClick={() => markEventsSeen(unseenGroupEvents.map((e) => e.id))}
+                  disabled={unseenGroupEvents.length === 0}
+                >
+                  Mark seen
+                </button>
+              </div>
+            </div>
+
+            {groupEvents.length === 0 ? (
+              <p className="muted">No group updates yet.</p>
+            ) : (
+              <div className="inbox-list">
+                {groupPageItems.map((e) => (
+                  <Link
+                    key={`group-${e.id}`}
+                    className="inbox-row"
+                    to="/groups"
+                    state={{ from: fromPath }}
+                    onClick={() => {
+                      if (!e.seen) markEventsSeen([e.id]);
+                    }}
+                  >
+                    <div className="inbox-avatar placeholder"></div>
+                    <div className="inbox-row-text">
+                      <div className="inbox-row-title">
+                        <span>{e.groupName || "Group update"}</span>
+                        {!e.seen && <span className="pill pill-hot">New</span>}
+                      </div>
+                      <p className="muted">{e.excerpt || "A group update was posted."}</p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+            {groupsPageCount > 1 && (
+              <div className="pagination inbox-pagination">
+                <ReactPaginate
+                  previousLabel={"←"}
+                  nextLabel={"→"}
+                  breakLabel={"..."}
+                  pageCount={groupsPageCount}
+                  marginPagesDisplayed={1}
+                  pageRangeDisplayed={2}
+                  onPageChange={(selected) => setGroupsPage(selected.selected)}
+                  forcePage={Math.max(0, Math.min(groupsPage, groupsPageCount - 1))}
                 />
               </div>
             )}

@@ -182,6 +182,79 @@ exports.syncGroupMemberCountOnDelete = onDocumentDeleted("groups/{groupId}/membe
   }
 });
 
+// Auto-delete groups when they have zero members and notify the owner via Inbox.
+// This must be server-side because the last member leaving cannot be relied on to run client logic.
+exports.autoDeleteGroupWhenEmpty = onDocumentDeleted("groups/{groupId}/members/{uid}", async (event) => {
+  const groupId = event.params.groupId;
+  if (!groupId) return;
+
+  const groupRef = db.doc(`groups/${groupId}`);
+  const groupSnap = await groupRef.get();
+  if (!groupSnap.exists) return; // already deleted (or deleting)
+
+  // Verify the roster is truly empty to avoid deleting due to stale memberCount or race conditions.
+  const membersSnap = await groupRef.collection("members").limit(1).get();
+  if (!membersSnap.empty) return;
+
+  const data = groupSnap.data() || {};
+  const ownerId = data.ownerId || "";
+  const groupName = data.name || "Unnamed group";
+  const nowIso = new Date().toISOString();
+
+  try {
+    if (ownerId) {
+      await db.collection(`users/${ownerId}/inboxEvents`).add({
+        type: "groupEliminated",
+        seen: false,
+        clientAt: nowIso,
+        createdAt: FieldValue.serverTimestamp(),
+        toUid: ownerId,
+        fromUid: "system",
+        fromName: "AniKumo",
+        fromAvatar: "",
+        groupId,
+        groupName,
+        excerpt: "Group was eliminated because it had 0 members."
+      });
+    }
+  } catch (err) {
+    console.log("autoDeleteGroupWhenEmpty notify failed", { groupId, ownerId, message: err?.message });
+    // continue to deletion attempt even if notification fails
+  }
+
+  try {
+    if (typeof db.recursiveDelete === "function") {
+      await db.recursiveDelete(groupRef);
+      return;
+    }
+  } catch (err) {
+    // fall through to manual deletion
+  }
+
+  // Manual fallback if recursiveDelete isn't available.
+  try {
+    // Delete posts and their subcollections first.
+    const postsRef = groupRef.collection("posts");
+    while (true) {
+      const postsSnap = await postsRef.limit(25).get();
+      if (postsSnap.empty) break;
+      for (const postDoc of postsSnap.docs) {
+        const postRef = postDoc.ref;
+        await deleteQueryInBatches(postRef.collection("comments"), 350);
+        await deleteQueryInBatches(postRef.collection("pendingComments"), 350);
+        await deleteQueryInBatches(postRef.collection("likes"), 350);
+        await postRef.delete();
+      }
+    }
+
+    // Delete any remaining members (should already be empty) and the group doc itself.
+    await deleteQueryInBatches(groupRef.collection("members"), 350);
+    await groupRef.delete();
+  } catch (err) {
+    console.log("autoDeleteGroupWhenEmpty delete failed", { groupId, message: err?.message });
+  }
+});
+
 // Cascade delete group post subcollections so "delete post" removes its thread.
 exports.cascadeDeleteGroupPost = onDocumentDeleted("groups/{groupId}/posts/{postId}", async (event) => {
   const groupId = event.params.groupId;
