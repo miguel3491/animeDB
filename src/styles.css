@@ -2915,6 +2915,14 @@ a{
     mix-blend-mode: overlay;
     opacity: 0.6;
 }
+.group-open-rank {
+    position: static;
+    top: auto;
+    left: auto;
+    inset: auto;
+    width: fit-content;
+    margin-top: 6px;
+}
 @keyframes groupRankShine {
     0% { transform: translateX(-120%); }
     45% { transform: translateX(140%); }

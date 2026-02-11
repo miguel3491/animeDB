@@ -6,6 +6,7 @@ import {
   doc,
   deleteDoc,
   getDoc,
+  getDocs,
   limit,
   onSnapshot,
   orderBy,
@@ -35,6 +36,8 @@ const roleLabel = (role) => {
   if (v === "officer") return "Officer";
   return "Member";
 };
+
+const GROUP_RANK_FETCH_LIMIT = 800;
 
 function GroupDetail() {
   const { id } = useParams();
@@ -86,6 +89,7 @@ function GroupDetail() {
   const inviteInflightRef = useRef(false);
   const invitePreviewTimeoutRef = useRef(null);
   const invitePreviewSeqRef = useRef(0);
+  const [groupRank, setGroupRank] = useState(null);
 
   useEffect(() => {
     if (!groupId) return;
@@ -167,6 +171,42 @@ function GroupDetail() {
   const isOwner = Boolean(user?.uid && group?.ownerId && String(group.ownerId) === String(user.uid));
   const commentApprovalEnabled = Boolean(group?.commentApprovalEnabled);
   const canPostApprovedComment = !commentApprovalEnabled || canManageMembers;
+  const rankClass = groupRank === 1 ? "rank-1" : groupRank === 2 ? "rank-2" : groupRank === 3 ? "rank-3" : "";
+
+  useEffect(() => {
+    if (!groupId) {
+      setGroupRank(null);
+      return;
+    }
+    let active = true;
+    const resolveRank = async () => {
+      try {
+        const ref = collection(db, "groups");
+        const q = query(ref, orderBy("memberCount", "desc"), limit(GROUP_RANK_FETCH_LIMIT));
+        const snap = await getDocs(q);
+        const rows = snap.docs
+          .map((d) => ({ id: d.id, ...(d.data() || {}) }))
+          .sort((a, b) => {
+            const ac = Number.isFinite(Number(a?.memberCount)) ? Number(a.memberCount) : 0;
+            const bc = Number.isFinite(Number(b?.memberCount)) ? Number(b.memberCount) : 0;
+            if (bc !== ac) return bc - ac;
+            const au = String(a?.updatedAt || "");
+            const bu = String(b?.updatedAt || "");
+            return bu.localeCompare(au);
+          });
+        const idx = rows.findIndex((r) => String(r?.id || "") === groupId);
+        if (!active) return;
+        setGroupRank(idx >= 0 ? idx + 1 : null);
+      } catch (err) {
+        if (!active) return;
+        setGroupRank(null);
+      }
+    };
+    resolveRank();
+    return () => {
+      active = false;
+    };
+  }, [group?.memberCount, group?.updatedAt, groupId]);
 
   useEffect(() => {
     const wantsOpen = Boolean(location.state?.openSettings);
@@ -808,6 +848,12 @@ function GroupDetail() {
               )}
               <div className="group-detail-title-text">
                 <h2 style={{ margin: 0 }}>{title}</h2>
+                {groupRank ? (
+                  <div className={`group-rank group-open-rank ${rankClass}`} title={`Rank #${groupRank} by members`}>
+                    <span className="group-rank-num">#{groupRank}</span>
+                    {groupRank <= 3 ? <span className="group-rank-medal">Top</span> : null}
+                  </div>
+                ) : null}
                 <p className="muted" style={{ margin: 0 }}>
                   {memberCount !== null ? `${memberCount} member${memberCount === 1 ? "" : "s"}` : "Members"} •{" "}
                   {group.isPublic ? "Public" : "Private"}
