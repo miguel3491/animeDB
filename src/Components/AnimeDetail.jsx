@@ -257,7 +257,7 @@ function AnimeDetail() {
             &#8592; Back to results
           </button>
           <div className="detail-actions">
-            {hasTrailer && <span className="pill">Trailer available</span>}
+            {hasTrailer && <span className="pill trailer-available">Trailer available</span>}
             <button
               className={`favorite-button ${isFavorite ? "active" : ""}`}
               type="button"
