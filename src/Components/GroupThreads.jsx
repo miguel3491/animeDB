@@ -108,6 +108,7 @@ function GroupThreads() {
   const isAdmin = myRole === "admin" || (user?.uid && group?.ownerId === user.uid);
   const isOfficer = myRole === "officer";
   const canManageMembers = Boolean(isAdmin || isOfficer);
+  const isOwner = Boolean(user?.uid && group?.ownerId && String(group.ownerId) === String(user.uid));
   const commentApprovalEnabled = Boolean(group?.commentApprovalEnabled);
   const canPostApprovedComment = !commentApprovalEnabled || canManageMembers;
 
@@ -173,6 +174,10 @@ function GroupThreads() {
   const leaveGroup = async () => {
     if (!user?.uid || !groupId) return;
     if (!myMember) return;
+    if (isOwner) {
+      setStatus("Group owners cannot leave. Use Disband to delete the group.");
+      return;
+    }
     const confirmed = window.confirm("Leave this group?");
     if (!confirmed) return;
     try {
@@ -191,6 +196,28 @@ function GroupThreads() {
       setLikedMap({});
     } catch (err) {
       setStatus(err?.message || "Unable to leave.");
+    }
+  };
+
+  const disbandGroup = async () => {
+    if (!user?.uid || !groupId) return;
+    if (!isOwner) {
+      setStatus("Only the group owner can disband this group.");
+      return;
+    }
+    const confirmed = window.confirm("Disband this group? This deletes the group for everyone.");
+    if (!confirmed) return;
+    try {
+      setStatus("Disbanding...");
+      const batch = writeBatch(db);
+      batch.delete(doc(db, "groups", groupId));
+      batch.delete(doc(db, "users", user.uid, "groups", groupId));
+      batch.delete(doc(db, "users", user.uid, "publicGroups", groupId));
+      batch.delete(doc(db, "users", user.uid, "pinnedGroups", groupId));
+      await batch.commit();
+      navigate("/groups", { state: { from: fromPath } });
+    } catch (err) {
+      setStatus(err?.message || "Unable to disband group.");
     }
   };
 
@@ -781,9 +808,17 @@ function GroupThreads() {
               </button>
             )}
             {user && myMember && (
-              <button type="button" className="detail-link danger" onClick={leaveGroup}>
-                Leave
-              </button>
+              <>
+                {isOwner ? (
+                  <button type="button" className="detail-link danger" onClick={disbandGroup}>
+                    Disband
+                  </button>
+                ) : (
+                  <button type="button" className="detail-link danger" onClick={leaveGroup}>
+                    Leave
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>

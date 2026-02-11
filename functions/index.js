@@ -322,3 +322,40 @@ exports.syncGroupPostLikeCountOnDelete = onDocumentDeleted("groups/{groupId}/pos
     console.log("syncGroupPostLikeCountOnDelete failed", { groupId, postId, message: err?.message });
   }
 });
+
+// When a group is deleted (disbanded by the owner), clean up its subcollections.
+// Firestore does not automatically delete subcollection docs when the parent doc is deleted.
+exports.cascadeDeleteGroupOnDelete = onDocumentDeleted("groups/{groupId}", async (event) => {
+  const groupId = event.params.groupId;
+  if (!groupId) return;
+  const groupRef = db.doc(`groups/${groupId}`);
+
+  try {
+    if (typeof db.recursiveDelete === "function") {
+      await db.recursiveDelete(groupRef.collection("posts"));
+      await db.recursiveDelete(groupRef.collection("members"));
+      return;
+    }
+  } catch (err) {
+    // fall through to manual deletion
+  }
+
+  try {
+    // Delete posts and their nested collections.
+    const postsRef = groupRef.collection("posts");
+    while (true) {
+      const postsSnap = await postsRef.limit(25).get();
+      if (postsSnap.empty) break;
+      for (const postDoc of postsSnap.docs) {
+        const postRef = postDoc.ref;
+        await deleteQueryInBatches(postRef.collection("comments"), 350);
+        await deleteQueryInBatches(postRef.collection("pendingComments"), 350);
+        await deleteQueryInBatches(postRef.collection("likes"), 350);
+        await postRef.delete().catch(() => {});
+      }
+    }
+    await deleteQueryInBatches(groupRef.collection("members"), 350);
+  } catch (err) {
+    console.log("cascadeDeleteGroupOnDelete failed", { groupId, message: err?.message });
+  }
+});
