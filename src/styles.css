@@ -2229,10 +2229,17 @@ a{
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
+    color: var(--text);
 }
 .detail-recs-meta {
     font-size: 12px;
     margin-top: 6px;
+}
+.detail-recs-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
 }
 
 .detail-characters {

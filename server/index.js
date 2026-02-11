@@ -2988,6 +2988,25 @@ app.get("/api/jikan/recommendations", async (req, res) => {
     return res.status(400).json({ error: "Invalid request" });
   }
 
+  const fetchBasicGenres = async (type, id) => {
+    const key = `jikan-basic|${type}|${id}`;
+    const cached = jikanCache.get(key);
+    if (cached && Date.now() - cached.ts < JIKAN_DETAIL_TTL) {
+      return cached.data;
+    }
+    const url = `https://api.jikan.moe/v4/${type}/${encodeURIComponent(id)}`;
+    const response = await fetchJikanWithRetry(url, { timeoutMs: 12000, retries: 3 });
+    if (!response) throw new Error("basic fetch failed");
+    const json = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error("basic fetch failed");
+    const genres = Array.isArray(json?.data?.genres)
+      ? json.data.genres.map((g) => String(g?.name || "").trim()).filter(Boolean)
+      : [];
+    const payload = { genres };
+    cacheSetBounded(jikanCache, key, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
+    return payload;
+  };
+
   const cacheKey = `jikan-recs|${endpoint}|${malId}`;
   const ttl = 12 * 60 * 60 * 1000;
   const cached = jikanCache.get(cacheKey);
@@ -3016,7 +3035,22 @@ app.get("/api/jikan/recommendations", async (req, res) => {
         }))
         .filter((r) => Number.isFinite(Number(r.mal_id)) && r.title);
 
-      const payload = { data: mapped };
+      const top = mapped
+        .sort((a, b) => (Number(b.votes) || 0) - (Number(a.votes) || 0))
+        .slice(0, 10);
+
+      const enriched = await Promise.all(
+        top.map(async (r) => {
+          try {
+            const basic = await fetchBasicGenres(endpoint, r.mal_id);
+            return { ...r, genres: basic?.genres || [] };
+          } catch (err) {
+            return { ...r, genres: [] };
+          }
+        })
+      );
+
+      const payload = { data: enriched };
       cacheSetBounded(jikanCache, cacheKey, { data: payload, ts: Date.now() }, MAX_JIKAN_CACHE);
       return { status: 200, data: payload };
     });

@@ -76,6 +76,7 @@ function MangaDetail() {
             mal_id: r?.mal_id ?? null,
             title: r?.title || "",
             image: r?.image || "",
+            genres: Array.isArray(r?.genres) ? r.genres : [],
             votes: r?.votes ?? 0
           }))
           .filter((r) => Number.isFinite(Number(r.mal_id)) && r.title)
@@ -263,7 +264,17 @@ function MangaDetail() {
                   )}
                   <div className="detail-recs-text">
                     <div className="detail-recs-title">{r.title}</div>
-                    <div className="detail-recs-meta muted">{Number(r.votes || 0)} votes</div>
+                    {Array.isArray(r.genres) && r.genres.length > 0 ? (
+                      <div className="detail-recs-tags">
+                        {r.genres.slice(0, 2).map((g) => (
+                          <span key={`manga-rec-tag-${manga.mal_id}-${r.mal_id}-${g}`} className="tag">
+                            {g}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="detail-recs-meta muted">Related title</div>
+                    )}
                   </div>
                 </button>
               ))}
