@@ -601,24 +601,21 @@ function Groups() {
     return rows;
   }, [groupsById, pinnedDocs, pinnedIds]);
 
-  const browseNonPinned = useMemo(() => {
-    return groups.filter((g) => {
-      const gid = String(g?.id || "").trim();
-      return gid && !pinnedIds.includes(gid);
-    });
-  }, [groups, pinnedIds]);
+  // Browse shows the global ranking (by memberCount). Pinned groups are a "My Groups" only feature
+  // and should not affect browse ordering or remove items from browse.
+  const browseSorted = useMemo(() => groups, [groups]);
 
   const browsePageCount = useMemo(() => {
-    if (browseNonPinned.length <= GROUPS_PER_PAGE) return 0;
-    return Math.max(1, Math.ceil(browseNonPinned.length / GROUPS_PER_PAGE));
-  }, [browseNonPinned.length]);
+    if (browseSorted.length <= GROUPS_PER_PAGE) return 0;
+    return Math.max(1, Math.ceil(browseSorted.length / GROUPS_PER_PAGE));
+  }, [browseSorted.length]);
 
   const browsePageItems = useMemo(() => {
-    if (browseNonPinned.length === 0) return [];
+    if (browseSorted.length === 0) return [];
     const safe = Math.max(0, Math.min(browsePage, Math.max(0, browsePageCount - 1)));
     const start = safe * GROUPS_PER_PAGE;
-    return browseNonPinned.slice(start, start + GROUPS_PER_PAGE);
-  }, [browseNonPinned, browsePage, browsePageCount]);
+    return browseSorted.slice(start, start + GROUPS_PER_PAGE);
+  }, [browseSorted, browsePage, browsePageCount]);
 
   const minePinned = useMemo(() => {
     const mineIds = new Set(myGroups.map((g) => String(g?.id || g?.groupId || "").trim()).filter(Boolean));
@@ -827,7 +824,6 @@ function Groups() {
             {!loading && groupsError ? <p className="publish-status error">{groupsError}</p> : null}
             {!loading && groups.length === 0 ? <p className="muted">No groups yet. Create the first one.</p> : null}
             <div className={`groups-grid ${viewMode}`}>
-              {pinnedGroupRows.map((g) => renderCard(g, "pinned", { showPinButton: false }))}
               {browsePageItems.map((g) => renderCard(g, "browse", { showPinButton: false }))}
             </div>
             {browsePageCount > 1 && (
