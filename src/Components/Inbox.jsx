@@ -652,11 +652,13 @@ function Inbox() {
                 {mentionPageItems.map((e) => {
                   const name = e.fromName || profiles[e.fromUid]?.username || "User";
                   const avatar = e.fromAvatar || profiles[e.fromUid]?.avatar || "";
+                  const mentionTarget = e.groupId ? `/groups/${e.groupId}/threads` : e.discussionId ? `/discussion/${e.discussionId}` : "/discussion";
+                  const mentionContext = e.groupId ? (e.mediaTitle || "a group thread") : (e.mediaTitle || "a post");
                   return (
                     <Link
                       key={`mention-${e.id}`}
                       className="inbox-row"
-                      to={e.discussionId ? `/discussion/${e.discussionId}` : "/discussion"}
+                      to={mentionTarget}
                       state={{ from: fromPath }}
                       onClick={() => {
                         if (!e.seen) markEventsSeen([e.id]);
@@ -673,7 +675,7 @@ function Inbox() {
                           {!e.seen && <span className="pill pill-hot">New</span>}
                         </div>
                         <p className="muted">
-                          Mentioned you in {e.mediaTitle || "a post"}.
+                          Mentioned you in {mentionContext}.
                         </p>
                       </div>
                     </Link>

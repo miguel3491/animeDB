@@ -228,8 +228,8 @@ function MangaDetail() {
             </div>
             <p className="detail-synopsis">{manga.synopsis || "No synopsis available."}</p>
             <div className="tag-row">
-              {manga.genres?.map((genre) => (
-                <span className="tag" key={genre.mal_id}>{genre.name}</span>
+              {manga.genres?.map((genre, idx) => (
+                <span className="tag" key={`manga-genre-${genre?.mal_id ?? "na"}-${idx}`}>{genre.name}</span>
               ))}
             </div>
           </div>
@@ -269,16 +269,16 @@ function MangaDetail() {
                     <div className="detail-recs-title">{r.title}</div>
                     {Array.isArray(r.genres) && r.genres.length > 0 ? (
                       <div className="detail-recs-tags">
-                        {r.genres.slice(0, 2).map((g) => (
-                          <span key={`manga-rec-tag-${manga.mal_id}-${r.mal_id}-${g}`} className="tag">
+                        {r.genres.slice(0, 2).map((g, idx) => (
+                          <span key={`manga-rec-tag-${manga.mal_id}-${r.mal_id}-${g}-${idx}`} className="tag">
                             {g}
                           </span>
                         ))}
                       </div>
                     ) : fallbackGenres.length > 0 ? (
                       <div className="detail-recs-tags">
-                        {fallbackGenres.slice(0, 2).map((g) => (
-                          <span key={`manga-rec-fallback-tag-${manga.mal_id}-${r.mal_id}-${g}`} className="tag">
+                        {fallbackGenres.slice(0, 2).map((g, idx) => (
+                          <span key={`manga-rec-fallback-tag-${manga.mal_id}-${r.mal_id}-${g}-${idx}`} className="tag">
                             {g}
                           </span>
                         ))}

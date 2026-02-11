@@ -65,7 +65,7 @@ function News() {
   const [imgErrorUrls, setImgErrorUrls] = useState({});
   const [thumbDebug, setThumbDebug] = useState({});
   const thumbInFlightRef = useRef(new Set());
-  const [contextCoversEnabled, setContextCoversEnabled] = useState(() => {
+  const [contextCoversEnabled] = useState(() => {
     try {
       const raw = localStorage.getItem("news-context-covers");
       if (raw === "0") return false;
@@ -431,9 +431,9 @@ function News() {
               </div>
             </li>
             <li className="nav-dropdown">
-              <Link className={`Small filter-button has-dropdown ${isSocialActive ? "active" : ""}`} to="/discussion">
+              <button type="button" className={`Small filter-button has-dropdown nav-dropdown-trigger ${isSocialActive ? "active" : ""}`}>
                 Social Hub <span className="dropdown-caret" aria-hidden="true">▾</span>
-              </Link>
+              </button>
               <div className="dropdown-menu" role="menu" aria-label="Social Hub menu">
                 <Link className="dropdown-item" role="menuitem" to="/discussion">Discussion</Link>
                 <Link className="dropdown-item" role="menuitem" to="/news">News</Link>
@@ -537,21 +537,6 @@ function News() {
                 <span className="trailer-toggle-dot" aria-hidden="true"></span>
                 <span className="trailer-toggle-label">Source images</span>
                 <span className="trailer-toggle-state">{sourceImagesEnabled ? "ON" : "OFF"}</span>
-              </button>
-              <button
-                type="button"
-                className={`trailer-toggle ${contextCoversEnabled ? "on" : "off"}`}
-                onClick={() => setContextCoversEnabled((v) => !v)}
-                aria-pressed={contextCoversEnabled}
-                title={
-                  contextCoversEnabled
-                    ? "Context covers ON (uses AniList cover art)."
-                    : "Context covers OFF."
-                }
-              >
-                <span className="trailer-toggle-dot" aria-hidden="true"></span>
-                <span className="trailer-toggle-label">Context covers</span>
-                <span className="trailer-toggle-state">{contextCoversEnabled ? "ON" : "OFF"}</span>
               </button>
               <label className="genre-filter">
                 <span className="genre-label">Category</span>

@@ -18,6 +18,13 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
+import {
+  applyMentionAutocomplete,
+  getActiveMentionToken,
+  resolveMentionHandle,
+  searchMentionUsers
+} from "../utils/mentions";
+import MentionAutocomplete from "./MentionAutocomplete";
 import "../styles.css";
 
 const safeText = (value) => String(value || "").trim();
@@ -86,9 +93,15 @@ function GroupDetail() {
   const [inviteStatus, setInviteStatus] = useState("");
   const [invitePreview, setInvitePreview] = useState(null);
   const [invitePreviewLoading, setInvitePreviewLoading] = useState(false);
+  const [inviteSuggestions, setInviteSuggestions] = useState([]);
+  const [inviteSuggestOpen, setInviteSuggestOpen] = useState(false);
+  const [inviteCursor, setInviteCursor] = useState(0);
   const inviteInflightRef = useRef(false);
   const invitePreviewTimeoutRef = useRef(null);
   const invitePreviewSeqRef = useRef(0);
+  const inviteSuggestTimeoutRef = useRef(null);
+  const inviteSuggestSeqRef = useRef(0);
+  const inviteInputRef = useRef(null);
   const [groupRank, setGroupRank] = useState(null);
 
   useEffect(() => {
@@ -370,18 +383,6 @@ function GroupDetail() {
     }
   };
 
-  const resolveHandleToUid = async (handleRaw) => {
-    const key = String(handleRaw || "").trim().replace(/^@/, "").toLowerCase();
-    if (!key) return "";
-    try {
-      const snap = await getDoc(doc(db, "usernames", key));
-      const uid = snap.exists() ? snap.data()?.uid : "";
-      return String(uid || "").trim();
-    } catch (err) {
-      return "";
-    }
-  };
-
   useEffect(() => {
     if (invitePreviewTimeoutRef.current) {
       clearTimeout(invitePreviewTimeoutRef.current);
@@ -397,20 +398,18 @@ function GroupDetail() {
     setInvitePreviewLoading(true);
     invitePreviewTimeoutRef.current = setTimeout(async () => {
       try {
-        const uid = await resolveHandleToUid(handle);
+        const resolved = await resolveMentionHandle(handle);
+        const uid = String(resolved?.uid || "").trim();
         if (invitePreviewSeqRef.current !== seq) return;
         if (!uid) {
           setInvitePreview({ handle, uid: "", username: "", avatar: "" });
           return;
         }
-        const snap = await getDoc(doc(db, "users", uid));
-        const userData = snap.exists() ? snap.data() || {} : {};
-        if (invitePreviewSeqRef.current !== seq) return;
         setInvitePreview({
           handle,
           uid,
-          username: String(userData.username || "").trim(),
-          avatar: String(userData.avatar || "").trim()
+          username: String(resolved?.username || "").trim(),
+          avatar: String(resolved?.avatar || "").trim()
         });
       } catch (err) {
         if (invitePreviewSeqRef.current !== seq) return;
@@ -425,6 +424,61 @@ function GroupDetail() {
       }
     };
   }, [inviteHandle]);
+
+  useEffect(() => {
+    return () => {
+      if (inviteSuggestTimeoutRef.current) {
+        clearTimeout(inviteSuggestTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (inviteSuggestTimeoutRef.current) {
+      clearTimeout(inviteSuggestTimeoutRef.current);
+    }
+    const token = getActiveMentionToken(inviteHandle, inviteCursor);
+    if (!token || !token.query) {
+      setInviteSuggestOpen(false);
+      setInviteSuggestions([]);
+      return;
+    }
+    const seq = (inviteSuggestSeqRef.current += 1);
+    inviteSuggestTimeoutRef.current = setTimeout(async () => {
+      try {
+        const items = await searchMentionUsers(token.query, 6);
+        if (inviteSuggestSeqRef.current !== seq) return;
+        setInviteSuggestions(items);
+        setInviteSuggestOpen(true);
+      } catch (err) {
+        if (inviteSuggestSeqRef.current !== seq) return;
+        setInviteSuggestOpen(false);
+        setInviteSuggestions([]);
+      }
+    }, 140);
+    return () => {
+      if (inviteSuggestTimeoutRef.current) {
+        clearTimeout(inviteSuggestTimeoutRef.current);
+      }
+    };
+  }, [inviteCursor, inviteHandle]);
+
+  const applyInviteSuggestion = (candidate) => {
+    const handle = String(candidate?.handle || "").trim().toLowerCase();
+    if (!handle) return;
+    const currentCursor = inviteInputRef.current?.selectionStart ?? inviteCursor;
+    const applied = applyMentionAutocomplete(inviteHandle, currentCursor, handle);
+    const next = `@${applied.handle}`;
+    setInviteHandle(next);
+    setInviteCursor(next.length);
+    setInviteSuggestOpen(false);
+    setInviteSuggestions([]);
+    window.setTimeout(() => {
+      if (!inviteInputRef.current) return;
+      inviteInputRef.current.focus();
+      inviteInputRef.current.setSelectionRange(next.length, next.length);
+    }, 0);
+  };
 
   const inviteMember = async () => {
     if (!canManageMembers) {
@@ -443,9 +497,9 @@ function GroupDetail() {
       return;
     }
     inviteInflightRef.current = true;
-    setInviteStatus("Looking up user...");
+      setInviteStatus("Looking up user...");
     try {
-      const uid = invitePreview?.uid || (await resolveHandleToUid(raw));
+      const uid = String(invitePreview?.uid || (await resolveMentionHandle(raw))?.uid || "").trim();
       if (!uid) {
         setInviteStatus("User not found for that handle.");
         return;
@@ -485,6 +539,8 @@ function GroupDetail() {
       await batch.commit();
       setInviteHandle("");
       setInvitePreview(null);
+      setInviteSuggestOpen(false);
+      setInviteSuggestions([]);
       setInviteStatus("Added member.");
     } catch (err) {
       setInviteStatus(err?.message || "Unable to add member.");
@@ -1301,14 +1357,28 @@ function GroupDetail() {
                     <div className="group-invite">
                       <div className="search-wrap" style={{ flex: 1 }}>
                         <input
+                          ref={inviteInputRef}
                           type="search"
                           placeholder="Add member by @handle"
                           value={inviteHandle}
-                          onChange={(e) => setInviteHandle(e.target.value)}
+                          onChange={(e) => {
+                            setInviteHandle(e.target.value);
+                            setInviteCursor(e.target.selectionStart ?? e.target.value.length);
+                          }}
+                          onClick={(e) => setInviteCursor(e.target.selectionStart ?? inviteHandle.length)}
+                          onKeyUp={(e) => setInviteCursor(e.target.selectionStart ?? inviteHandle.length)}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") inviteMember();
                           }}
                         />
+                        <div className="mention-wrap">
+                          <MentionAutocomplete
+                            open={inviteSuggestOpen}
+                            loading={false}
+                            items={inviteSuggestions}
+                            onSelect={applyInviteSuggestion}
+                          />
+                        </div>
                       </div>
                       <button type="button" className="detail-link" onClick={inviteMember} disabled={!inviteHandle.trim()}>
                         Add

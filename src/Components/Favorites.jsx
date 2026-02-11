@@ -834,7 +834,9 @@ function Favorites() {
             <div className="discussion-guide">
               <h4>How to publish a review</h4>
               <ol>
-                <li>Go to Favorites and open the anime or manga you finished.</li>
+                <li>
+                  Go to <Link className="inline-link-highlight" to="/favorites">Favorites</Link> and open the anime or manga you finished.
+                </li>
                 <li>Set the status to <strong>Completed</strong>.</li>
                 <li>Add your review in the Notes field and pick a rating.</li>
                 <li>Click <strong>Publish review</strong>.</li>

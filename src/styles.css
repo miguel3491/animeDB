@@ -820,6 +820,17 @@ a{
     gap: 10px;
     position: relative;
 }
+.nav-dropdown-trigger {
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+    border: none;
+    margin: 0;
+    text-decoration: none;
+    font: inherit;
+    line-height: inherit;
+    cursor: default;
+}
 .dropdown-caret {
     display: inline-block;
     font-size: 12px;
@@ -3905,6 +3916,44 @@ a{
     text-transform: uppercase;
     letter-spacing: 1px;
 }
+.mention-wrap {
+    position: relative;
+}
+.mention-autocomplete {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 6px;
+    z-index: 40;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 12px;
+    background: rgba(10, 16, 30, 0.96);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.38);
+    overflow: hidden;
+}
+.mention-autocomplete-row {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    background: transparent;
+    border: 0;
+    color: var(--text);
+    text-align: left;
+}
+button.mention-autocomplete-row {
+    cursor: pointer;
+}
+button.mention-autocomplete-row:hover {
+    background: rgba(122, 252, 255, 0.08);
+}
+.mention-autocomplete-text {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+}
 .mention-preview {
     margin-top: 10px;
     padding: 10px 12px;
@@ -3965,6 +4014,19 @@ a{
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 220px;
+}
+.inline-link-highlight {
+    color: var(--accent-2);
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    text-decoration-thickness: 2px;
+    text-decoration-color: color-mix(in srgb, var(--accent-2) 70%, transparent);
+    transition: color 140ms ease, text-decoration-color 140ms ease;
+}
+.inline-link-highlight:hover {
+    color: var(--accent-1);
+    text-decoration-color: color-mix(in srgb, var(--accent-1) 76%, transparent);
 }
 .delete-button {
     border: 1px solid rgba(255, 255, 255, 0.2);

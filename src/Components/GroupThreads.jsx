@@ -17,6 +17,15 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
+import {
+  applyMentionAutocomplete,
+  extractMentionHandles,
+  getActiveMentionToken,
+  resolveHandlesToUids,
+  resolveMentionHandle,
+  searchMentionUsers
+} from "../utils/mentions";
+import MentionAutocomplete from "./MentionAutocomplete";
 import "../styles.css";
 
 const safeText = (value) => String(value || "").trim();
@@ -66,11 +75,21 @@ function GroupThreads() {
   const [commentPage, setCommentPage] = useState(0);
   const [draftComment, setDraftComment] = useState("");
   const [commentStatus, setCommentStatus] = useState("");
+  const [mentionPreview, setMentionPreview] = useState([]);
+  const [mentionLoading, setMentionLoading] = useState(false);
+  const [mentionSuggestions, setMentionSuggestions] = useState([]);
+  const [mentionSuggestOpen, setMentionSuggestOpen] = useState(false);
+  const [commentCursor, setCommentCursor] = useState(0);
   const commentingRef = useRef(false);
 
   const [likedMap, setLikedMap] = useState({});
   const [likeBurstId, setLikeBurstId] = useState("");
   const likeBurstTimeoutRef = useRef(null);
+  const mentionPreviewTimeoutRef = useRef(null);
+  const mentionPreviewSeqRef = useRef(0);
+  const mentionSuggestTimeoutRef = useRef(null);
+  const mentionSuggestSeqRef = useRef(0);
+  const commentInputRef = useRef(null);
   const [groupRank, setGroupRank] = useState(null);
 
   useEffect(() => {
@@ -363,6 +382,13 @@ function GroupThreads() {
     setCommentPage(0);
   }, [openPostId, comments.length]);
 
+  useEffect(() => {
+    setMentionSuggestOpen(false);
+    setMentionSuggestions([]);
+    setMentionPreview([]);
+    setMentionLoading(false);
+  }, [openPostId]);
+
   const COMMENTS_PER_PAGE = 10;
   const commentPageCount = useMemo(() => {
     if (comments.length === 0) return 0;
@@ -374,6 +400,98 @@ function GroupThreads() {
     const start = safe * COMMENTS_PER_PAGE;
     return comments.slice(start, start + COMMENTS_PER_PAGE);
   }, [commentPage, commentPageCount, comments]);
+
+  useEffect(() => {
+    if (mentionPreviewTimeoutRef.current) {
+      clearTimeout(mentionPreviewTimeoutRef.current);
+    }
+    const handles = extractMentionHandles(draftComment);
+    if (handles.length === 0) {
+      setMentionPreview([]);
+      setMentionLoading(false);
+      return;
+    }
+    const seq = (mentionPreviewSeqRef.current += 1);
+    setMentionLoading(true);
+    mentionPreviewTimeoutRef.current = setTimeout(async () => {
+      try {
+        const resolved = await Promise.all(handles.map((h) => resolveMentionHandle(h)));
+        if (mentionPreviewSeqRef.current !== seq) return;
+        const list = resolved
+          .filter(Boolean)
+          .map((item) => ({
+            handle: item.handle,
+            uid: item.uid,
+            username: item.username,
+            avatar: item.avatar
+          }));
+        setMentionPreview(list);
+      } catch (err) {
+        if (mentionPreviewSeqRef.current !== seq) return;
+        setMentionPreview(handles.map((h) => ({ handle: h, uid: "", username: "", avatar: "" })));
+      } finally {
+        if (mentionPreviewSeqRef.current === seq) setMentionLoading(false);
+      }
+    }, 260);
+
+    return () => {
+      if (mentionPreviewTimeoutRef.current) {
+        clearTimeout(mentionPreviewTimeoutRef.current);
+      }
+    };
+  }, [draftComment]);
+
+  useEffect(() => {
+    if (!user || !openPostId) {
+      setMentionSuggestOpen(false);
+      setMentionSuggestions([]);
+      return;
+    }
+    if (mentionSuggestTimeoutRef.current) {
+      clearTimeout(mentionSuggestTimeoutRef.current);
+    }
+    const token = getActiveMentionToken(draftComment, commentCursor);
+    if (!token || !token.query) {
+      setMentionSuggestOpen(false);
+      setMentionSuggestions([]);
+      return;
+    }
+    const seq = (mentionSuggestSeqRef.current += 1);
+    mentionSuggestTimeoutRef.current = setTimeout(async () => {
+      try {
+        const items = await searchMentionUsers(token.query, 6);
+        if (mentionSuggestSeqRef.current !== seq) return;
+        setMentionSuggestions(items);
+        setMentionSuggestOpen(true);
+      } catch (err) {
+        if (mentionSuggestSeqRef.current !== seq) return;
+        setMentionSuggestions([]);
+        setMentionSuggestOpen(false);
+      }
+    }, 140);
+
+    return () => {
+      if (mentionSuggestTimeoutRef.current) {
+        clearTimeout(mentionSuggestTimeoutRef.current);
+      }
+    };
+  }, [commentCursor, draftComment, openPostId, user]);
+
+  const applyMentionSelection = (candidate) => {
+    const handle = String(candidate?.handle || "").trim().toLowerCase();
+    if (!handle) return;
+    const currentCursor = commentInputRef.current?.selectionStart ?? commentCursor;
+    const applied = applyMentionAutocomplete(draftComment, currentCursor, handle);
+    setDraftComment(applied.text);
+    setCommentCursor(applied.cursor);
+    setMentionSuggestOpen(false);
+    setMentionSuggestions([]);
+    window.setTimeout(() => {
+      if (!commentInputRef.current) return;
+      commentInputRef.current.focus();
+      commentInputRef.current.setSelectionRange(applied.cursor, applied.cursor);
+    }, 0);
+  };
 
   const onPickPostImages = async (files) => {
     const list = Array.from(files || []).filter(Boolean);
@@ -476,7 +594,50 @@ function GroupThreads() {
           createdAt: nowIso,
           createdAtTs: serverTimestamp()
         });
+
+        try {
+          const handles = extractMentionHandles(body);
+          if (handles.length > 0) {
+            const fromPreview = new Map((Array.isArray(mentionPreview) ? mentionPreview : []).map((m) => [m.handle, m.uid]));
+            const previewUids = handles.map((h) => fromPreview.get(String(h).toLowerCase()) || "").filter(Boolean);
+            const missing = handles.filter((h) => !(fromPreview.get(String(h).toLowerCase()) || ""));
+            const resolvedUids = missing.length > 0 ? await resolveHandlesToUids(missing) : [];
+            const uids = Array.from(new Set([...previewUids, ...resolvedUids]));
+            const targets = uids.filter((uid) => uid && uid !== user.uid).slice(0, 5);
+            if (targets.length > 0) {
+              const batch = writeBatch(db);
+              targets.forEach((toUid) => {
+                const eventId = `group-mention-${ref.id}-${toUid}`;
+                batch.set(
+                  doc(db, "users", toUid, "inboxEvents", eventId),
+                  {
+                    type: "mention",
+                    seen: false,
+                    clientAt: nowIso,
+                    createdAt: serverTimestamp(),
+                    toUid,
+                    fromUid: user.uid,
+                    fromName: profile?.username || user.displayName || user.email || "User",
+                    fromAvatar: profile?.avatar || user.photoURL || "",
+                    groupId,
+                    commentId: ref.id,
+                    mediaTitle: group?.name || "Group thread",
+                    mediaImage: group?.avatar || "",
+                    excerpt: body.slice(0, 140)
+                  },
+                  { merge: true }
+                );
+              });
+              await batch.commit();
+            }
+          }
+        } catch (err) {
+          // ignore mention failures
+        }
+
         setDraftComment("");
+        setMentionSuggestOpen(false);
+        setMentionSuggestions([]);
         setCommentStatus("Posted.");
       } else {
         const ref = doc(collection(db, "groups", groupId, "posts", openPostId, "pendingComments"));
@@ -520,6 +681,43 @@ function GroupThreads() {
       });
       batch.delete(pendingRef);
       await batch.commit();
+
+      try {
+        const handles = extractMentionHandles(c?.body || "");
+        if (handles.length > 0) {
+          const uids = await resolveHandlesToUids(handles);
+          const fromUid = String(c?.userId || "").trim();
+          const targets = uids.filter((uid) => uid && uid !== fromUid).slice(0, 5);
+          if (targets.length > 0) {
+            const notifyBatch = writeBatch(db);
+            targets.forEach((toUid) => {
+              const eventId = `group-mention-${approvedRef.id}-${toUid}`;
+              notifyBatch.set(
+                doc(db, "users", toUid, "inboxEvents", eventId),
+                {
+                  type: "mention",
+                  seen: false,
+                  clientAt: nowIso,
+                  createdAt: serverTimestamp(),
+                  toUid,
+                  fromUid: fromUid || user?.uid || "",
+                  fromName: String(c?.username || "User"),
+                  fromAvatar: String(c?.avatar || ""),
+                  groupId,
+                  commentId: approvedRef.id,
+                  mediaTitle: group?.name || "Group thread",
+                  mediaImage: group?.avatar || "",
+                  excerpt: String(c?.body || "").slice(0, 140)
+                },
+                { merge: true }
+              );
+            });
+            await notifyBatch.commit();
+          }
+        }
+      } catch (err) {
+        // ignore mention failures
+      }
     } catch (err) {
       // ignore
     }
@@ -567,6 +765,8 @@ function GroupThreads() {
   useEffect(() => {
     return () => {
       if (likeBurstTimeoutRef.current) clearTimeout(likeBurstTimeoutRef.current);
+      if (mentionPreviewTimeoutRef.current) clearTimeout(mentionPreviewTimeoutRef.current);
+      if (mentionSuggestTimeoutRef.current) clearTimeout(mentionSuggestTimeoutRef.current);
     };
   }, []);
 
@@ -660,14 +860,28 @@ function GroupThreads() {
 
             <div className="group-thread-compose">
               <textarea
+                ref={commentInputRef}
                 rows={3}
                 value={draftComment}
-                onChange={(e) => setDraftComment(e.target.value)}
+                onChange={(e) => {
+                  setDraftComment(e.target.value);
+                  setCommentCursor(e.target.selectionStart ?? e.target.value.length);
+                }}
+                onClick={(e) => setCommentCursor(e.target.selectionStart ?? draftComment.length)}
+                onKeyUp={(e) => setCommentCursor(e.target.selectionStart ?? draftComment.length)}
                 placeholder="Write a comment..."
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) postComment();
                 }}
               />
+              <div className="mention-wrap">
+                <MentionAutocomplete
+                  open={mentionSuggestOpen}
+                  loading={false}
+                  items={mentionSuggestions}
+                  onSelect={applyMentionSelection}
+                />
+              </div>
               <div className="group-thread-tools">
                 <button type="button" className="detail-link" onClick={postComment} disabled={!draftComment.trim()}>
                   Comment
@@ -676,6 +890,35 @@ function GroupThreads() {
                   Tip: Ctrl/Cmd+Enter to send.
                 </span>
               </div>
+              {(mentionLoading || mentionPreview.length > 0) && (
+                <div className="mention-preview" aria-live="polite" style={{ marginTop: 8 }}>
+                  <div className="mention-preview-head">
+                    <span className="muted">Mentions</span>
+                    {mentionLoading && <span className="pill">Checking...</span>}
+                  </div>
+                  <div className="mention-chips">
+                    {mentionPreview.map((m) => {
+                      const valid = Boolean(m.uid);
+                      const label = valid ? (m.username || `@${m.handle}`) : "Not found";
+                      return (
+                        <span
+                          key={`group-mention-chip-${openPostId}-${m.handle}`}
+                          className={`mention-chip ${valid ? "valid" : "invalid"}`}
+                          title={valid ? `Will notify @${m.handle}` : `Unknown handle: @${m.handle}`}
+                        >
+                          {m.avatar ? (
+                            <img className="mention-chip-avatar" src={m.avatar} alt={label} loading="lazy" />
+                          ) : (
+                            <span className="mention-chip-avatar placeholder" aria-hidden="true"></span>
+                          )}
+                          <span className="mention-chip-text">@{m.handle}</span>
+                          <span className="mention-chip-name">{label}</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               {commentStatus && <p className="muted" style={{ marginTop: 8 }}>{commentStatus}</p>}
             </div>
 

@@ -5,15 +5,20 @@ import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, serverTim
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import { fetchJikanSuggestions } from "../utils/jikan";
+import {
+  applyMentionAutocomplete,
+  extractMentionHandles,
+  getActiveMentionToken,
+  resolveHandlesToUids,
+  resolveMentionHandle,
+  searchMentionUsers
+} from "../utils/mentions";
+import MentionAutocomplete from "./MentionAutocomplete";
 import "../styles.css";
 
 // Cache user profile reads so display name updates propagate while avoiding N+1 fetches.
 const discussionProfileCache = new Map(); // uid -> { username, avatar }
 const discussionProfileInflight = new Map(); // uid -> Promise
-
-// Cache @handle resolution (usernames/{handle} -> uid -> users/{uid} profile).
-const mentionHandleCache = new Map(); // handle -> { handle, uid, username, avatar } | null
-const mentionHandleInflight = new Map(); // handle -> Promise
 
 const fetchDiscussionProfile = async (uid) => {
   const key = String(uid || "").trim();
@@ -44,75 +49,6 @@ const fetchDiscussionProfile = async (uid) => {
   return task;
 };
 
-const resolveMentionHandle = async (handle) => {
-  const key = String(handle || "").trim().toLowerCase();
-  if (!key) return null;
-  if (mentionHandleCache.has(key)) return mentionHandleCache.get(key);
-  if (mentionHandleInflight.has(key)) return mentionHandleInflight.get(key);
-
-  const task = (async () => {
-    try {
-      const snap = await getDoc(doc(db, "usernames", key));
-      const uid = snap.exists() ? String(snap.data()?.uid || "").trim() : "";
-      if (!uid) {
-        mentionHandleCache.set(key, { handle: key, uid: "", username: "", avatar: "" });
-        return mentionHandleCache.get(key);
-      }
-      const prof = await fetchDiscussionProfile(uid);
-      const payload = {
-        handle: key,
-        uid,
-        username: String(prof?.username || "").trim(),
-        avatar: String(prof?.avatar || "").trim()
-      };
-      mentionHandleCache.set(key, payload);
-      return payload;
-    } catch (err) {
-      mentionHandleCache.set(key, { handle: key, uid: "", username: "", avatar: "" });
-      return mentionHandleCache.get(key);
-    } finally {
-      mentionHandleInflight.delete(key);
-    }
-  })();
-
-  mentionHandleInflight.set(key, task);
-  return task;
-};
-
-const extractMentionHandles = (text) => {
-  const raw = String(text || "");
-  const out = new Set();
-  const re = /@([a-zA-Z0-9_]{3,30})/g;
-  let match;
-  while ((match = re.exec(raw))) {
-    const handle = String(match[1] || "").trim().toLowerCase();
-    if (!handle) continue;
-    out.add(handle);
-    if (out.size >= 5) break; // prevent mention-spam
-  }
-  return Array.from(out);
-};
-
-const resolveHandlesToUids = async (handles) => {
-  const list = Array.isArray(handles) ? handles : [];
-  const pairs = await Promise.all(
-    list.map(async (handle) => {
-      try {
-        const snap = await getDoc(doc(db, "usernames", String(handle).toLowerCase()));
-        const uid = snap.exists() ? snap.data()?.uid : "";
-        return [handle, String(uid || "").trim()];
-      } catch (err) {
-        return [handle, ""];
-      }
-    })
-  );
-  const uids = new Set();
-  pairs.forEach(([, uid]) => {
-    if (uid) uids.add(uid);
-  });
-  return Array.from(uids);
-};
-
 export function DiscussionPost({
   post,
   user,
@@ -141,6 +77,9 @@ export function DiscussionPost({
   const [badgePop, setBadgePop] = useState(false);
   const [mentionPreview, setMentionPreview] = useState([]);
   const [mentionLoading, setMentionLoading] = useState(false);
+  const [mentionSuggestions, setMentionSuggestions] = useState([]);
+  const [mentionSuggestOpen, setMentionSuggestOpen] = useState(false);
+  const [commentCursor, setCommentCursor] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
   const [draftReview, setDraftReview] = useState(draft?.review ?? post.review ?? "");
   const [draftRating, setDraftRating] = useState(draft?.rating ?? post.rating ?? "");
@@ -152,8 +91,11 @@ export function DiscussionPost({
   const lastUnreadRef = useRef(0);
   const bounceTimeoutRef = useRef(null);
   const badgeTimeoutRef = useRef(null);
-  const mentionTimeoutRef = useRef(null);
-  const mentionSeqRef = useRef(0);
+  const mentionPreviewTimeoutRef = useRef(null);
+  const mentionPreviewSeqRef = useRef(0);
+  const mentionSuggestTimeoutRef = useRef(null);
+  const mentionSuggestSeqRef = useRef(0);
+  const commentInputRef = useRef(null);
 
   useEffect(() => {
     onDraftChangeRef.current = onDraftChange;
@@ -277,15 +219,18 @@ export function DiscussionPost({
       if (badgeTimeoutRef.current) {
         clearTimeout(badgeTimeoutRef.current);
       }
-      if (mentionTimeoutRef.current) {
-        clearTimeout(mentionTimeoutRef.current);
+      if (mentionPreviewTimeoutRef.current) {
+        clearTimeout(mentionPreviewTimeoutRef.current);
+      }
+      if (mentionSuggestTimeoutRef.current) {
+        clearTimeout(mentionSuggestTimeoutRef.current);
       }
     };
   }, []);
 
   useEffect(() => {
-    if (mentionTimeoutRef.current) {
-      clearTimeout(mentionTimeoutRef.current);
+    if (mentionPreviewTimeoutRef.current) {
+      clearTimeout(mentionPreviewTimeoutRef.current);
     }
     const handles = extractMentionHandles(commentText);
     if (handles.length === 0) {
@@ -294,12 +239,12 @@ export function DiscussionPost({
       return;
     }
 
-    const seq = (mentionSeqRef.current += 1);
+    const seq = (mentionPreviewSeqRef.current += 1);
     setMentionLoading(true);
-    mentionTimeoutRef.current = setTimeout(async () => {
+    mentionPreviewTimeoutRef.current = setTimeout(async () => {
       try {
         const resolved = await Promise.all(handles.map((h) => resolveMentionHandle(h)));
-        if (mentionSeqRef.current !== seq) return;
+        if (mentionPreviewSeqRef.current !== seq) return;
         const list = resolved
           .filter(Boolean)
           .map((item) => ({
@@ -310,19 +255,55 @@ export function DiscussionPost({
           }));
         setMentionPreview(list);
       } catch (err) {
-        if (mentionSeqRef.current !== seq) return;
+        if (mentionPreviewSeqRef.current !== seq) return;
         setMentionPreview(handles.map((h) => ({ handle: h, uid: "", username: "", avatar: "" })));
       } finally {
-        if (mentionSeqRef.current === seq) setMentionLoading(false);
+        if (mentionPreviewSeqRef.current === seq) setMentionLoading(false);
       }
     }, 260);
 
     return () => {
-      if (mentionTimeoutRef.current) {
-        clearTimeout(mentionTimeoutRef.current);
+      if (mentionPreviewTimeoutRef.current) {
+        clearTimeout(mentionPreviewTimeoutRef.current);
       }
     };
   }, [commentText]);
+
+  useEffect(() => {
+    if (!user) {
+      setMentionSuggestOpen(false);
+      setMentionSuggestions([]);
+      return;
+    }
+    if (mentionSuggestTimeoutRef.current) {
+      clearTimeout(mentionSuggestTimeoutRef.current);
+    }
+    const token = getActiveMentionToken(commentText, commentCursor);
+    if (!token || !token.query) {
+      setMentionSuggestOpen(false);
+      setMentionSuggestions([]);
+      return;
+    }
+    const seq = (mentionSuggestSeqRef.current += 1);
+    mentionSuggestTimeoutRef.current = setTimeout(async () => {
+      try {
+        const items = await searchMentionUsers(token.query, 6);
+        if (mentionSuggestSeqRef.current !== seq) return;
+        setMentionSuggestions(items);
+        setMentionSuggestOpen(true);
+      } catch (err) {
+        if (mentionSuggestSeqRef.current !== seq) return;
+        setMentionSuggestions([]);
+        setMentionSuggestOpen(false);
+      }
+    }, 140);
+
+    return () => {
+      if (mentionSuggestTimeoutRef.current) {
+        clearTimeout(mentionSuggestTimeoutRef.current);
+      }
+    };
+  }, [commentCursor, commentText, user]);
 
   const latestCommentAt = comments.reduce((max, comment) => {
     const time = comment?.createdAt ? Date.parse(comment.createdAt) : 0;
@@ -379,6 +360,22 @@ export function DiscussionPost({
       }
     };
   }, [unreadCount]);
+
+  const applyMentionSelection = (candidate) => {
+    const handle = String(candidate?.handle || "").trim().toLowerCase();
+    if (!handle) return;
+    const currentCursor = commentInputRef.current?.selectionStart ?? commentCursor;
+    const applied = applyMentionAutocomplete(commentText, currentCursor, handle);
+    setCommentText(applied.text);
+    setCommentCursor(applied.cursor);
+    setMentionSuggestOpen(false);
+    setMentionSuggestions([]);
+    window.setTimeout(() => {
+      if (!commentInputRef.current) return;
+      commentInputRef.current.focus();
+      commentInputRef.current.setSelectionRange(applied.cursor, applied.cursor);
+    }, 0);
+  };
 
   const submitComment = async () => {
     if (!user) {
@@ -709,10 +706,16 @@ export function DiscussionPost({
 
         <div className="comment-form">
           <input
+            ref={commentInputRef}
             type="text"
             placeholder={user ? "Add a comment..." : "Sign in to comment"}
             value={commentText}
-            onChange={(e) => setCommentText(e.target.value)}
+            onChange={(e) => {
+              setCommentText(e.target.value);
+              setCommentCursor(e.target.selectionStart ?? e.target.value.length);
+            }}
+            onClick={(e) => setCommentCursor(e.target.selectionStart ?? commentText.length)}
+            onKeyUp={(e) => setCommentCursor(e.target.selectionStart ?? commentText.length)}
             disabled={!user}
           />
           <button
@@ -724,6 +727,16 @@ export function DiscussionPost({
             Post
           </button>
         </div>
+        {user && (
+          <div className="mention-wrap">
+            <MentionAutocomplete
+              open={mentionSuggestOpen}
+              loading={false}
+              items={mentionSuggestions}
+              onSelect={applyMentionSelection}
+            />
+          </div>
+        )}
         {user && (mentionLoading || mentionPreview.length > 0) && (
           <div className="mention-preview" aria-live="polite">
             <div className="mention-preview-head">
@@ -947,7 +960,9 @@ function Discussion() {
             <div className="discussion-guide">
               <h4>How to publish a review</h4>
               <ol>
-                <li>Go to Favorites and open the anime or manga you finished.</li>
+                <li>
+                  Go to <Link className="inline-link-highlight" to="/favorites">Favorites</Link> and open the anime or manga you finished.
+                </li>
                 <li>Set the status to <strong>Completed</strong>.</li>
                 <li>Add your review in the Notes field and pick a rating.</li>
                 <li>Click <strong>Publish review</strong>.</li>

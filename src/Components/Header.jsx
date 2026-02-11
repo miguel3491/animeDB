@@ -136,9 +136,9 @@ function Header(){
             <div className="header-actions">
                 <span className="header-tagline">Curate your next obsession</span>
                 <div className="nav-dropdown">
-                    <Link className="nav-link has-dropdown" to="/discussion">
+                    <button type="button" className="nav-link has-dropdown nav-dropdown-trigger">
                         Social Hub <span className="dropdown-caret" aria-hidden="true">▾</span>
-                    </Link>
+                    </button>
                     <div className="dropdown-menu" role="menu" aria-label="Social Hub menu">
                         <Link className="dropdown-item" role="menuitem" to="/discussion">Discussion</Link>
                         <Link className="dropdown-item" role="menuitem" to="/news">News</Link>

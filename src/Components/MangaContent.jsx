@@ -705,9 +705,9 @@ function MangaContent({ mode } = {}) {
               </div>
             </li>
             <li className="nav-dropdown">
-              <Link className={`Small filter-button has-dropdown ${isSocialActive ? "active" : ""}`} to="/discussion">
+              <button type="button" className={`Small filter-button has-dropdown nav-dropdown-trigger ${isSocialActive ? "active" : ""}`}>
                 Social Hub <span className="dropdown-caret" aria-hidden="true">▾</span>
-              </Link>
+              </button>
               <div className="dropdown-menu" role="menu" aria-label="Social Hub menu">
                 <Link className="dropdown-item" role="menuitem" to="/discussion">Discussion</Link>
                 <Link className="dropdown-item" role="menuitem" to="/news">News</Link>
