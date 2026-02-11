@@ -211,6 +211,14 @@ function Groups() {
     }
   }, [viewMode]);
 
+  const ordinal = (n) => {
+    const num = Number(n);
+    if (!Number.isFinite(num)) return String(n || "");
+    const s = ["th", "st", "nd", "rd"];
+    const v = num % 100;
+    return `${num}${s[(v - 20) % 10] || s[v] || s[0]}`;
+  };
+
   const pinnedIds = useMemo(() => {
     return pinned.map((p) => String(p.groupId || p.id || "").trim()).filter(Boolean);
   }, [pinned]);
@@ -225,6 +233,17 @@ function Groups() {
       const id = String(g?.id || "").trim();
       if (!id) return;
       map.set(id, g);
+    });
+    return map;
+  }, [groups]);
+
+  const groupRankById = useMemo(() => {
+    // groups is already sorted by memberCount desc, so index+1 is rank.
+    const map = new Map();
+    groups.forEach((g, idx) => {
+      const id = String(g?.id || "").trim();
+      if (!id) return;
+      map.set(id, idx + 1);
     });
     return map;
   }, [groups]);
@@ -484,6 +503,8 @@ function Groups() {
     const isPinned = Boolean(gid && pinnedIds.includes(gid));
     const fx = gid ? pinFx[gid] : "";
     const showPinButton = Boolean(opts?.showPinButton && user?.uid && gid);
+    const rank = gid ? groupRankById.get(gid) : null;
+    const rankClass = rank === 1 ? "rank-1" : rank === 2 ? "rank-2" : rank === 3 ? "rank-3" : "";
     return (
       <Link
         key={`${keyPrefix}-${gid || gName}`}
@@ -494,6 +515,12 @@ function Groups() {
       >
         <div className="group-card-banner" style={gBg ? { backgroundImage: `url(${gBg})` } : undefined}>
           {!gBg && <div className="group-card-banner placeholder" aria-hidden="true" />}
+          {typeof rank === "number" && rank > 0 && (
+            <div className={`group-rank ${rankClass}`} title={`Rank ${ordinal(rank)} by members`}>
+              <span className="group-rank-num">#{rank}</span>
+              {rank <= 3 ? <span className="group-rank-medal">Top</span> : null}
+            </div>
+          )}
         </div>
         <div className="group-card-body">
           <div className={`group-card-title ${gStyle}`}>

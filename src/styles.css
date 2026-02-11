@@ -2835,11 +2835,77 @@ a{
     background-size: cover;
     background-position: center;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    position: relative;
 }
 .group-card-banner.placeholder {
     background: radial-gradient(circle at 20% 30%, rgba(255, 107, 156, 0.16), transparent 52%),
         radial-gradient(circle at 80% 0%, rgba(122, 252, 255, 0.14), transparent 55%),
         rgba(255, 255, 255, 0.04);
+}
+.group-rank {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(12, 19, 36, 0.55);
+    color: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.24);
+    font-weight: 900;
+    letter-spacing: 1px;
+}
+.group-rank-num {
+    font-size: 12px;
+    line-height: 1;
+    text-transform: uppercase;
+}
+.group-rank-medal {
+    font-size: 10px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    opacity: 0.92;
+}
+.group-rank.rank-1,
+.group-rank.rank-2,
+.group-rank.rank-3 {
+    border-color: rgba(255, 255, 255, 0.22);
+    color: rgba(12, 19, 36, 0.92);
+}
+.group-rank.rank-1 {
+    background: linear-gradient(135deg, rgba(255, 215, 105, 0.95), rgba(249, 230, 110, 0.65));
+    box-shadow: 0 12px 34px rgba(249, 230, 110, 0.16), 0 10px 30px rgba(0, 0, 0, 0.24);
+}
+.group-rank.rank-2 {
+    background: linear-gradient(135deg, rgba(230, 238, 255, 0.92), rgba(180, 196, 226, 0.65));
+    box-shadow: 0 12px 34px rgba(200, 210, 230, 0.14), 0 10px 30px rgba(0, 0, 0, 0.24);
+}
+.group-rank.rank-3 {
+    background: linear-gradient(135deg, rgba(233, 169, 110, 0.92), rgba(205, 127, 50, 0.62));
+    box-shadow: 0 12px 34px rgba(205, 127, 50, 0.14), 0 10px 30px rgba(0, 0, 0, 0.24);
+}
+.group-rank.rank-1::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+    transform: translateX(-120%);
+    animation: groupRankShine 2.6s ease-in-out infinite;
+    pointer-events: none;
+    mix-blend-mode: overlay;
+    opacity: 0.6;
+}
+@keyframes groupRankShine {
+    0% { transform: translateX(-120%); }
+    45% { transform: translateX(140%); }
+    100% { transform: translateX(140%); }
 }
 .group-card-body {
     padding: 14px;
